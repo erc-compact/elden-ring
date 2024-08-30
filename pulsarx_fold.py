@@ -102,7 +102,8 @@ def main():
     
     meta_file = args.meta
     cand_file = args.cands
-    output_dir = args.output_path
+    output_dir = create_symlink_to_output_dir(args.output_path)
+    logging.info(f"symlink path :", output_dir)
     psrfits = args.psrfits
     pulsarx_threads = args.pulsarx_threads
     meta_dict = meta_parser(meta_file)
@@ -112,6 +113,9 @@ def main():
     fold_with_pulsarx(meta_dict, output_dir, cand_file, template, psrfits, pulsarx_threads)
     
     logging.info(f"Total time taken: {time.time() - start_time} seconds")
+    
+    remove_symlink(output_dir)
+    
     
 
 if __name__ == "__main__":

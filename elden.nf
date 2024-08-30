@@ -37,7 +37,7 @@ process pulsarx_fold{
     val output_path
 
     output:
-    tuple val("**/*.png"), val("**/*.ar")
+    tuple path("**/*.png"), path("**/*.ar")
 
     script:
     """
