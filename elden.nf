@@ -3,8 +3,8 @@ nextflow.enable.dsl=2
 process parse_xml{
     label "xml_parse"
     container "${params.pulsarx_image}"
-    publishDir "${params.output_path}/${params.beam_name}/", pattern: "**/*.candfile", mode: 'copy'
-    publishDir "${params.output_path}/${params.beam_name}/", pattern: "**/*_meta.txt", mode: 'copy'
+    publishDir "${params.output_path}/${params.band}/", pattern: "**/*.candfile", mode: 'copy'
+    publishDir "${params.output_path}/${params.band}/", pattern: "**/*_meta.txt", mode: 'copy'
 
     input:
     path xml_file
@@ -18,7 +18,7 @@ process parse_xml{
     """
     #!/bin/bash
     # Ensure the output directory exists
-    mkdir -p ${output_path}/${params.beam_name}/candidates
+    mkdir -p ${output_path}/${params.band}/candidates
 
     # Running the XML Parsing task
     python3 ${baseDir}/candidate_parser.py -i ${xml_file} -o candidates/  -f ${params.fold_technique} -cpn ${params.pulsarx_cpn} -b ${params.beam_name} -rfi ${params.rfi_filter} -n ${params.nh} -nsub ${params.nsub} -clfd ${params.clfd} -fn ${params.fast_nbins} -sn ${params.slow_nbins}
@@ -29,8 +29,7 @@ process parse_xml{
 process pulsarx_fold{
     label "pulsarx_fold"
     container "${params.pulsarx_image}"
-    publishDir "${params.output_path}/Band_${params.band}", pattern: "**/*.png", mode: 'copy'
-    publishDir "${params.output_path}/Band_${params.band}", pattern: "**/*.ar", mode: 'copy'
+    publishDir "${params.output_path}/Band_${params.band}/", pattern: "${params.beam_name}_*/**", mode: 'copy'
     
     input:
     path xml_parser_results
