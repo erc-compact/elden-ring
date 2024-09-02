@@ -1,4 +1,5 @@
 # elden-ring
 Effelsberg Large-scale Data Exploration with Nextflow for Robust Identification of New Globular cluster pulsars.
-![image](https://github.com/user-attachments/assets/d75878bb-b486-4e76-833d-55d2293ffa3c)
 
+
+![elden-ring](https://github.com/user-attachments/assets/591cce57-f80a-4071-aa46-592169a11ccc)
