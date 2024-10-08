@@ -1,3 +1,5 @@
 .nextflow*
 work
-Report.html
+*.html
+*.log
+*.txt

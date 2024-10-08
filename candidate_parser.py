@@ -1,3 +1,4 @@
+import re
 import time
 import tempfile
 import argparse
@@ -25,7 +26,7 @@ def define_mask(band):
     else:
         return 'zdot'
 
-def generate_pulsarX_cand_file(df, cands_dir, tsamp, fft_size, beam_name, cands_per_node=96):
+def generate_pulsarX_cand_file(df, cands_dir, tsamp, fft_size, beam_name, GC, dm_name, cands_per_node=96):
     cand_dms = df['dm'].values
     cand_accs = df['acc'].values
     cand_period = df['period'].values
@@ -43,18 +44,18 @@ def generate_pulsarX_cand_file(df, cands_dir, tsamp, fft_size, beam_name, cands_
         for i in range(number_of_candidates):
             f.write("%d %f %f %f 0 %f\n" % (i, cand_dms[i], cand_accs[i], cand_mod_frequencies[i], cand_snrs[i]))
     
-    cand_files = split_cand_file(cand_file_path, number_of_candidates, cands_per_node, cands_dir, beam_name)
+    cand_files = split_cand_file(cand_file_path, number_of_candidates, cands_per_node, cands_dir, beam_name, GC, dm_name)
     logging.info(f"{len(cand_files)} Candidate files created")
     return cand_files
     
-def split_cand_file(cand_file_path, number_of_candidates, cands_per_node, cands_dir, beam_name):
+def split_cand_file(cand_file_path, number_of_candidates, cands_per_node, cands_dir, beam_name, GC, dm_name):
     # Split the candidates into multiple candfiles
     cand_files = []
     num_files = number_of_candidates // cands_per_node + 1
     candidates_df = pd.read_csv(cand_file_path, sep=' ', header=0)
         
     for i in range(num_files):
-        cand_file = f"{beam_name}_{i+1}.candfile"
+        cand_file = f"{GC}_{beam_name}_{dm_name}_{i+1}.candfile"
         cand_file_path = os.path.join(cands_dir, cand_file)
         cand_files.append(cand_file_path)
         start_idx = i * cands_per_node
@@ -86,15 +87,14 @@ def a_to_pdot(P_s, acc_ms2):
 def main():
     parser = argparse.ArgumentParser(description='Parse XML file to candfile')
     parser.add_argument('-i', '--input_file', help='Name of the input xml file', type=str)
+    parser.add_argument('-dm_name', help='Name of the dm file', type=str)
     parser.add_argument('-o', '--output_path', help='Output path to save results',  default=os.getcwd(), type=str)
     parser.add_argument('-n', '--nh', help='Filter candidates with nh value', type=int, default=0)
     parser.add_argument('-f', '--fold_technique', help='Technique to use for folding (presto or pulsarx)', type=str, default='pulsarx')
     parser.add_argument('-sub', '--subint_length', help='Subint length (s). Default is tobs/64', type=int, default=None)
     parser.add_argument('-cpn', '--cands_per_node', help='Number of candidates to fold per node', type=int, default=96)
-    parser.add_argument('-b', '--beam_name', help='Beam name string', type=str, default='Band0')
     parser.add_argument('-nsub', '--nsubband', help='Number of subbands', type=int, default=64)
     parser.add_argument('-clfd', '--clfd_q_value', help='CLFD Q value', type=float, default=2.0)
-    parser.add_argument('-rfi', '--rfi_filter', help='RFI filter value (1,2,3,4,5)', type=int, default=None)
     parser.add_argument('-fn', '--fast_nbins', help='High profile bin limit for slow-spinning pulsars', type=int, default=128)
     parser.add_argument('-sn', '--slow_nbins', help='Low profile bin limit for fast-spinning pulsars', type=int, default=64)
     parser.add_argument('-c', '--chan_mask', help='Peasoup Channel mask file to be passed onto pulsarx', type=str, default='')
@@ -107,9 +107,6 @@ def main():
     start_time = time.time()
     
     xml_file = args.input_file
-    
-    rfi_filter = str(define_mask(args.rfi_filter))
-    
     tree = ET.parse(xml_file)
     root = tree.getroot()
     peasoup_params = root[0]
@@ -118,12 +115,14 @@ def main():
     candidates = root[6]
     utc_beam = str(peasoup_params.find("utc_datetime").text + ":00")
     filterbank_file = str(search_params.find("infilename").text)
+    GC = filterbank_file.split('/')[-1].split('_')[0]
+    beam_name = ("Band" + re.sub(r'.*_Band_(\d+).*', r'\1', filterbank_file))
+    band = int(re.sub(r'.*_Band_(\d+).*', r'\1', filterbank_file))
+    rfi_filter = define_mask(band)
     tsamp = float(header_params.find("tsamp").text)
     fft_size = int(search_params.find("size").text)
     nsamples = int(root.find("header_parameters/nsamples").text)
     tstart = float(header_params.find("tstart").text)
-    source_name_prefix = str(header_params.find("source_name").text).strip()
-
     ignored_entries = ['candidate', 'opt_period', 'folded_snr', 'byte_offset', 'is_adjacent', 'is_physical', 'ddm_count_ratio', 'ddm_snr_ratio']
     rows = []
     for candidate in candidates:
@@ -141,13 +140,13 @@ def main():
     try:
         if args.fold_technique == 'pulsarx':
             if args.subint_length is None:
-                subint_length = int(nsamples * tsamp / 64)
+                subint_length = max(1, int(nsamples * tsamp / 64))
             else:
                 subint_length = args.subint_length
             
-            cand_files = generate_pulsarX_cand_file(df, args.output_path, tsamp, fft_size, args.beam_name, args.cands_per_node)
+            cand_files = generate_pulsarX_cand_file(df, args.output_path, tsamp, fft_size, beam_name, GC, args.dm_name, args.cands_per_node)
             # Create meta file
-            meta_file = f"{args.output_path}/{args.beam_name}_meta.txt"
+            meta_file = f"{args.output_path}/{GC}_{beam_name}_{args.dm_name}_meta.txt"
             with open(meta_file, 'w') as f:
                 f.write(f"Ncandidates: {len(df)}\n")
                 f.write(f"Nsamples: {nsamples}\n")
@@ -155,7 +154,8 @@ def main():
                 f.write(f"Nsubband: {args.nsubband}\n")
                 f.write(f"ClfdQValue: {args.clfd_q_value}\n")
                 f.write(f"RFIFilter: {rfi_filter}\n")
-                f.write(f"BeamName: {args.beam_name}\n")
+                f.write(f"BeamName: {beam_name}\n")
+                f.write(f"Band: {band}\n")
                 f.write(f"UTCBeam: {utc_beam}\n")
                 f.write(f"Candidates_per_node: {args.cands_per_node}\n")
                 f.write(f"FilterbankFile: {filterbank_file}\n")

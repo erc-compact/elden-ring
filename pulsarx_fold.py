@@ -49,22 +49,26 @@ def fold_with_pulsarx(meta_dict, output_dir, cand_file, template, psrfits, pulsa
     slow_nbins = meta_dict['Slow_nbins']
     nbins_string = "-b {} --nbinplan 0.1 {}".format(fast_nbins, slow_nbins)
     tstart = meta_dict['StartTime']
-    
-    output_rootname = "folded"
+
+    # if 'ifbf' in beam_name:
+    #     beam_ta = "--incoherent"
+    # elif 'cfbf' in beam_name:
+    #     beam_tag = "-i {}".format(int(beam_name.strip("cfbf")))
+    # else:
+    #     beam_tag = ""
     
     if 'ifbf' in beam_name:
-        beam_ta = "--incoherent"
-    elif 'cfbf' in beam_name:
-        beam_tag = "-i {}".format(int(beam_name.strip("cfbf")))
+        beam_tag = "--incoherent"
+    elif 'Band' in beam_name:
+        beam_tag = "-i {}".format(int(beam_name.strip("Band")))
     else:
         beam_tag = ""
 
     cand_file_name = os.path.basename(cand_file)
     logging.info(f"folding {cand_file_name}")
-    output_path = os.path.join(output_dir, f"{cand_file_name.split('.')[0]}")
-    logging.info(f"Output path: {output_path}")
-    os.makedirs(output_path, exist_ok=True)
-    output_rootname = os.path.join(output_path, output_rootname)
+    output_rootname = os.path.join(output_dir, f"{cand_file_name.split('.candfile')[0]}")
+    logging.info(f"Output path: {output_rootname}")
+    os.makedirs(output_rootname, exist_ok=True)
     #print output with the cand_file
     print("Processing cand_file: ", cand_file)
     
@@ -72,7 +76,7 @@ def fold_with_pulsarx(meta_dict, output_dir, cand_file, template, psrfits, pulsa
         script = "psrfold_fil --plotx -v -t {} --candfile {} -n {} {} {} --template {} --clfd {} -L {} --psrfits {} --rfi '{}' -o {} --pepoch {}".format(
             pulsarx_threads, cand_file, nsubband, nbins_string, beam_tag, template, clfd_q_value, subint_length, filterbank_file, rfi_filter, output_rootname, tstart)
     else:
-        script = "psrfold_fil --plotx -v -t {} --candfile {} -n {} {} {} --template {} --clfd {} -L {} -f {} --rfi '{}' -o {} --pepoch {}".format(
+        script = "psrfold_fil --plotx -v -t {} --candfile {} -n {} {} {} --template {} --clfd {} -L {} -f {} --rfi {} -o {} --pepoch {}".format(
             pulsarx_threads, cand_file, nsubband, nbins_string, beam_tag, template, clfd_q_value, subint_length, filterbank_file, rfi_filter, output_rootname, tstart)
     print(script)
     subprocess.check_output(script, shell=True)
@@ -81,14 +85,13 @@ def fold_with_pulsarx(meta_dict, output_dir, cand_file, template, psrfits, pulsa
 def main():
     parser = argparse.ArgumentParser(description='Fold all candidates from Peasoup xml file')
     parser.add_argument('-o', '--output_path', help='Output path to save results',  default=os.getcwd(), type=str)
-    parser.add_argument('-fits', '--psrfits', help='Name of the psrfits file')
+    parser.add_argument('-isitfits', '--psrfits', help='Name of the psrfits file')
     parser.add_argument('-t', '--fold_technique', help='Technique to use for folding (presto or pulsarx)', type=str, default='pulsarx')
     parser.add_argument('-threads', '--pulsarx_threads', help='Number of threads to be used for pulsarx', type=int, default='24')
     parser.add_argument('-p', '--pulsarx_fold_template', help='Fold template pulsarx', type=str, default='meerkat_fold.template')
     parser.add_argument('-c', '--chan_mask', help='Peasoup Channel mask file to be passed onto pulsarx', type=str, default='None')
     parser.add_argument('-meta', help='Meta file', type=str, required=True)
     parser.add_argument('-cands', help='Candidate file', type=str, required=True)
-    parser.add_argument('-band', help='Band name', type=str, default='1')
     args = parser.parse_args()
 
     if not args.meta:
@@ -107,16 +110,14 @@ def main():
     psrfits = args.psrfits
     pulsarx_threads = args.pulsarx_threads
     meta_dict = meta_parser(meta_file)
-    template = args.pulsarx_fold_template
-    if args.band:
-        template = os.path.join(template, f"Effelsberg_{args.band}.template")
+    band = int(meta_dict['Band'])
+    template = os.path.join(args.pulsarx_fold_template, f"Effelsberg_{band}.template")
+    
     fold_with_pulsarx(meta_dict, output_dir, cand_file, template, psrfits, pulsarx_threads)
     
     logging.info(f"Total time taken: {time.time() - start_time} seconds")
     
     remove_symlink(output_dir)
-    
-    
 
 if __name__ == "__main__":
     main()

@@ -3,8 +3,8 @@ nextflow.enable.dsl=2
 process parse_xml{
     label "xml_parse"
     container "${params.pulsarx_image}"
-    publishDir "${params.output_path}/${params.band}/", pattern: "**/*.candfile", mode: 'copy'
-    publishDir "${params.output_path}/${params.band}/", pattern: "**/*_meta.txt", mode: 'copy'
+    publishDir "${params.output_path}/Band_${params.band}/", pattern: "**/*.candfile", mode: 'copy'
+    publishDir "${params.output_path}/Band_${params.band}/", pattern: "**/*_meta.txt", mode: 'copy'
 
     input:
     path xml_file
@@ -18,7 +18,7 @@ process parse_xml{
     """
     #!/bin/bash
     # Ensure the output directory exists
-    mkdir -p ${output_path}/${params.band}/candidates
+    mkdir -p ${output_path}/Band_${params.band}/candidates
 
     # Running the XML Parsing task
     python3 ${baseDir}/candidate_parser.py -i ${xml_file} -o candidates/  -f ${params.fold_technique} -cpn ${params.pulsarx_cpn} -b ${params.beam_name} -rfi ${params.rfi_filter} -n ${params.nh} -nsub ${params.nsub} -clfd ${params.clfd} -fn ${params.fast_nbins} -sn ${params.slow_nbins}
@@ -36,7 +36,7 @@ process pulsarx_fold{
     val output_path
 
     output:
-    tuple path("**/*.png"), path("**/*.ar")
+    tuple path("**/*.png"), path("**/*.ar"), path("**/*.cands")
 
     script:
     """
@@ -51,3 +51,4 @@ workflow {
     
     pulsarx_fold(xml_parser_results, params.output_path)
 }
+
