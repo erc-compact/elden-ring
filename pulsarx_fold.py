@@ -61,12 +61,14 @@ def fold_with_pulsarx(meta_dict, output_dir, cand_file, template, psrfits, pulsa
         beam_tag = "--incoherent"
     elif 'Band' in beam_name:
         beam_tag = "-i {}".format(int(beam_name.strip("Band")))
+    elif 'cfbf' in beam_name:
+        beam_tag = "-i {}".format(int(beam_name.strip("cfbf")))
     else:
         beam_tag = ""
 
     cand_file_name = os.path.basename(cand_file)
     logging.info(f"folding {cand_file_name}")
-    output_rootname = os.path.join(output_dir, f"{cand_file_name.split('.candfile')[0]}")
+    output_rootname = os.path.join(output_dir, f"dm{cand_file_name.split('dm', 1)[-1].split('.candfile')[0]}")
     logging.info(f"Output path: {output_rootname}")
     os.makedirs(output_rootname, exist_ok=True)
     #print output with the cand_file
@@ -106,7 +108,7 @@ def main():
     meta_file = args.meta
     cand_file = args.cands
     output_dir = create_symlink_to_output_dir(args.output_path)
-    logging.info(f"symlink path :", output_dir)
+    logging.info(f"symlink path : {output_dir}")
     psrfits = args.psrfits
     pulsarx_threads = args.pulsarx_threads
     meta_dict = meta_parser(meta_file)

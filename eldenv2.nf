@@ -115,6 +115,8 @@ process dmfile_gen {
 process peasoup {
     label "peasoup"
     container "${params.peasoup_image}"
+    publishDir "${params.peasoup.output_path}", pattern: "**/*.xml", mode: 'copy'
+    
 
     input:
     tuple val(fil_file), val(fft_size)
@@ -126,13 +128,14 @@ process peasoup {
     script:
     def file_path_str = fil_file.toString()
     def GC = new File(file_path_str).name.replaceAll(/_Band_.*$/, "")
+    def bandName = new File(file_path_str).name.replaceAll(/.*_Band_(\d+).*/, '$1')
     """
     #!/bin/bash
     dm_name=\$(basename "${dm_file}" .dm)
 
     echo "Running peasoup with DM file: \${dm_name}" and FFT size: ${fft_size} on ${fil_file}
 
-    peasoup -p -i ${fil_file} -o ${GC}_\${dm_name} --limit 100000 -m ${params.peasoup.min_snr} -t 1 --acc_start ${params.peasoup.acc_start} --acc_end ${params.peasoup.acc_end} --dm_file ${dm_file} --ram_limit_gb ${params.peasoup.ram_limit_gb} -n ${params.peasoup.nharmonics} --fft_size ${fft_size}
+    peasoup -p -i ${fil_file} -o ${GC}_${bandName}_{\${dm_name} --limit 100000 -m ${params.peasoup.min_snr} -t 1 --acc_start ${params.peasoup.acc_start} --acc_end ${params.peasoup.acc_end} --dm_file ${dm_file} --ram_limit_gb ${params.peasoup.ram_limit_gb} -n ${params.peasoup.nharmonics} --fft_size ${fft_size}
     """
     
 }
@@ -162,16 +165,15 @@ process parse_xml{
 process pulsarx_fold{
     label "pulsarx_fold"
     container "${params.pulsarx_image}"
-    scratch true
-    publishDir "${params.pulsarx_fold.output_path}", pattern: "**/*.png", mode: 'copy'
-    publishDir "${params.pulsarx_fold.output_path}", pattern: "**/*.ar", mode: 'copy'
-    publishDir "${params.pulsarx_fold.output_path}", pattern: "**/*.cands", mode: 'copy'
+    publishDir "${params.pulsarx_fold.output_path}", pattern: "*.png", mode: 'copy'
+    publishDir "${params.pulsarx_fold.output_path}", pattern: "*.ar", mode: 'copy'
+    publishDir "${params.pulsarx_fold.output_path}", pattern: "*.cands", mode: 'copy'
     
     input:
     val xml_parser_results
 
     output:
-    tuple path("**/*.png"), path("**/*.ar"), path("**/*.cands")
+    tuple path("*.png"), path("*.ar"), path("*.cands")
 
     script:
     """
@@ -180,14 +182,23 @@ process pulsarx_fold{
     """
 }
 
-// process pics_classifier {
-//     label "pics_classifier"
-//     container "${params.pics_classifier_image}"
-//     publishDir "${params.output_path}/Band_${params.band}/", pattern: "**/*.png", mode: 'copy'
+process pics_classifier {
+    label "pics_classifier"
+    container "${params.psrchive_image}"
+    publishDir "${params.pulsarx_fold.output_path}", pattern: "*.csv", mode: 'copy'
 
-//     input:
-//     path 
-// }
+    input:
+    path (fold_out)
+
+    output:
+    path("*.csv")
+    script:
+    """
+    #!/bin/bash
+    # Running the PICS Classifier
+    python3 ${baseDir}/pics_classifier_v2.0.py -i ${params.pulsarx_fold.output_path} -m ${params.pics_model_dir}
+    """
+}
 
 
 workflow {
@@ -195,6 +206,7 @@ workflow {
     fits_queue = fits_files_ch.splitText().map { it.trim() }
     fits_queue.view()
     filtool_channel = filtool(fits_queue)
+    // filtool_channel = Channel.fromPath("/hercules/scratch/fkareem/NGC7099/Filtool/NGC7099_Band_*fil") //This is a quick fix to avoid the filtool process for fil files
     nearest_power_two_results = nearest_power_of_two_calculator(filtool_channel).transpose()
     filtool_output = nearest_power_two_results.map { item -> 
         def (fil_file, fft_size) = item
@@ -204,6 +216,7 @@ workflow {
     peasoup_results = peasoup(filtool_output, dmfiles)
     xml_parser_results= parse_xml(peasoup_results).transpose()
     xml_parser_results.view()
-    pulsarx_fold(xml_parser_results)
+    fold_out = pulsarx_fold(xml_parser_results).collectFile(name: 'finished.txt', newLine : true)
+    pics_classifier(fold_out)
 }
 

@@ -3,3 +3,4 @@ work
 *.html
 *.log
 *.txt
+nextflow.config
