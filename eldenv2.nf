@@ -192,7 +192,7 @@ process pulsarx_fold{
 
 workflow {
     fits_files_ch = find_files()
-    fits_queue = fits_files_ch.splitText().map { it.trim() }
+    fits_queue = fits_files_ch..map splitText(){ it.trim() }
     fits_queue.view()
     filtool_channel = filtool(fits_queue)
     nearest_power_two_results = nearest_power_of_two_calculator(filtool_channel).transpose()

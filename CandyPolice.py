@@ -89,9 +89,10 @@ def create_submit_file(work_dir, cand, csv_file, fil, num_cores):
             f"prepfold -topo -ffact 2 -dm {candidate_details['dm_opt']} -f {candidate_details['f0_opt']} -fd {candidate_details['f1_opt']} -o {dir_name}/{bandname}_{name}_ffact2 {file}"
         ])
         
-    num_cores = min(num_cores, len(commands)) # Use the minimum of the number of commands and the number of cores
+    # num_cores = min(num_cores, len(commands)) # Use the minimum of the number of commands and the number of cores
+    print(f"Number of cores: {num_cores}")
     # Use multiprocessing to submit multiple jobs at once
-    pool = Pool(num_cores)
+    pool = Pool(processes = num_cores)
     pool.map(submit_job, commands)
     pool.close()
     pool.join()
