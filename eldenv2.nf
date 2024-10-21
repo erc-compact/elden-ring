@@ -203,7 +203,7 @@ process pics_classifier {
 
 workflow {
     fits_files_ch = find_files()
-    fits_queue = fits_files_ch.splitText().map { it.trim() }
+    fits_queue = fits_files_ch..map splitText(){ it.trim() }
     fits_queue.view()
     filtool_channel = filtool(fits_queue)
     // filtool_channel = Channel.fromPath("/hercules/scratch/fkareem/NGC7099/Filtool/NGC7099_Band_*fil") //This is a quick fix to avoid the filtool process for fil files

@@ -108,12 +108,14 @@ process candypolice {
 
     #expects input file in format: /fpra/timing/01/fazal/Eff_Data_Proc/NGC6544/Filtool/NGC6544_Band3_01.fil
 
-    os.makedirs(dir_name, exist_ok=True)
+    
     name = os.path.basename(candidate_details['png_path']).replace('.png', '').replace('/', '_').split('_')[-1]
     bandname = os.path.basename("${input_file}").split('.')[0]
     detection_band = os.path.dirname(candidate_details['png_path']).split('/')[-1]
     dir_name = f"{detection_band}_{name}"
 
+    os.makedirs(dir_name, exist_ok=True)
+    
     # Define commands
     commands = [
         f"prepfold -topo -dm {candidate_details['dm_opt']} -f {candidate_details['f0_opt']} -fd {candidate_details['f1_opt']} -o {dir_name}/{bandname}_{name} ${input_file}",
