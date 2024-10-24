@@ -35,7 +35,7 @@ def generate_pulsarX_cand_file(df, cands_dir, tsamp, fft_size, beam_name, GC, dm
     cand_mod_period_beginning_tobs = period_correction_for_prepfold(cand_period, pdot, tsamp, fft_size)
     cand_mod_frequencies = 1/cand_mod_period_beginning_tobs
     cand_snrs = df['snr'].values
-    cand_file_name = 'pulsarx_candfile.cands' 
+    cand_file_name = f"{GC}_{beam_name}_{dm_name}_allCands.txt"
     os.makedirs(cands_dir, exist_ok=True)
     cand_file_path = os.path.join(cands_dir, cand_file_name)
     number_of_candidates = len(cand_mod_frequencies)

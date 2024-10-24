@@ -117,6 +117,8 @@ process peasoup {
     container "${params.peasoup_image}"
     publishDir "${params.peasoup.output_path}", pattern: "**/*.xml", mode: 'copy'
     
+    publishDir "${params.peasoup.output_path}", pattern: "**/*.xml", mode: 'copy'
+    
 
     input:
     tuple val(fil_file), val(fft_size)
@@ -129,13 +131,14 @@ process peasoup {
     def file_path_str = fil_file.toString()
     def GC = new File(file_path_str).name.replaceAll(/_Band_.*$/, "")
     def bandName = new File(file_path_str).name.replaceAll(/.*_Band_(\d+).*/, '$1')
+    def bandName = new File(file_path_str).name.replaceAll(/.*_Band_(\d+).*/, '$1')
     """
     #!/bin/bash
     dm_name=\$(basename "${dm_file}" .dm)
 
     echo "Running peasoup with DM file: \${dm_name}" and FFT size: ${fft_size} on ${fil_file}
 
-    peasoup -p -i ${fil_file} -o ${GC}_${bandName}_{\${dm_name} --limit 100000 -m ${params.peasoup.min_snr} -t 1 --acc_start ${params.peasoup.acc_start} --acc_end ${params.peasoup.acc_end} --dm_file ${dm_file} --ram_limit_gb ${params.peasoup.ram_limit_gb} -n ${params.peasoup.nharmonics} --fft_size ${fft_size}
+    peasoup -p -i ${fil_file} -o ${GC}_${bandName}_\${dm_name} --limit 100000 -m ${params.peasoup.min_snr} -t 1 --acc_start ${params.peasoup.acc_start} --acc_end ${params.peasoup.acc_end} --dm_file ${dm_file} --ram_limit_gb ${params.peasoup.ram_limit_gb} -n ${params.peasoup.nharmonics} --fft_size ${fft_size}
     """
     
 }
@@ -145,10 +148,10 @@ process parse_xml{
     container "${params.pulsarx_image}"
     publishDir "${params.parse_xml.output_path}", pattern: "*.candfile", mode: 'copy'
     publishDir "${params.parse_xml.output_path}", pattern: "*_meta.txt", mode: 'copy'
+    publishDir "${params.parse_xml.output_path}", pattern: "*allCands.txt", mode : 'copy'
 
     input:
     tuple path (xml_file), val(dm_name)
-
 
     output:
     tuple path("*.candfile"), path("*_meta.txt")
@@ -165,6 +168,7 @@ process parse_xml{
 process pulsarx_fold{
     label "pulsarx_fold"
     container "${params.pulsarx_image}"
+    maxForks 100
     publishDir "${params.pulsarx_fold.output_path}", pattern: "*.png", mode: 'copy'
     publishDir "${params.pulsarx_fold.output_path}", pattern: "*.ar", mode: 'copy'
     publishDir "${params.pulsarx_fold.output_path}", pattern: "*.cands", mode: 'copy'
@@ -203,7 +207,7 @@ process pics_classifier {
 
 workflow {
     fits_files_ch = find_files()
-    fits_queue = fits_files_ch..map splitText(){ it.trim() }
+    fits_queue = fits_files_ch.splitText().map { it.trim() }
     fits_queue.view()
     filtool_channel = filtool(fits_queue)
     // filtool_channel = Channel.fromPath("/hercules/scratch/fkareem/NGC7099/Filtool/NGC7099_Band_*fil") //This is a quick fix to avoid the filtool process for fil files
