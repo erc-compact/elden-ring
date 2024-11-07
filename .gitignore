@@ -1,0 +1,6 @@
+.nextflow*
+work
+*.html
+*.log
+*.trace
+nextflow.config
