@@ -3,4 +3,5 @@ work
 *.html
 *.log
 *.trace
-nextflow.config
+Filtool
+Peasoup
