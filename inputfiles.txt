@@ -1,11 +1,4 @@
 fits_files,cluster,beam_name,beam_id,utc_start
-/hercules/scratch/fkareem/TRAPUM/NGC6717/Data/NGC6717_01L-trapum_cfbf00001sub.fil,NGC6717,cfbf00001,1,2024-08-25 18:21:48
-/hercules/scratch/fkareem/TRAPUM/NGC6717/Data/NGC6717_01L-trapum_cfbf00002sub.fil,NGC6717,cfbf00002,2,2024-08-25 18:21:48
-/hercules/scratch/fkareem/TRAPUM/NGC6717/Data/NGC6717_01L-trapum_cfbf00003sub.fil,NGC6717,cfbf00003,3,2024-08-25 18:21:48
-/hercules/scratch/fkareem/TRAPUM/NGC6717/Data/NGC6717_01L-trapum_cfbf00004sub.fil,NGC6717,cfbf00004,4,2024-08-25 18:21:48
-/hercules/scratch/fkareem/TRAPUM/NGC6717/Data/NGC6717_01L-trapum_cfbf00005sub.fil,NGC6717,cfbf00005,5,2024-08-25 18:21:48
-/hercules/scratch/fkareem/TRAPUM/NGC6717/Data/NGC6717_01L-trapum_cfbf00006sub.fil,NGC6717,cfbf00006,6,2024-08-25 18:21:48
-/hercules/scratch/fkareem/TRAPUM/NGC6717/Data/NGC6717_01L-trapum_cfbf00007sub.fil,NGC6717,cfbf00007,7,2024-08-25 18:21:48
-/hercules/scratch/fkareem/TRAPUM/NGC6717/Data/NGC6717_01L-trapum_cfbf00008sub.fil,NGC6717,cfbf00008,8,2024-08-25 18:21:48
-/hercules/scratch/fkareem/TRAPUM/NGC6717/Data/NGC6717_01L-trapum_cfbf00009sub.fil,NGC6717,cfbf00009,9,2024-08-25 18:21:48
-/hercules/scratch/fkareem/TRAPUM/NGC6717/Data/NGC6717_01L-trapum_cfbf00010sub.fil,NGC6717,cfbf00010,10,2024-08-25 18:21:48
+/b/EFFELSBERG_DATA_FAZAL/NGC6626/NGC6626_20240405-03-23-38_cfbf00001.fits, cfbf00001, NGC6626, 1, 2024-04-05 03-23-38
+/b/EFFELSBERG_DATA_FAZAL/NGC6626/NGC6626_20240405-03-23-38_cfbf00002.fits, cfbf00002, NGC6626, 2, 2024-04-05 03-23-38
+/b/EFFELSBERG_DATA_FAZAL/NGC6626/NGC6626_20240405-03-23-38_cfbf00003.fits, cfbf00005, NGC6626, 5, 2024-04-05 03-23-38

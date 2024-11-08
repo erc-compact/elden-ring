@@ -34,6 +34,7 @@ process generateRfiFilter {
 
     script:
     def inputFile = "${fits_file_channel_and_meta[0].trim()}"
+    def beam_name = "${fits_file_channel_and_meta[2].trim()}"
     // num_intervals is the floor of time_per_file divided by 100
     def num_intervals = Math.floor(${time_per_file} / 100) as int
     """
@@ -50,6 +51,10 @@ process generateRfiFilter {
     rfi_filter_string="kadaneF 8 4 zdot \${zap_commands}"
 
     echo "\${rfi_filter_string}" > rfi_filter_string.txt
+
+    mv combined_sk_heatmap_and_histogram.png ${beam_name}.png
+    mv combined_frequent_outliers.txt combined_frequent_outliers_${beam_name}.txt
+    mv block_bad_channel_percentages.txt block_bad_channel_percentages${beam_name}.txt
     """
     rfi_filter_string = file('rfi_filter_string.txt').text.trim()
 }
