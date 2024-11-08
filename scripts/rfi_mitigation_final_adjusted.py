@@ -13,10 +13,6 @@ import astropy.units as u
 from astropy.time import Time, TimeDelta
 from sigpyproc.readers import FilReader
 
-#ignore warnings
-import warnings
-warnings.filterwarnings("ignore")
-
 # Filterbank header parsing functions
 def _read_int(fh):
     return struct.unpack('i', fh.read(4))[0]
@@ -39,7 +35,7 @@ def read_data_file(file_path, start_time, end_time, file_type='fits'):
         
 # Read FITS File
 def read_fits_file(fits_file, start_time, end_time):
-    with fits.open(fits_file) as hdul:
+    with fits.open(fits_file, mode='readonly') as hdul:
         data = hdul['SUBINT'].data['DATA']
         header = hdul['SUBINT'].header
         nchan = header.get('NCHAN')
@@ -135,7 +131,7 @@ def get_file_header(file_path):
         }
         return header
     else:
-        with fits.open(file_path,mode='readonly') as hdul:
+        with fits.open(file_path, mode='readonly') as hdul:
             primary_header = hdul[0].header
             subint_header = hdul['SUBINT'].header
             header = {
@@ -744,7 +740,7 @@ def run_analysis_for_intervals(file_path, output_folder, target_resolution_ms=1.
     #             azimuth_start, elevation_start
     #         )
     # Process intervals in parallel
-    with ProcessPoolExecutor() as executor:
+    with ProcessPoolExecutor(max_workers=2) as executor:
         futures = [
             executor.submit(
                 process_interval, i, file_path, output_folder, 
@@ -790,4 +786,3 @@ if __name__ == '__main__':
     args = parser.parse_args()
     run_analysis_for_intervals(args.input_file, args.output_folder,
                              args.target_resolution_ms, args.num_intervals)
-
