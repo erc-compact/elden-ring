@@ -1,3 +1,59 @@
+process readfile {
+    label 'readfile'
+    container "${params.presto_image}"
+
+    input:
+    tuple val(fits_file_channel_and_meta)
+
+    output:
+    tuple val(fits_file_channel_and_meta), val(time_per_file)
+
+    script:
+    def inputFile = "${fits_file_channel_and_meta[0].trim()}"
+    """
+    #!/bin/bash
+    output=\$(readfile ${inputFile})
+    echo "\$output"
+    time_per_file=\$(echo "\$output" | grep "Time per file (sec)" | awk '{print \$6}')
+    echo "\${time_per_file}" > time_per_file.txt
+    """
+    time_per_file = file('time_per_file.txt').text.trim()
+}
+
+process generateRfiFilter {
+    label 'generate_rfi_filter'
+    container "${params.rfi_mitigation_image}"
+    publishDir "${params.generateRfiFilter.output_path}/", pattern: "*.png", mode: 'copy'
+    publishDir "${params.generateRfiFilter.output_path}/", pattern: "*.txt", mode: 'copy'
+
+    input:
+    tuple val(fits_file_channel_and_meta), val(time_per_file)
+
+    output:
+    tuple val(fits_file_channel_and_meta), val(rfi_filter_string)
+
+    script:
+    def inputFile = "${fits_file_channel_and_meta[0].trim()}"
+    // num_intervals is the floor of time_per_file divided by 100
+    def num_intervals = Math.floor(${time_per_file} / 100) as int
+    """
+    #!/bin/bash
+
+    # Generate the RFI filter
+    python3 ${params.generateRfiFilter.script} ${inputFile} . --target_resolution_ms ${params.generateRfiFilter.target_resolution_ms} --num_intervals ${num_intervals}
+
+    # Parse the frequency ranges and generate zap commands
+    zap_commands=\$(grep -Eo '[0-9.]+ *- *[0-9.]+' combined_frequent_outliers.txt | \\
+    awk -F '-' '{gsub(/ /,""); print "zap "\$1" "\$2}' | tr '\\n' ' ')
+
+    # Prepend 'kadaneF 8 4 zdot' to the zap commands
+    rfi_filter_string="kadaneF 8 4 zdot \${zap_commands}"
+
+    echo "\${rfi_filter_string}" > rfi_filter_string.txt
+    """
+    rfi_filter_string = file('rfi_filter_string.txt').text.trim()
+}
+
 process filtool {
     label 'filtool'
     container "${params.pulsarx_image}"
@@ -5,62 +61,64 @@ process filtool {
     publishDir "${params.filtool.output_path}/", pattern: "*.fil", mode: 'symlink'
 
     input:
-    val(fits_file_channel_and_meta)
+    tuple val(fits_file_channel_and_meta), val(rfi_filter_string)
     val threads
     val telescope
 
     output:
-    tuple val(fits_file_channel_and_meta) , path("*.fil")
+    tuple val(fits_file_channel_and_meta), path("*.fil")
     
     script:
-    def outputFile = "${fits_file_channel_and_meta[1].trim()}_${fits_file_channel_and_meta[4].trim()}_${fits_file_channel_and_meta[2].trim()}_clean"
-    def inputFile = "${fits_file_channel_and_meta[0].trim()}"
-    def source_name = "${fits_file_channel_and_meta[1].trim()}"
+    def (fits_file, cluster, beam_name, beam_id, utc_start) = fits_file_channel_and_meta
+    def outputFile = "${cluster.trim()}_${utc_start.trim()}_${beam_name.trim()}_clean"
+    def inputFile = "${fits_file.trim()}"
+    def source_name = "${cluster.trim()}"
 
-    // Use appropriate rfi masks for the telescope
-    def rfi_filter = "${params.filtool.rfi_filter_list[telescope]}"
-
+    // Prepare the rfi_filter option
+    def zaplist = ''
+    if (rfi_filter_string) {
+        zaplist = "-z \"${rfi_filter_string}\""
+    }
     """
-    # Get the first file from the input_data string
+    #!/bin/bash
+    # Get the first file from the inputFile string
     first_file=\$(echo ${inputFile} | awk '{print \$1}')
 
     # Extract the file extension from the first file
     file_extension="\$(basename "\${first_file}" | sed 's/.*\\.//')"
     
     if [[ ${telescope} == "effelsberg" ]]; then
-        if [[ \${file_extension} == "fits" ]]; then
-            filtool -psrfits --scloffs --flip -t ${threads} --telescope ${telescope} -z ${rfi_filter} -o ${outputFile} -f ${inputFile} -s ${source_name}
+        if [[ "\${file_extension}" == "fits" ]]; then
+            filtool -psrfits --scloffs --flip -t ${threads} --telescope ${telescope} ${zaplist} -o ${outputFile} -f ${inputFile} -s ${source_name}
         else 
-            filtool -t ${threads} --telescope ${telescope} -z ${rfi_filter} -o ${outputFile} -f ${inputFile} -s ${source_name}
+            filtool -t ${threads} --telescope ${telescope} ${zaplist} -o ${outputFile} -f ${inputFile} -s ${source_name}
         fi
 
     elif [[ ${telescope} == "meerkat" ]]; then
-        if [[ \${file_extension} == "sf" ]]; then
-            filtool --psrfits --scloffs -t ${threads} --telescope ${telescope} -z ${rfi_filter} -o ${outputFile} -f ${inputFile} -s ${source_name}
+        if [[ "\${file_extension}" == "sf" ]]; then
+            filtool --psrfits --scloffs -t ${threads} --telescope ${telescope} ${zaplist} -o ${outputFile} -f ${inputFile} -s ${source_name}
         else 
-            filtool -t ${threads} --telescope ${telescope} -z ${rfi_filter} -o ${outputFile} -f ${inputFile} -s ${source_name}
+            filtool -t ${threads} --telescope ${telescope} ${zaplist} -o "${outputFile}" -f ${inputFile} -s ${source_name}
         fi
     fi
     """
 }
 
-
-
 process nearest_power_of_two_calculator {
     label 'nearest_power_two'
-    container "/hercules/scratch/vishnu/singularity_images/presto5_pddot.sif"
+    container "${params.presto_image}"
 
     input:
-    tuple path(fil_file), val(cluster),val(beam_name), val(beam_id), val(utc_start)
+    tuple path(fil_file), val(cluster), val(beam_name), val(beam_id), val(utc_start)
 
     output:
-    tuple path(fil_file), val(cluster),val(beam_name), val(beam_id), val(utc_start), env(nearest_power_of_2)
+    tuple path(fil_file), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(nearest_power_of_2)
 
     script:
     """
     #!/bin/bash
 
-    output=\$(readfile ${fil_file})
+    output=\$(readfile "${fil_file}")
     echo "\$output"
 
     value=\$(echo "\$output" | grep "Spectra per file" | awk '{print \$5}')
@@ -68,11 +126,10 @@ process nearest_power_of_two_calculator {
     # Use Python to calculate the nearest power of 2
     nearest_power_of_2=\$(python3 -c "import math; value = int(\${value}); log2 = math.log(value, 2); rounded_log2 = math.ceil(log2) if log2 - int(log2) >= 0.35 else int(log2); nearest_power_of_2 = 2 ** rounded_log2; print(nearest_power_of_2)")
 
-    echo \$nearest_power_of_2
+    echo "\$nearest_power_of_2" > nearest_power_of_2.txt
     """
+    nearest_power_of_2 = file('nearest_power_of_2.txt').text.trim()
 }
-
-
 
 process generateDMFiles {
     label "generateDMFiles"
@@ -95,7 +152,7 @@ process generateDMFiles {
     # Create DM values with a step of dm_step
     dm_values = np.round(np.arange(dm_start, dm_end, dm_step), 3)
 
-    # Split DM values into multiple files, each containing dm_samp number of lines
+    # Split DM values into multiple files, each containing dm_sample number of lines
     for i in range(0, len(dm_values), dm_sample):
         chunk = dm_values[i:i + dm_sample]
         end_index = min(i + dm_sample, len(dm_values))
