@@ -4,3 +4,5 @@ work
 *.log
 *.trace
 nextflow.config
+inputfile.txt
+Filtool
