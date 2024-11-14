@@ -2,7 +2,8 @@
 nextflow.enable.dsl=2
 
 include { filtool } from './processes'
-include { generateRfiFilter } from './processes'
+include { generateRfiFilter } from './rfi-test-processes'
+include { generateRfiFilterSecond } from './rfi-test-processes'
 include { readfile } from './processes'
 
 workflow {
@@ -21,17 +22,11 @@ workflow {
 
     // Step 1: First RFI Filter Generation
     readfile_output = readfile(fits_file_channel_and_meta)
-    first_generateRfiFilter_output = generateRfiFilter(readfile_output) {
-        // Set output directory for first run
-        publishDir params.fits_rfi_output_dir, mode: 'copy'
-    }
+    first_generateRfiFilter_output = generateRfiFilter(readfile_output)
 
-    // Step 2: Run filtool using the first generated RFI filter
-    processed_fil_file = filtool(first_generateRfiFilter_output, params.threads, params.telescope)
+    // // Step 2: Run filtool using the first generated RFI filter
+    // processed_fil_file = filtool(first_generateRfiFilter_output, params.threads, params.telescope)
 
-    // Step 3: Second RFI Filter Generation on Cleaned File
-    second_generateRfiFilter_output = generateRfiFilter(processed_fil_file) {
-        // Set output directory for second run
-        publishDir params.fil_rfi_output_dir, mode: 'copy'
-    }
+    // // Step 3: Second RFI Filter Generation on Cleaned File
+    // second_generateRfiFilter_output = generateRfiFilterSecond(processed_fil_file)
 }

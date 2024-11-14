@@ -3,10 +3,10 @@ process readfile {
     container "${params.presto_image}"
 
     input:
-    tuple val(fits_file_channel_and_meta)
+    val(fits_file_channel_and_meta)
 
     output:
-    tuple val(fits_file_channel_and_meta), val(time_per_file)
+    tuple val(fits_file_channel_and_meta), env(time_per_file)
 
     script:
     def inputFile = "${fits_file_channel_and_meta[0].trim()}"
@@ -17,7 +17,6 @@ process readfile {
     time_per_file=\$(echo "\$output" | grep "Time per file (sec)" | awk '{print \$6}')
     echo "\${time_per_file}" > time_per_file.txt
     """
-    time_per_file = file('time_per_file.txt').text.trim()
 }
 
 process generateRfiFilter {
@@ -54,7 +53,7 @@ process generateRfiFilter {
 
     mv combined_sk_heatmap_and_histogram.png ${beam_name}.png
     mv combined_frequent_outliers.txt combined_frequent_outliers_${beam_name}.txt
-    mv block_bad_channel_percentages.txt block_bad_channel_percentages${beam_name}.txt
+    mv block_bad_channel_percentages.txt block_bad_channel_percentages_${beam_name}.txt
     """
     rfi_filter_string = file('rfi_filter_string.txt').text.trim()
 }
@@ -82,7 +81,7 @@ process filtool {
     // Prepare the rfi_filter option
     def zaplist = ''
     if (rfi_filter_string) {
-        zaplist = "-z \"${rfi_filter_string}\""
+        zaplist = "-z ${rfi_filter_string}"
     }
     """
     #!/bin/bash
@@ -94,7 +93,7 @@ process filtool {
     
     if [[ ${telescope} == "effelsberg" ]]; then
         if [[ "\${file_extension}" == "fits" ]]; then
-            filtool -psrfits --scloffs --flip -t ${threads} --telescope ${telescope} ${zaplist} -o ${outputFile} -f ${inputFile} -s ${source_name}
+            filtool --psrfits --scloffs --flip -t ${threads} --telescope ${telescope} ${zaplist} -o ${outputFile} -f ${inputFile} -s ${source_name}
         else 
             filtool -t ${threads} --telescope ${telescope} ${zaplist} -o ${outputFile} -f ${inputFile} -s ${source_name}
         fi

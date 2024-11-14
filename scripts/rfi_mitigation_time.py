@@ -731,6 +731,7 @@ def run_analysis_for_intervals(file_path, output_folder, target_resolution_ms=1.
     sk_variance_list = []
     all_outliers_sk = []
     all_frequent_outliers_ranges = []
+    high_outlier_time_blocks = []  # To collect high-outlier time blocks across intervals
 
     # Get header information based on file type
     header = get_file_header(file_path)
@@ -745,10 +746,7 @@ def run_analysis_for_intervals(file_path, output_folder, target_resolution_ms=1.
     # Calculate positions
     azimuth_start, elevation_start = calculate_az_el(header, observation_start_time)
     azimuth_end, elevation_end = calculate_az_el(header, observation_end_time)
-    # process_interval(0, file_path, output_folder, 
-    #             target_resolution_ms, interval_duration, num_intervals,
-    #             azimuth_start, elevation_start
-    #         )
+
     # Process intervals in parallel
     with ProcessPoolExecutor() as executor:
         futures = [
@@ -760,12 +758,18 @@ def run_analysis_for_intervals(file_path, output_folder, target_resolution_ms=1.
             for i in range(num_intervals)
         ]
 
-        for future in futures:
+        for i, future in enumerate(futures):
             sk, sk_variance, outliers_sk, frequent_outliers_sk, frequencies = future.result()
             sk_list.append(sk)
             sk_variance_list.append(sk_variance)
             all_outliers_sk.append(outliers_sk)
             all_frequent_outliers_ranges.extend(frequent_outliers_sk)
+
+            # Identify time blocks with high proportion of outliers (e.g., >90% of frequencies)
+            high_outlier_blocks = np.where(np.sum(outliers_sk, axis=1) / outliers_sk.shape[1] > 0.7)[0]
+            # Convert to absolute time block indices
+            absolute_blocks = high_outlier_blocks + (i * (sk.shape[0]))  # Adjust by interval index
+            high_outlier_time_blocks.extend(absolute_blocks)
 
     # Combine results
     concatenated_sk = np.concatenate(sk_list, axis=0)
@@ -773,16 +777,26 @@ def run_analysis_for_intervals(file_path, output_folder, target_resolution_ms=1.
     concatenated_outliers_sk = np.concatenate(all_outliers_sk, axis=0)
     merged_frequent_outliers = merge_frequency_ranges(all_frequent_outliers_ranges)
 
-    # Save final results
+    # Save final results for frequency
     combined_outliers_file = os.path.join(output_folder, 'combined_frequent_outliers.txt')
     save_outliers_to_file(merged_frequent_outliers, combined_outliers_file, is_freq=True)
 
+    # Save combined high-outlier time blocks to file
+    high_outlier_time_blocks_file = os.path.join(output_folder, 'combined_high_outlier_time_blocks.txt')
+    unique_high_outlier_blocks = sorted(set(high_outlier_time_blocks))
+    with open(high_outlier_time_blocks_file, 'w') as f:
+        f.write("List of Time Blocks with High Proportion of Frequency Outliers:\n")
+        for block in unique_high_outlier_blocks:
+            f.write(f"Time Block: {block}\n")
+
+    # Plot combined SK heatmap and histogram for frequency and high outlier time blocks
     plot_combined_sk_heatmap_and_histogram(
         concatenated_sk, concatenated_sk_variance, frequencies,
         concatenated_outliers_sk, merged_frequent_outliers, output_folder,
         azimuth_start, elevation_start, azimuth_end, elevation_end,
         header, file_path
     )
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Process FITS or filterbank file and analyze RFI.')
