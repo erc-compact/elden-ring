@@ -13,6 +13,10 @@ import astropy.units as u
 from astropy.time import Time, TimeDelta
 from sigpyproc.readers import FilReader
 
+#ignore warnings
+import warnings
+warnings.filterwarnings("ignore")
+
 # Filterbank header parsing functions
 def _read_int(fh):
     return struct.unpack('i', fh.read(4))[0]
@@ -35,7 +39,7 @@ def read_data_file(file_path, start_time, end_time, file_type='fits'):
         
 # Read FITS File
 def read_fits_file(fits_file, start_time, end_time):
-    with fits.open(fits_file, mode='readonly')(fits_file) as hdul:
+    with fits.open(fits_file) as hdul:
         data = hdul['SUBINT'].data['DATA']
         header = hdul['SUBINT'].header
         nchan = header.get('NCHAN')
@@ -145,71 +149,57 @@ def get_file_header(file_path):
             }
             return header
 
-def read_filterbank_file(filename, start_time, end_time):
+def read_filterbank_file(file_path, start_time, end_time):
     """
-    Read filterbank data for a specific time range using sigpyproc.
-    
+    Read filterbank data for a specific time interval.
+
     Parameters:
-    filename (str): Path to filterbank file
-    start_time (float): Start time in seconds
-    end_time (float): End time in seconds
-    
+    file_path (str): Path to the filterbank file.
+    start_time (float): Start time in seconds.
+    end_time (float): End time in seconds.
+
     Returns:
     tuple: (dynamic_spectrum, time_bins_per_block, sampling_rate, nchan, min_freq_mhz, max_freq_mhz, time_resolution_us)
     """
     # Initialize FilReader
-    fil = FilReader(filename)
-    
-    # Get header information
+    fil = FilReader(file_path)
+
+    # Get file metadata
     tsamp = fil.header.tsamp  # Sampling time in seconds
-    nchan = fil.header.nchans  # Number of channels
+    nchan = fil.header.nchans  # Number of frequency channels
+    total_samples = fil.header.nsamples
+
+    # Calculate frequency range
     fch1 = fil.header.fch1    # First channel frequency
     foff = fil.header.foff    # Channel bandwidth
-    
-    # Calculate frequency range
     frequencies = np.arange(nchan) * foff + fch1  # MHz
     min_freq_mhz = np.min(frequencies)
     max_freq_mhz = np.max(frequencies)
-    
-    # Calculate start and end samples
-    start_sample = int(start_time / tsamp)
-    end_sample = int(end_time / tsamp)
+
+    # Calculate start and end sample indices
+    start_sample = max(0, int(start_time / tsamp))
+    end_sample = min(total_samples, int(end_time / tsamp))
     n_samples = end_sample - start_sample
-    
-    # Read data in chunks to manage memory
-    chunk_size = 10000  # Number of time samples per chunk
-    n_chunks = (n_samples + chunk_size - 1) // chunk_size
-    
-    # Pre-allocate array for full data - note the order of dimensions
-    dynamic_spectrum = np.empty((n_samples, nchan), dtype=np.float32)
-    
-    # Read data in chunks
-    for i in range(n_chunks):
-        chunk_start = start_sample + i * chunk_size
-        chunk_end = min(chunk_start + chunk_size, end_sample)
-        chunk_size_actual = chunk_end - chunk_start
-        
-        # Read chunk using read_block method
-        block = fil.read_block(chunk_start, chunk_size_actual)
-        # Convert FilterbankBlock to numpy array and transpose if necessary
-        chunk_data = block.data
-        if chunk_data.shape[0] == nchan:  # If dimensions are swapped
-            chunk_data = chunk_data.T
-        
-        # Store in the pre-allocated array
-        start_idx = i * chunk_size
-        end_idx = start_idx + chunk_size_actual
-        dynamic_spectrum[start_idx:end_idx] = chunk_data
-    
-    # Calculate return values
+
+    if n_samples <= 0:
+        raise ValueError("Invalid time range: Start time must be less than end time within the file's duration.")
+
+    # Read and process only the required range
+    dynamic_spectrum = fil.read_block(start_sample, n_samples).data
+
+    # Ensure correct data orientation
+    if dynamic_spectrum.shape[0] == nchan:
+        dynamic_spectrum = dynamic_spectrum.T
+
+    # Calculate additional metadata
     time_resolution_us = tsamp * 1e6
-    time_bins_per_block = int(1 / tsamp)
+    time_bins_per_block = int(1e6 / time_resolution_us)
     sampling_rate = int(1 / tsamp)
-    
+
     # Print memory usage info
     processed_data_size_bytes = dynamic_spectrum.nbytes
     print(f"Processed data size: {processed_data_size_bytes} bytes")
-    
+
     return (
         dynamic_spectrum,
         time_bins_per_block,
@@ -219,6 +209,7 @@ def read_filterbank_file(filename, start_time, end_time):
         max_freq_mhz,
         time_resolution_us
     )
+
   
 def calculate_az_el(fits_header, observation_time):
     ra_str = fits_header['RA']  
@@ -312,6 +303,12 @@ def identify_frequent_outliers(outliers_sk, frequencies, threshold=0.7, neighbor
 
     # Expand the frequent outliers by checking neighboring channels
     expanded_frequent_outliers = np.copy(frequent_outliers)
+    
+    ##added by fazal
+    if len(expanded_frequent_outliers) == 0:
+        # Handle the empty case - decide what you want to return or raise an error
+        print("No outliers identified for this interval.")
+        return [], []  # or return None, None, or any other appropriate value
 
     left_neighbors = frequent_outliers - 1
     left_neighbors = left_neighbors[(left_neighbors >= 0)]
@@ -740,7 +737,7 @@ def run_analysis_for_intervals(file_path, output_folder, target_resolution_ms=1.
     #             azimuth_start, elevation_start
     #         )
     # Process intervals in parallel
-    with ProcessPoolExecutor(max_workers=2) as executor:
+    with ProcessPoolExecutor() as executor:
         futures = [
             executor.submit(
                 process_interval, i, file_path, output_folder, 
@@ -786,3 +783,4 @@ if __name__ == '__main__':
     args = parser.parse_args()
     run_analysis_for_intervals(args.input_file, args.output_folder,
                              args.target_resolution_ms, args.num_intervals)
+

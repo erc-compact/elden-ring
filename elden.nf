@@ -26,31 +26,46 @@ workflow {
             return tuple(fits_files, cluster, beam_name, beam_id, utc_start)
         }
 
-    if (params.generateRfiFilter.run_rfi_filter) {
-        // Run readfile process to get time_per_file
+    if (params.filtool.run_filtool) {
+        // Run readfile process to get metadata
         readfile_output = readfile(fits_file_channel_and_meta)
 
-        // Run generateRfiFilter process using the time_per_file
-        generateRfiFilter_output = generateRfiFilter(readfile_output)
+        if (params.generateRfiFilter.run_rfi_filter) {
+            // Run generateRfiFilter process using the time_per_file
+            generateRfiFilter_output = generateRfiFilter(readfile_output)
 
-        // RFI removal with filtool using the generated rfi_filter_string
-        processed_fil_file = filtool(generateRfiFilter_output, params.threads, params.telescope)
-    } else {
-        // Skip RFI filtering processes
-        // Use default RFI filters based on telescope
-        filtool_input = fits_file_channel_and_meta.map { fits_file_meta ->
-            def default_rfi_filter = params.filtool.rfi_filter_list[params.telescope]
-            return tuple(fits_file_meta, default_rfi_filter)
+            // RFI removal with filtool using the generated rfi_filter_string   
+            processed_fil_file = filtool(generateRfiFilter_output, params.threads, params.telescope)
+
+        } else {
+            // Skip RFI filtering processes
+            // Use default RFI filters based on telescope
+            filtool_input = readfile_output.map { metadata ->
+                def (fits_file_channel_and_meta, time_per_file, tsamp, nsamples, subintlength) = metadata
+                def default_rfi_filter = params.filtool.rfi_filter_list[params.telescope]
+                return tuple(fits_file_channel_and_meta, default_rfi_filter, tsamp, nsamples, subintlength)}
+
+            // RFI removal with filtool using default rfi_filter_string
+            processed_fil_file = filtool(filtool_input, params.threads, params.telescope)
+        } 
+
+        // Create a new channel with the metadata and new file path
+        new_fil_file_channel = processed_fil_file.map { metadata, tsamp, nsamples, SubintLength, filepath  -> 
+            def (raw_file, cluster, beam_name, beam_id, utc_start) = metadata
+            return tuple(filepath, cluster, beam_name, beam_id, utc_start, tsamp, nsamples, SubintLength)
         }
 
-        // RFI removal with filtool using default rfi_filter_string
-        processed_fil_file = filtool(filtool_input, params.threads, params.telescope)
-    }
+    // no filtool
 
-    // Create a new channel with the metadata and new file path
-    new_fil_file_channel = processed_fil_file.map { metadata, filepath -> 
-        def (raw_file, cluster, beam_name, beam_id, utc_start) = metadata
-        return tuple(filepath, cluster, beam_name, beam_id, utc_start)
+    } else {
+        // Run readfile process to get metadata
+        readfile_output = readfile(fits_file_channel_and_meta)
+
+        // Create a new channel with the metadata and new file path
+        new_fil_file_channel = readfile_output.map { metadata , time_per_file, tsamp, nsamples, subintlength -> 
+            def ( filepath, cluster, beam_name, beam_id, utc_start) = metadata
+            return tuple(filepath, cluster, beam_name, beam_id, utc_start, tsamp, nsamples, subintlength)
+        }.view()
     }
 
     // Find the nearest power of two

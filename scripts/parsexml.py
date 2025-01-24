@@ -157,10 +157,17 @@ def convert_to_deg(ra, dec):
 
 def main(args):
     cands, meta = read_candidate_files(args.files, args.verbose)
-
+    
     # Save the DataFrame to a CSV file
-    outname = os.path.join(args.outdir, args.outfile)
+    outname = os.path.join(args.outdir, "candidates_all.csv")
     cands.to_csv(outname, index=False)
+    
+    # check if fold_snr > fft_snr and remove the candidate
+    valid_cands = cands[cands['folded_snr'] >= 0.8 * cands['snr']]
+    
+    # Save the valid candidates to a CSV file
+    outname = os.path.join(args.outdir, args.outfile)
+    valid_cands.to_csv(outname, index=False)
     
     # Save the metadata to a text file
     meta_outname = os.path.join(args.outdir, args.metafile)

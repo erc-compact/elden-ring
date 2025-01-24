@@ -6,7 +6,7 @@ process readfile {
     val(fits_file_channel_and_meta)
 
     output:
-    tuple val(fits_file_channel_and_meta), env(time_per_file)
+    tuple val(fits_file_channel_and_meta), env(time_per_file), env(tsamp), env(nsamples), env(subintlength)
 
     script:
     def inputFile = "${fits_file_channel_and_meta[0].trim()}"
@@ -15,6 +15,9 @@ process readfile {
     output=\$(readfile ${inputFile})
     echo "\$output"
     time_per_file=\$(echo "\$output" | grep "Time per file (sec)" | awk '{print \$6}')
+    tsamp=\$(echo "\$output" | grep "Sample time (us)" | awk '{print \$5}')
+    nsamples=\$(echo "\$output" | grep "Spectra per file" | awk '{print \$5}')
+    subintlength=\$(echo "scale=10; \$nsamples * \$tsamp * (1/1000000) / 64.0" | bc -l | awk '{print int(\$0)}')
     echo "\${time_per_file}" > time_per_file.txt
     """
 }
@@ -22,40 +25,35 @@ process readfile {
 process generateRfiFilter {
     label 'generate_rfi_filter'
     container "${params.rfi_mitigation_image}"
-    publishDir "${params.generateRfiFilter.output_path}/", pattern: "*.png", mode: 'copy'
-    publishDir "${params.generateRfiFilter.output_path}/", pattern: "*.txt", mode: 'copy'
+    publishDir "${params.generateRfiFilter.fits_rfi_output_dir}/", pattern: "*.{png,txt}", mode: 'symlink'
 
     input:
-    tuple val(fits_file_channel_and_meta), val(time_per_file)
+    tuple val(fits_file_channel_and_meta), val(time_per_file), val(tsamp), val(nsamples), val(subintlength)
 
     output:
-    tuple val(fits_file_channel_and_meta), val(rfi_filter_string)
+    tuple val(fits_file_channel_and_meta), env(rfi_filter_string) , val(tsamp), val(nsamples) , val(subintlength)
 
     script:
     def inputFile = "${fits_file_channel_and_meta[0].trim()}"
     def beam_name = "${fits_file_channel_and_meta[2].trim()}"
-    // num_intervals is the floor of time_per_file divided by 100
-    def num_intervals = Math.floor(${time_per_file} / 100) as int
+    def num_intervals = Math.floor(time_per_file.toFloat() / 400) as int
+    // def num_intervals = 2
     """
     #!/bin/bash
-
-    # Generate the RFI filter
+    export MPLCONFIGDIR=/tmp
+    export NUMBA_CACHE_DIR=/tmp
     python3 ${params.generateRfiFilter.script} ${inputFile} . --target_resolution_ms ${params.generateRfiFilter.target_resolution_ms} --num_intervals ${num_intervals}
 
-    # Parse the frequency ranges and generate zap commands
     zap_commands=\$(grep -Eo '[0-9.]+ *- *[0-9.]+' combined_frequent_outliers.txt | \\
     awk -F '-' '{gsub(/ /,""); print "zap "\$1" "\$2}' | tr '\\n' ' ')
 
-    # Prepend 'kadaneF 8 4 zdot' to the zap commands
     rfi_filter_string="kadaneF 8 4 zdot \${zap_commands}"
-
     echo "\${rfi_filter_string}" > rfi_filter_string.txt
 
-    mv combined_sk_heatmap_and_histogram.png ${beam_name}.png
+    mv combined_sk_heatmap_and_histogram.png ${beam_name}_rfi.png
     mv combined_frequent_outliers.txt combined_frequent_outliers_${beam_name}.txt
     mv block_bad_channel_percentages.txt block_bad_channel_percentages_${beam_name}.txt
     """
-    rfi_filter_string = file('rfi_filter_string.txt').text.trim()
 }
 
 process filtool {
@@ -65,12 +63,12 @@ process filtool {
     publishDir "${params.filtool.output_path}/", pattern: "*.fil", mode: 'symlink'
 
     input:
-    tuple val(fits_file_channel_and_meta), val(rfi_filter_string)
+    tuple val(fits_file_channel_and_meta), val(rfi_filter_string), val(tsamp), val(nsamples) , val(subintlength)
     val threads
     val telescope
 
     output:
-    tuple val(fits_file_channel_and_meta), path("*.fil")
+    tuple val(fits_file_channel_and_meta), val(tsamp), val(nsamples), val(subintlength), path("*.fil")
     
     script:
     def (fits_file, cluster, beam_name, beam_id, utc_start) = fits_file_channel_and_meta
@@ -86,6 +84,7 @@ process filtool {
     """
     #!/bin/bash
     # Get the first file from the inputFile string
+    # This is used to determine the file extension
     first_file=\$(echo ${inputFile} | awk '{print \$1}')
 
     # Extract the file extension from the first file
@@ -93,14 +92,14 @@ process filtool {
     
     if [[ ${telescope} == "effelsberg" ]]; then
         if [[ "\${file_extension}" == "fits" ]]; then
-            filtool --psrfits --scloffs --flip -t ${threads} --telescope ${telescope} ${zaplist} -o ${outputFile} -f ${inputFile} -s ${source_name}
+            filtool --psrfits --flip -t ${threads} --telescope ${telescope} ${zaplist} -o ${outputFile} -f ${inputFile} -s ${source_name}
         else 
             filtool -t ${threads} --telescope ${telescope} ${zaplist} -o ${outputFile} -f ${inputFile} -s ${source_name}
         fi
 
     elif [[ ${telescope} == "meerkat" ]]; then
         if [[ "\${file_extension}" == "sf" ]]; then
-            filtool --psrfits --scloffs -t ${threads} --telescope ${telescope} ${zaplist} -o ${outputFile} -f ${inputFile} -s ${source_name}
+            filtool --psrfits -t ${threads} --telescope ${telescope} ${zaplist} -o ${outputFile} -f ${inputFile} -s ${source_name}
         else 
             filtool -t ${threads} --telescope ${telescope} ${zaplist} -o "${outputFile}" -f ${inputFile} -s ${source_name}
         fi
@@ -165,8 +164,6 @@ process generateDMFiles {
     """
 }
 
-
-
 process peasoup {
     label 'peasoup'
     container "${params.peasoup_image}"
@@ -202,7 +199,7 @@ process parse_xml {
     tuple val(cluster),val(beam_name), val(beam_id), val(utc_start), val(fft_size), val(dm_file), val(fil_file_base), path(fil_file), path(xml_files)
 
     output:
-    tuple val(cluster),val(beam_name), val(beam_id), val(utc_start), val(fft_size), val(dm_file), val(fil_file_base), path(fil_file), path(xml_files), path("*.csv"), path("*.meta")
+    tuple val(cluster),val(beam_name), val(beam_id), val(utc_start), val(fft_size), val(dm_file), val(fil_file_base), path(fil_file), path(xml_files), path("*candidates.csv"), path("*.meta")
     
     script:
     """
@@ -246,7 +243,7 @@ process psrfold {
     """
     python3 ${baseDir}/scripts/pulsarx_fold.py -meta ${metatext} -cands ${candfile}
     """
-}
+};
 
 process pics_classifier {
     label "pics_classifier"
@@ -265,12 +262,6 @@ process pics_classifier {
     python /hercules/scratch/fkareem/New_Elden_Ring/scripts/pics_classifier_v2.0.py -m ${params.pics_model_dir} -o ${output_csv}
     """
 }
-
-
-
-
-
-    
 
 
 
