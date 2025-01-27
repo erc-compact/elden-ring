@@ -6,7 +6,7 @@ process readfile {
     val(fits_file_channel_and_meta)
 
     output:
-    tuple val(fits_file_channel_and_meta), env(time_per_file), env(tsamp), env(nsamples), env(subintlength)
+    tuple val(fits_file_channel_and_meta), env(time_per_file), env(tsamp), env(nsamples), env(subintlength), env(tsamp), env(nsamples), env(subintlength)
 
     script:
     def inputFile = "${fits_file_channel_and_meta[0].trim()}"
@@ -15,6 +15,9 @@ process readfile {
     output=\$(readfile ${inputFile})
     echo "\$output"
     time_per_file=\$(echo "\$output" | grep "Time per file (sec)" | awk '{print \$6}')
+    tsamp=\$(echo "\$output" | grep "Sample time (us)" | awk '{print \$5}')
+    nsamples=\$(echo "\$output" | grep "Spectra per file" | awk '{print \$5}')
+    subintlength=\$(echo "scale=10; \$nsamples * \$tsamp * (1/1000000) / 64.0" | bc -l | awk '{print int(\$0)}')
     tsamp=\$(echo "\$output" | grep "Sample time (us)" | awk '{print \$5}')
     nsamples=\$(echo "\$output" | grep "Spectra per file" | awk '{print \$5}')
     subintlength=\$(echo "scale=10; \$nsamples * \$tsamp * (1/1000000) / 64.0" | bc -l | awk '{print int(\$0)}')
@@ -28,10 +31,10 @@ process generateRfiFilter {
     publishDir "${params.generateRfiFilter.fits_rfi_output_dir}/", pattern: "*.{png,txt}", mode: 'symlink'
 
     input:
-    tuple val(fits_file_channel_and_meta), val(time_per_file), val(tsamp), val(nsamples), val(subintlength)
+    tuple val(fits_file_channel_and_meta), val(time_per_file), val(tsamp), val(nsamples), val(subintlength), val(tsamp), val(nsamples), val(subintlength)
 
     output:
-    tuple val(fits_file_channel_and_meta), env(rfi_filter_string) , val(tsamp), val(nsamples) , val(subintlength)
+    tuple val(fits_file_channel_and_meta), env(rfi_filter_string) , val(tsamp), val(nsamples) , val(subintlength) , val(tsamp), val(nsamples) , val(subintlength)
 
     script:
     def inputFile = "${fits_file_channel_and_meta[0].trim()}"
@@ -64,12 +67,12 @@ process filtool {
     publishDir "${params.filtool.output_path}/", pattern: "*.fil", mode: 'symlink'
 
     input:
-    tuple val(fits_file_channel_and_meta), val(rfi_filter_string), val(tsamp), val(nsamples) , val(subintlength)
+    tuple val(fits_file_channel_and_meta), val(rfi_filter_string), val(tsamp), val(nsamples) , val(subintlength), val(tsamp), val(nsamples) , val(subintlength)
     val threads
     val telescope
 
     output:
-    tuple val(fits_file_channel_and_meta), val(tsamp), val(nsamples), val(subintlength), path("*.fil")
+    tuple val(fits_file_channel_and_meta), val(tsamp), val(nsamples), val(subintlength), val(tsamp), val(nsamples), val(subintlength), path("*.fil")
     
     script:
     def (fits_file, cluster, beam_name, beam_id, utc_start) = fits_file_channel_and_meta
@@ -117,7 +120,7 @@ process psrfold {
     publishDir "${params.parfold.output_path}/", pattern: "*.cands", mode: 'copy'
     
     input:
-    tuple path(fil_file), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(tsamp), val(nsamples), val(subintlength)
+    tuple path(fil_file), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(tsamp), val(nsamples), val(subintlength), val(tsamp), val(nsamples), val(subintlength)
     each path(parfile_channel)
 
     output:
@@ -176,6 +179,7 @@ workflow {
 
         // RFI removal with filtool using the generated rfi_filter_string
         processed_fil_file = filtool(generateRfiFilter_output, params.threads, params.telescope)
+        } else {
         } else {
         // Skip RFI filtering processes
         // Use default RFI filters based on telescope
