@@ -2,9 +2,11 @@
 nextflow.enable.dsl=2
 
 include { filtool } from './processes'
-include { nearest_power_of_two_calculator } from './processes'
+// include { nearest_power_of_two_calculator } from './processes'
 include { generateDMFiles } from './processes'
+include { segmented_params } from './processes'
 include { peasoup } from './processes'
+include { birdies } from './processes'
 include { parse_xml } from './processes'
 include { splitcands } from './processes'
 include { psrfold } from './processes'
@@ -24,7 +26,7 @@ workflow {
             def beam_id = row.beam_id.trim()
             def utc_start = row.utc_start.trim().replace(" ", "-")
             return tuple(fits_files, cluster, beam_name, beam_id, utc_start)
-        }
+        }.view()
 
     if (params.filtool.run_filtool) {
         // Run readfile process to get metadata
@@ -32,10 +34,12 @@ workflow {
 
         if (params.generateRfiFilter.run_rfi_filter) {
             // Run generateRfiFilter process using the time_per_file
-            generateRfiFilter_output = generateRfiFilter(readfile_output)
+            generateRfiFilter_output = generateRfiFilter(readfile_output).map { fits_files, cluster, beam_name, beam_id, utc_start, rfi_filter_string, tsamp, nsamples, subintlength, pngs, rfitxt -> 
+                return tuple(fits_files, cluster, beam_name, beam_id, utc_start, rfi_filter_string, tsamp, nsamples, subintlength)
+            }
 
             // RFI removal with filtool using the generated rfi_filter_string   
-            processed_fil_file = filtool(generateRfiFilter_output, params.threads, params.telescope)
+            new_fil_file_channel = filtool(generateRfiFilter_output, params.threads, params.telescope)
 
         } else {
             // Skip RFI filtering processes
@@ -46,14 +50,8 @@ workflow {
                 return tuple(fits_file_channel_and_meta, default_rfi_filter, tsamp, nsamples, subintlength)}
 
             // RFI removal with filtool using default rfi_filter_string
-            processed_fil_file = filtool(filtool_input, params.threads, params.telescope)
+            new_fil_file_channel = filtool(filtool_input, params.threads, params.telescope)
         } 
-
-        // Create a new channel with the metadata and new file path
-        new_fil_file_channel = processed_fil_file.map { metadata, tsamp, nsamples, SubintLength, filepath  -> 
-            def (raw_file, cluster, beam_name, beam_id, utc_start) = metadata
-            return tuple(filepath, cluster, beam_name, beam_id, utc_start, tsamp, nsamples, SubintLength)
-        }
 
     // no filtool
 
@@ -68,40 +66,71 @@ workflow {
         }.view()
     }
 
-    // Find the nearest power of two
-    nearest_power_of_two = nearest_power_of_two_calculator(new_fil_file_channel)
+    // segmented search
+    // Split the data into segments
+    split_params_input = new_fil_file_channel.flatMap { filepath, cluster, beam_name, beam_id, utc_start, tsamp, nsamples, subintlength -> params.peasoup.segments.collect { segments -> 
+        return tuple(filepath, cluster, beam_name, beam_id, utc_start, segments)}}.view()
 
-    // Generate DM files
-    dm_file = generateDMFiles()
+    segmented_params = segmented_params(split_params_input)
 
-    // Peasoup processing
-    peasoup_output = peasoup(nearest_power_of_two, dm_file)
-
-    // Aggregate the output from peasoup
-    basename_ch = peasoup_output.map { cluster, beam_name, beam_id, utc_start, fft_size, dm_file, fil_file, xml_path -> 
-        def fil_base_name = fil_file.getBaseName()
-        return tuple(cluster, beam_name, beam_id, utc_start, fft_size, dm_file, fil_base_name, fil_file, xml_path)
+    // Create a channel with the segmented parameters for peasoup
+    peasoup_input = segmented_params.flatMap { filepath, cluster, beam_name, beam_id, utc_start, tsamp, nsamples, segments, segment_file -> 
+        // parse the segment file
+        segment_file.splitCsv(header : true, sep : ',').collect { row -> 
+            def segment_id = row.i.trim()
+            def fft_size = row.fft_size.trim()
+            def start_sample = row.start_sample.trim()
+            def nsamples_per_segment = row.nsamples_per_segment.trim()
+            return tuple(filepath, cluster, beam_name, beam_id, utc_start, tsamp, nsamples_per_segment, segments, segment_id, fft_size, start_sample)
+        }
     }
 
-    // Group peasoup outputs by specific keys
-    peasoup_output_grouped = basename_ch.groupTuple(by: [0, 1, 2, 3, 4, 6]).map { cluster, beam_name, beam_id, utc_start, fft_size, dm_file, fil_base_name, fil_files, xml_paths -> 
+    // you wanted to work from here onwards by making the changes to this channel.
+
+    // Generate DM files
+    dm_file = generateDMFiles(fits_file_channel_and_meta)
+
+    // // Generate birdies file
+    birdies_file = birdies(peasoup_input)
+
+    // Peasoup processing
+    peasoup_output = peasoup(peasoup_input, birdies_file, dm_file)
+
+    // Aggregate the output from peasoup
+    basename_ch = peasoup_output.map { cluster, beam_name, beam_id, utc_start, fft_size, segments, segment_id, dm_file, fil_file, xml_path, birdies_file, start_sample, nsamples -> 
+        def fil_base_name = fil_file.getBaseName()
+        return tuple(cluster, beam_name, beam_id, utc_start, fft_size, segments, segment_id, dm_file, fil_base_name, fil_file, xml_path, start_sample)
+    }
+
+    // Group peasoup outputs xml files of the same cluster, beam and segment chunk
+    peasoup_output_grouped = basename_ch.groupTuple(by: [0, 1, 2, 3, 5, 6, 8]).map { cluster, beam_name, beam_id, utc_start, fft_size, segments, segment_id, dm_file, fil_base_name, fil_files, xml_paths, start_sample, nsamples -> 
         def first_fil_file = fil_files[0]
-        return tuple(cluster, beam_name, beam_id, utc_start, fft_size, dm_file, fil_base_name, first_fil_file, xml_path)
+        return tuple(cluster, beam_name, beam_id, utc_start, fft_size, segments, segment_id, dm_file, fil_base_name, first_fil_file, xml_path, start_sample)
     }
 
     // Parse the XML files and adjust the tuple
-    parse_xml_results = parse_xml(peasoup_output_grouped).map { cluster, beam_name, beam_id, utc_start, fft_size, dm_file, fil_base_name, fil_file, xml_path, candidate_csv, metafile -> 
-        return tuple(cluster, beam_name, beam_id, utc_start, fft_size, dm_file, fil_base_name, fil_file, xml_path, candidate_csv, metafile)
-        }
+    parse_xml_results = parse_xml(peasoup_output_grouped)
+
+    // add sifting here
 
     // Split the candidates and adjust the tuple
-    splitcands_channel = splitcands(parse_xml_results).map { cluster, beam_name, beam_id, utc_start, fft_size, dm_file, fil_base_name, fil_file, xml_path, candidate_csv, metafile, allCands, candfile, metatext -> 
-        return tuple(cluster, beam_name, beam_id, utc_start, fft_size, fil_base_name, fil_file, candfile, metatext)  
+    splitcands_channel = splitcands(parse_xml_results).map { cluster, beam_name, beam_id, utc_start, fft_size, segments, segment_id, dm_file, fil_base_name, fil_file, xml_path, start_sample, candidate_csv, metafile, allCands, candfile, metatext -> 
+        return tuple(cluster, beam_name, beam_id, utc_start, fft_size, segments, segment_id, fil_base_name, fil_file, start_sample, candfile, metatext)
     }.transpose()
 
     // Fold the candidates
-    folded_cands = psrfold(splitcands_channel)
+    pulsarx_output = psrfold(splitcands_channel)
+
+    // write the classification and alpha beta test.
+    // alpha_beta_gamma_input = pulsarx_output.map { cluster, beam_name, beam_id, utc_start, fft_size, segments, segment_id, fil_base_name, fil_file, candfile, metatext, pngs, archives, cands ->
+    //     [
+    //         archives : archives,
+    //         cands : cands,
+    //         search_fold_csv : 
+    //     ]
 
     // Classify the candidates (optional)
-    // classified_cands = pics_classifier(folded_cands)
+    classified_cands = pics_classifier(pulsarx_output)
+
+
 }

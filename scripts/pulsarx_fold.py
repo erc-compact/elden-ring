@@ -37,8 +37,12 @@ def meta_parser(meta_file):
     return meta_dict
     
 def fold_with_pulsarx(meta_dict, output_dir, cand_file):
-    # nsamples = int(meta_dict['Nsamples'])
     subint_length = int(meta_dict['SubintLength'])
+    start_fraction = int(meta_dict['start_fraction'])
+    end_fraction = int(meta_dict['end_fraction'])
+    tstart = int(meta_dict['SegmentPepoch'])
+    fft_size = int(meta_dict['fft_size'])
+    chunk_id = str(meta_dict['ChunkId'])
     nsubband = int(meta_dict['Nsubband'])
     clfd_q_value = float(meta_dict['ClfdQValue'])
     Telescope = meta_dict['Telescope']
@@ -47,12 +51,12 @@ def fold_with_pulsarx(meta_dict, output_dir, cand_file):
     beam_id = meta_dict['BeamId']
     utc_beam = meta_dict['UTCBeam']
     filterbank_file = meta_dict['FilterbankFile']
-    tstart = meta_dict['StartTime']
     fast_nbins = meta_dict['Fast_nbins']
     slow_nbins = meta_dict['Slow_nbins']
     pulsarx_threads = meta_dict['Threads']
     nbins_string = "-b {} --nbinplan 0.1 {}".format(fast_nbins, slow_nbins)
     
+        
     if 'ifbf' in beam_name:
         beam_tag = "--incoherent -i {}".format(int(beam_name.strip("ifbf")))
     elif 'cfbf' in beam_name:
@@ -62,14 +66,14 @@ def fold_with_pulsarx(meta_dict, output_dir, cand_file):
 
     cand_file_name = os.path.basename(cand_file)
     logging.info(f"folding {cand_file_name}")
-    output_rootname = os.path.join(output_dir, f"{cand_file_name.split('_')[0]}_{cand_file_name.split('_')[-1].split('.')[0]}")
+    output_rootname = os.path.join(output_dir, f"{cand_file_name.split('_')[0]}_{cand_file_name.split('_')[-1].split('.')[0]}_ck{chunk_id}")
     logging.info(f"Output path: {output_rootname}")
     os.makedirs(output_rootname, exist_ok=True)
     #print output with the cand_file
     print("Processing cand_file: ", cand_file)
     
-    script = "psrfold_fil --plotx -v -t {} --candfile {} -n {} {} {} --template {} --clfd {} -L {} -f {} -o {} --pepoch {}".format(
-        pulsarx_threads, cand_file, nsubband, nbins_string, beam_tag, template, clfd_q_value, subint_length, filterbank_file, output_rootname, tstart)
+    script = "psrfold_fil --plotx -v -t {} --candfile {} -n {} {} {} --template {} --clfd {} -L {} -f {} --rfi zdot -o {} --pepoch {} --frac {} {}".format(
+        pulsarx_threads, cand_file, nsubband, nbins_string, beam_tag, template, clfd_q_value, subint_length, filterbank_file, output_rootname, tstart, start_fraction, end_fraction)
     print(script)
     subprocess.check_output(script, shell=True)
 

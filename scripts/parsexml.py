@@ -7,7 +7,7 @@ import os
 import json
 
 
-def read_candidate_files(files, verbose=False):
+def read_candidate_files(files, chunk_id, verbose=False):
     """
     Reads XML candidate files and aggragates the candidates in a single pandas
         DataFrame.
@@ -50,6 +50,9 @@ def read_candidate_files(files, verbose=False):
             corrupted_list.append(file)
             continue
         root = tree.getroot()
+        header_params = root[1]
+        search_params = root[2]
+        segment_params = root[3]
 
         # Read the fil file from the XML file
         fil_file = root[2].find("infilename").text
@@ -64,7 +67,10 @@ def read_candidate_files(files, verbose=False):
         if file_index == 0:
             # Get metadata from the XML file
             tsamp = float(root[1].find("tsamp").text)
-            nsamples = float(root[1].find("nsamples").text)
+            total_nsamples = float(root[1].find("nsamples").text)
+            segment_start_sample = int(segment_params.find('segment_start_sample').text)
+            segment_nsamples = int(segment_params.find('segment_nsamples').text)
+            xml_segment_pepoch = float(segment_params.find('segment_pepoch').text)
             tstart = float(root[1].find("tstart").text)
             fft_size = float(root.find('search_parameters/size').text)
             obs_length = tsamp * nsamples
@@ -72,7 +78,11 @@ def read_candidate_files(files, verbose=False):
             obs_length_over_c = obs_length / speed_of_light
             source_name = root[1].find("source_name").text
             obs_meta_data = {"tsamp": tsamp,
-                             "nsamples": nsamples,
+                             "segment_start_sample": segment_start_sample,
+                             "segment_nsamples": segment_nsamples,
+                             "xml_segment_pepoch": xml_segment_pepoch,
+                             "chunk_id": chunk_id,
+                             "total_nsamples": total_nsamples,
                              "obs_length": obs_length,
                              "fft_size": fft_size,
                              "tstart": tstart,
@@ -155,36 +165,31 @@ def convert_to_deg(ra, dec):
     coord = SkyCoord('%s %s'%(ra_coord,dec_coord), unit=(u.hourangle, u.deg))
     return coord.ra.deg, coord.dec.deg
 
-def main(args):
-    cands, meta = read_candidate_files(args.files, args.verbose)
+def main():
+    parser = argparse.ArgumentParser(description='Read candidate files and aggregate them in a single pandas DataFrame.')
+    parser.add_argument('files', metavar='files', type=str, nargs='+',
+                        help='List of XML candidate files to read.')
+    parser.add_argument('--verbose', action='store_true',
+                        help='Print additional debug information.')
+    parser.add_argument('--outdir', type=str, default=os.getcwd(),
+                        help='Output directory for the aggregated DataFrame')
+    parser.add_argument('--outfile', type=str, default='candidates.csv',
+                        help='Name of the output file')
+    parser.add_argument('--metafile', type=str, default='metafile.meta', 
+                        help='Name of the metadata file')
+    parser.add_argument('--chunk_id', type=str, default='10')
+    args = parser.parse_args()
+    cands, meta = read_candidate_files(args.files, args.chunk_id, args.verbose)
     
+    chunk_id = args.chunk_id
+
     # Save the DataFrame to a CSV file
-    outname = os.path.join(args.outdir, "candidates_all.csv")
+    outname = os.path.join(args.outdir, "ck" + str(chunk_id) + args.outfile)
     cands.to_csv(outname, index=False)
     
-    # check if fold_snr > fft_snr and remove the candidate
-    valid_cands = cands[cands['folded_snr'] >= 0.8 * cands['snr']]
-    
-    # Save the valid candidates to a CSV file
-    outname = os.path.join(args.outdir, args.outfile)
-    valid_cands.to_csv(outname, index=False)
-    
     # Save the metadata to a text file
-    meta_outname = os.path.join(args.outdir, args.metafile)
+    meta_outname = os.path.join(args.outdir, str(chunk_id) + args.metafile)
     json.dump(meta, open(meta_outname, 'w'))
 
-parser = argparse.ArgumentParser(description='Read candidate files and aggregate them in a single pandas DataFrame.')
-parser.add_argument('files', metavar='files', type=str, nargs='+',
-                    help='List of XML candidate files to read.')
-parser.add_argument('--verbose', action='store_true',
-                    help='Print additional debug information.')
-parser.add_argument('--outdir', type=str, default=os.getcwd(),
-                    help='Output directory for the aggregated DataFrame')
-parser.add_argument('--outfile', type=str, default='candidates.csv',
-                    help='Name of the output file')
-parser.add_argument('--metafile', type=str, default='metafile.meta', 
-                    help='Name of the metadata file')
-args = parser.parse_args()
-
 if __name__ == "__main__":
-    main(args)
+    main()

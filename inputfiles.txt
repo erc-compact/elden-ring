@@ -1,2 +1,2 @@
 fits_files,cluster,beam_name,beam_id,utc_start
-/fpra/timing/01/fazal/Eff_Data_Proc/NGC6626/Filtool/NGC6626_Band1_EDDmask_01.fil,NGC6626,cfbf00001,1,2024-04-05T03:23:38
+/beegfsEDD/EDD_pipeline_data/production/pipeline_data/search1/107-23/NGC6544_20240405-03:23:38.fits,NGCTEST,cfbf00001,1,2024-04-05T03:23:38

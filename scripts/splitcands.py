@@ -118,11 +118,15 @@ def main():
     df = pd.read_csv(args.input_file)
     df = df[df["fil_file"] ==  os.path.basename(args.input_fil_file)]
     meta = pd.read_json(args.metafile, typ='series')
-    nsamples = meta['nsamples']
+    segment_start_sample = meta['segment_start_sample']
+    segment_nsamples = meta['segment_nsamples']
+    xml_segment_pepoch = meta['xml_segment_pepoch']
+    total_nsamples = meta['total_nsamples']
     tstart = meta['tstart']
     fft_size = meta['fft_size']
     tsamp = meta['tsamp']
     source_name_prefix = meta['source_name']
+    chunk_id = meta['chunk_id']
     beam_name = args.beam_name
     threads = args.pulsarx_threads
 
@@ -136,20 +140,35 @@ def main():
         PulsarX_Template = f"{args.pulsarx_fold_template}/meerkat_fold.template"
     elif args.telescope == 'effelsberg':
         PulsarX_Template = f"{args.pulsarx_fold_template}/Effelsberg_{args.beam_id}.template"
+        
+    start_fraction = round(segment_start_sample / total_nsamples, 3)
+    end_fraction = round((segment_start_sample + segment_nsamples) / total_nsamples, 3)
+    
+    if end_fraction > 1:
+        end_fraction = 1
+        
+    effective_tobs = tsamp * segment_nsamples
     
     try:
         if args.fold_technique == 'pulsarx':
             if args.subint_length is None:
-                subint_length = max(1, int(nsamples * tsamp / 64))
+                subint_length = int(effective_tobs / 64)
             else:
                 subint_length = args.subint_length
             
             generate_pulsarX_cand_file(df, args.output_path, tsamp, fft_size, beam_name, source_name_prefix, args.cands_per_node)
             # Create meta file
-            meta_file = f"{args.output_path}/{source_name_prefix}_{beam_name}_meta.txt"
+            meta_file = f"{args.output_path}/{source_name_prefix}_{beam_name}__meta.txt"
             with open(meta_file, 'w') as f:
                 f.write(f"Ncandidates: {len(df)}\n")
-                f.write(f"Nsamples: {nsamples}\n")
+                f.write(f"start_fraction: {start_fraction}\n")
+                f.write(f"end_fraction: {end_fraction}\n")
+                f.write(f"fft_size: {fft_size}\n")
+                f.write(f"ChunkId: {chunk_id}\n")
+                f.write(f"Effective_tobs: {effective_tobs}\n")
+                f.write(f"SegmentNSamples: {segment_nsamples}\n")
+                f.write(f"SegmentPepoch: {xml_segment_pepoch}\n")
+                f.write(f"Nsamples: {total_nsamples}\n")
                 f.write(f"SubintLength: {subint_length}\n")
                 f.write(f"Nsubband: {args.nsubband}\n")
                 f.write(f"ClfdQValue: {args.clfd_q_value}\n")
