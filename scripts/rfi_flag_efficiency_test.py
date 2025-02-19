@@ -4,9 +4,9 @@ import argparse
 
 def find_known_pulsar(candidate_period, candidate_dm, df_known, period_tol, dm_tol):
     """
-    Check each known pulsar. If both the period and DM differences
-    are within the specified tolerances, return the pulsar's name.
-    Otherwise, return None.
+    Check each known pulsar from df_known.
+    If both the period and DM differences are within the tolerances,
+    return the pulsar's name; otherwise, return None.
     """
     for _, row in df_known.iterrows():
         if abs(candidate_period - row['Period']) <= period_tol and abs(candidate_dm - row['DM']) <= dm_tol:
@@ -17,24 +17,38 @@ def main():
     parser = argparse.ArgumentParser(
         description="Compare candidate pulsars with known pulsars and generate an annotated CSV and report."
     )
-    parser.add_argument("candidates_csv", help="CSV file containing candidates (e.g., candidates.csv).")
-    parser.add_argument("known_csv", help="CSV file containing known pulsars (e.g., known_pulsars.csv).")
-    parser.add_argument("--rfi_flag", type=str, help='RFI Flag string')
-    parser.add_argument("--output", default="annotated_candidates.csv", help="Output CSV file name.")
-    parser.add_argument("--report", default="report.txt", help="Output report file name.")
-    parser.add_argument("--period_tol", type=float, default=0.1, help="Tolerance for period matching.")
-    parser.add_argument("--dm_tol", type=float, default=0.5, help="Tolerance for DM matching.")
+    # Accept one or more candidate CSV files
+    parser.add_argument("candidates_csv", nargs='+',
+                        help="List of candidate CSV files (e.g., ck10candidates.csv ck20candidates.csv ...)")
+    parser.add_argument("known_csv", help="CSV file containing known pulsars (e.g., known_pulsars.csv)")
+    parser.add_argument("--output", default="annotated_candidates.csv",
+                        help="Output CSV file name.")
+    parser.add_argument("--report", default="report.txt",
+                        help="Output report file name.")
+    parser.add_argument("--period_tol", type=float, default=0.0001,
+                        help="Tolerance for period matching.")
+    parser.add_argument("--dm_tol", type=float, default=0.5,
+                        help="Tolerance for DM matching.")
+    parser.add_argument("--rfi_flag", type=str, default="",
+                        help="RFI flag string used during data processing.")
     args = parser.parse_args()
 
-    # Load the CSV files
-    df_candidates = pd.read_csv(args.candidates_csv)
+    # Read and combine candidate CSV files; add a column with the source file name
+    candidate_dfs = []
+    for file in args.candidates_csv:
+        df = pd.read_csv(file)
+        df['source_file'] = file  # Include the file name in each row
+        candidate_dfs.append(df)
+    df_candidates = pd.concat(candidate_dfs, ignore_index=True)
+
+    # Load known pulsars CSV
     df_known = pd.read_csv(args.known_csv)
 
     # Prepare lists to store the new columns
     match_tags = []
     pulsar_names = []
 
-    # For each candidate, try to match with a known pulsar
+    # For each candidate, check for a match with a known pulsar
     for _, row in df_candidates.iterrows():
         candidate_period = row['period']
         candidate_dm = row['dm']
@@ -45,8 +59,8 @@ def main():
         else:
             match_tags.append("UNKNOWN")
             pulsar_names.append("")
-    
-    # Add the new columns to the candidate DataFrame
+
+    # Add the new columns to the DataFrame
     df_candidates['match'] = match_tags
     df_candidates['pulsar_name'] = pulsar_names
 
@@ -54,7 +68,7 @@ def main():
     df_candidates.to_csv(args.output, index=False)
     print(f"Annotated candidate CSV written to {args.output}")
 
-    # Prepare the report information
+    # Gather report statistics
     known_df = df_candidates[df_candidates['match'] == "KNOWN_PSR"]
     unknown_df = df_candidates[df_candidates['match'] == "UNKNOWN"]
     known_counts = known_df['pulsar_name'].value_counts()
@@ -63,10 +77,16 @@ def main():
     num_unknown = unknown_df.shape[0]
     total = df_candidates.shape[0]
 
-    # Create the report lines
+    # Build the report
     report_lines = []
     report_lines.append("Pulsar Candidate Matching Report")
     report_lines.append("--------------------------------")
+    report_lines.append(f"RFI Flag: {args.rfi_flag}")
+    report_lines.append("")
+    report_lines.append("Candidate Files Processed:")
+    for file in args.candidates_csv:
+        report_lines.append(f"  {file}")
+    report_lines.append("")
     report_lines.append(f"Total candidates: {total}")
     report_lines.append(f"KNOWN_PSR candidates: {num_known_total}")
     report_lines.append(f"Distinct known pulsars detected: {num_known_distinct}")

@@ -24,15 +24,47 @@ process readfile {
     """
 }
 
+process generateDMFiles {
+    label "generateDMFiles"
+    container "${params.presto_image}"
+    publishDir "${params.basedir}/${cluster}/DMFILES/", pattern: "*.dm", mode: 'copy'
+
+    input:
+    tuple path(fits_files), val(cluster), val(beam_name), val(beam_id), val(utc_start)
+
+    output:
+    path("*.dm")
+
+    script:
+    """
+    #!/usr/bin/env python3
+    import numpy as np
+
+    # Generate the DM file
+    dm_start = ${params.ddplan.dm_start}
+    dm_end = ${params.ddplan.dm_end}
+    dm_step = ${params.ddplan.dm_step}
+    dm_sample = ${params.ddplan.dm_sample}
+
+    # Create DM values with a step of dm_step
+    dm_values = np.round(np.arange(dm_start, dm_end, dm_step), 3)
+
+    # Split DM values into multiple files, each containing dm_sample number of lines
+    for i in range(0, len(dm_values), dm_sample):
+        chunk = dm_values[i:i + dm_sample]
+        end_index = min(i + dm_sample, len(dm_values))
+        filename = f'dm_{dm_values[i]}_{dm_values[end_index - 1]}.dm'
+        np.savetxt(filename, chunk, fmt='%f')
+    """
+}
+
 process filtool {
     label 'filtool'
     container "${params.pulsarx_image}"
     publishDir "${params.basedir}/${cluster}/CLEANEDFIL/", pattern: "*.fil", mode: 'copy'
 
     input:
-    tuple path(fits_files), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(tsamp), val(nsamples) , val(subintlength)
-    val(rfi_filter_string_id)
-    each val(rfi_filter_string)
+    tuple path(fits_files), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(tsamp), val(nsamples) , val(subintlength), val(rfi_filter_string_id), val(rfi_filter_string)
     val threads
     val telescope
 
@@ -152,10 +184,10 @@ process parse_xml {
     stageInMode 'symlink'
 
     input:
-    tuple val(cluster),val(beam_name), val(beam_id), val(utc_start), val(fft_size), val(rfi_filter_string), val(segments), val(segment_id), val(dm_file), val(fil_file_base), path(fil_file), path(xml_files), val(start_sample)
+    tuple val(cluster),val(beam_name), val(beam_id), val(utc_start), val(fft_size), val(rfi_filter_string_id), val(rfi_filter_string), val(segments), val(segment_id), val(dm_file), val(fil_file_base), path(fil_file), path(xml_files), val(start_sample)
 
     output:
-    tuple val(cluster),val(beam_name), val(beam_id), val(utc_start), val(fft_size), val(rfi_filter_string), val(segments), val(segment_id), val(dm_file), val(fil_file_base), path(fil_file), path(xml_files), val(start_sample), path("*candidates.csv"), path("*.meta")
+    tuple val(cluster),val(beam_name), val(beam_id), val(utc_start), val(fft_size), val(rfi_filter_string_id), val(rfi_filter_string), val(segments), val(segment_id), val(dm_file), val(fil_file_base), path(fil_file), path(xml_files), val(start_sample), path("*candidates.csv"), path("*.meta")
     
     script:
     """
@@ -166,17 +198,18 @@ process parse_xml {
 process rfi_filter_efficiency {
     label 'rfi_filter_efficiency'
     container "${params.pulsarx_image}"
-    publishDir "${params.basedir}/${cluster}/${beam_name}/segment_${segments}/${segments}${segment_id}/RFI_FILTER/", pattern: "*{fil,meta}", mode: 'copy'
+    publishDir "${params.basedir}/${cluster}/${beam_name}/segment_${segments}/${segments}${segment_id}/RFI_FILTER/", pattern: "*{efficiency.csv,report.txt}", mode: 'copy'
 
     input:
-    tuple val(cluster),val(beam_name), val(beam_id), val(utc_start), val(fft_size), val(rfi_filter_string), val(segments), val(segment_id), val(dm_file), val(fil_base_name), path(fil_file), path(xml_files), val(start_sample), path(candidate_csv), path(metafile)
+    tuple val(cluster),val(beam_name), val(beam_id), val(utc_start), val(fft_size), val(rfi_filter_string_id), val(rfi_filter_string), val(segments), val(segment_id), val(dm_file), val(fil_base_name), path(fil_file), path(xml_files), val(start_sample), path(candidate_csv), path(metafile)
 
     output:
-    tuple val(cluster),val(beam_name), val(beam_id), val(utc_start), val(fft_size), val(rfi_filter_string), val(segments), val(segment_id), val(dm_file), val(fil_base_name), path(fil_file), path(xml_files), val(start_sample), path(candidate_csv), path(metafile), path('*allCands.txt'),path('*candfile'),path('*meta.txt')
+    tuple val(cluster),val(beam_name), val(beam_id), val(utc_start), val(fft_size), val(rfi_filter_string_id), val(rfi_filter_string), val(segments), val(segment_id), val(dm_file), val(fil_base_name), path(fil_file), path(xml_files), val(start_sample), path(candidate_csv), path(metafile), path('*allCands.txt'),path('*candfile'),path('*meta.txt'), path('*efficiency.csv'), path('*report.txt')
 
     script:
     """
-    
+    echo "rfi_filter_efficiency test"
+    python3 ${baseDir}/scripts/rfi_filter_efficiency_test.py --candidates_csv ${candidate_csv} --known_csv ${params.rfi_filter_test.known_csv} --rfi_flag ${rfi_filter_string} --output ${cluster}_${beam_name}_ck${segments}${segment_id}_rfi_${rfi_filter_string_id}_efficiency.csv --report ${cluster}_${beam_name}_ck${segments}${segment_id}_rfi_${rfi_filter_string_id}_report.txt --period_tol 0.00001 --dm_tol 0.1
     """
 }
 
@@ -186,10 +219,10 @@ process splitcands {
     publishDir "${params.basedir}/${cluster}/${beam_name}/segment_${segments}/${segments}${segment_id}/SPLITS/", pattern: "*{allCands.txt,candfile,meta.txt}", mode: 'copy'
 
     input:
-    tuple val(cluster),val(beam_name), val(beam_id), val(utc_start), val(fft_size), val(rfi_filter_string), val(segments), val(segment_id), val(dm_file), val(fil_base_name), path(fil_file), path(xml_files), val(start_sample), path(candidate_csv), path(metafile)
+    tuple val(cluster),val(beam_name), val(beam_id), val(utc_start), val(fft_size), val(rfi_filter_string_id), val(rfi_filter_string), val(segments), val(segment_id), val(dm_file), val(fil_base_name), path(fil_file), path(xml_files), val(start_sample), path(candidate_csv), path(metafile)
 
     output:
-    tuple val(cluster),val(beam_name), val(beam_id), val(utc_start), val(fft_size), val(rfi_filter_string), val(segments), val(segment_id), val(dm_file), val(fil_base_name), path(fil_file), path(xml_files), val(start_sample), path(candidate_csv), path(metafile), path('*allCands.txt'),path('*candfile'),path('*meta.txt')
+    tuple val(cluster),val(beam_name), val(beam_id), val(utc_start), val(fft_size), val(rfi_filter_string_id), val(rfi_filter_string), val(segments), val(segment_id), val(dm_file), val(fil_base_name), path(fil_file), path(xml_files), val(start_sample), path(candidate_csv), path(metafile), path('*allCands.txt'),path('*candfile'),path('*meta.txt')
 
     script:
     """
@@ -209,10 +242,10 @@ process psrfold {
     publishDir "${params.basedir}/${cluster}/${beam_name}/segment_${segments}/${segments}${segment_id}/FOLDING/", pattern: "search_fold_cands.csv", mode: 'copy'
     
     input:
-    tuple val(cluster),val(beam_name), val(beam_id), val(utc_start), val(fft_size), val(rfi_filter_string), val(segments), val(segment_id), val(fil_base_name), path(fil_file), val(start_sample), path(candfile), path(metatext)
+    tuple val(cluster),val(beam_name), val(beam_id), val(utc_start), val(fft_size), val(rfi_filter_string_id), val(rfi_filter_string), val(segments), val(segment_id), val(fil_base_name), path(fil_file), val(start_sample), path(candfile), path(metatext)
 
     output:
-    tuple val(cluster),val(beam_name), val(beam_id), val(utc_start), val(fft_size), val(rfi_filter_string), val(segments), val(segment_id), val(fil_base_name), path(fil_file, followLinks: false), path(candfile), path(metatext), path("*.png"), path("*.ar"), path("*.cands"), path("search_fold_cands.csv")
+    tuple val(cluster),val(beam_name), val(beam_id), val(utc_start), val(fft_size), val(rfi_filter_string_id), val(rfi_filter_string), val(segments), val(segment_id), val(fil_base_name), path(fil_file, followLinks: false), path(candfile), path(metatext), path("*.png"), path("*.ar"), path("*.cands"), path("search_fold_cands.csv")
 
     script:
     """
@@ -233,10 +266,10 @@ process pics_classifier {
     publishDir "${params.basedir}/${cluster}/${beam_name}/segment_${segments}/${segments}${segment_id}/CLASSIFICATION/", pattern: "*scored.csv", mode: 'copy'
 
     input:
-    tuple val(cluster),val(beam_name), val(beam_id), val(utc_start), val(fft_size), val(rfi_filter_string), val(segments), val(segment_id), val(fil_base_name), path(fil_file), path(candfile), path(metatext), path(pngs), path(ars), path(cands), path(search_fold_cands_csv)
+    tuple val(cluster),val(beam_name), val(beam_id), val(utc_start), val(fft_size), val(rfi_filter_string_id), val(rfi_filter_string), val(segments), val(segment_id), val(fil_base_name), path(fil_file), path(candfile), path(metatext), path(pngs), path(ars), path(cands), path(search_fold_cands_csv)
 
     output:
-    tuple val(cluster),val(beam_name), val(beam_id), val(utc_start), val(fft_size), val(rfi_filter_string), val(fil_base_name), path(fil_file), path(candfile), path(metatext), path(search_fold_cands_csv), path("*scored.csv") 
+    tuple val(cluster),val(beam_name), val(beam_id), val(utc_start), val(fft_size),  val(rfi_filter_string_id), val(rfi_filter_string), val(fil_base_name), path(fil_file), path(candfile), path(metatext), path(search_fold_cands_csv), path("*scored.csv") 
 
     script:
     output_csv = "${cluster}_${beam_name}_ck${segments}${segment_id}_scored.csv"
@@ -252,10 +285,10 @@ publishDir "${params.basedir}/${cluster}/${beam_name}/segment_${segments}/${segm
 publishDir "${params.basedir}/${cluster}/${beam_name}/segment_${segments}/${segments}${segment_id}/ABG", pattern: "*alpha_beta_gamma.csv", mode: 'copy'
 
 input:
-tuple val(cluster),val(beam_name), val(beam_id), val(utc_start), val(fft_size), val(rfi_filter_string), val(segments), val(segment_id), val(fil_base_name), path(fil_file), path(candfile), path(metatext), path(pngs), path(ars), path(cands), path(search_fold_cands_csv)
+tuple val(cluster),val(beam_name), val(beam_id), val(utc_start), val(fft_size),  val(rfi_filter_string_id), val(rfi_filter_string), val(segments), val(segment_id), val(fil_base_name), path(fil_file), path(candfile), path(metatext), path(pngs), path(ars), path(cands), path(search_fold_cands_csv)
 
 output:
-tuple val(cluster),val(beam_name), val(beam_id), val(utc_start), val(fft_size), val(rfi_filter_string), val(segments), val(segment_id), val(fil_base_name), path(fil_file), path(candfile), path(metatext), path(pngs), path(ars), path(cands), path(search_fold_cands_csv), path("*alpha_beta_gamma.csv")
+tuple val(cluster),val(beam_name), val(beam_id), val(utc_start), val(fft_size), val(rfi_filter_string_id), val(rfi_filter_string), val(segments), val(segment_id), val(fil_base_name), path(fil_file), path(candfile), path(metatext), path(pngs), path(ars), path(cands), path(search_fold_cands_csv), path("*alpha_beta_gamma.csv")
 
 script:
 """
@@ -280,18 +313,26 @@ workflow {
             return tuple(fits_files, cluster, beam_name, beam_id, utc_start)
         }
     // each row on rfi_filter file is a filter
-    rfi_filter_list = Channel.fromPath("${params.rfi_filter_test.rfi_filter_file}")
+    rfi_filters = Channel.fromPath("${params.rfi_filter_test.rfi_filter_file}")
         .splitCsv(header: false, sep: ',')
         .map { row -> 
-            def id = row[0].trim()
-            def filter = row[1].trim()
-            return tuple(id, filter)
-        }.flatMap{ it }.view()
+            def rfi_flag_id = row[0].trim()
+            def rfi_filter_flag = row[1].trim()
+            return [rfi_flag_id, rfi_filter_flag]
+        }.view()
 
     readfile_output = readfile(fits_file_channel_and_meta)
 
+    // Combine each FITS file with each RFI filter tuple. 
+    // This will create a channel that emits a list: [fits_file, rfi_flag_id, rfi_filter_flag]
+    combined = readfile_output.cross(rfi_filters)
+        .map { file, filterTuple -> 
+            def (rfi_flag_id, rfi_filter_flag) = filterTuple
+            return [file, rfi_flag_id, rfi_filter_flag]
+        }
+
     // RFI removal with filtool using default rfi_filter_string
-    new_fil_file_channel = filtool(readfile_output, rfi_filter_list[0], rfi_filter_list[1], params.threads, params.telescope).view()
+    new_fil_file_channel = filtool(combined, params.threads, params.telescope).view()
 
     // Split the data into segments
     split_params_input = new_fil_file_channel.flatMap { filepath, cluster, beam_name, beam_id, utc_start, tsamp, nsamples, subintlength, rfi_filter_string_id, rfi_filter_string -> params.peasoup.segments.collect { segments -> 
@@ -317,19 +358,22 @@ workflow {
     peasoup_output = peasoup(peasoup_input, dm_file)
 
     // Aggregate the output from peasoup
-    basename_ch = peasoup_output.map { cluster, beam_name, beam_id, utc_start, fft_size, rfi_filter_string, segments, segment_id, dm_file, fil_file, xml_path, birdies_file, start_sample, nsamples -> 
+    basename_ch = peasoup_output.map { cluster, beam_name, beam_id, utc_start, fft_size, rfi_filter_string_id, rfi_filter_string, segments, segment_id, dm_file, fil_file, xml_path, birdies_file, start_sample, nsamples -> 
         def fil_base_name = fil_file.getBaseName()
-        return tuple(cluster, beam_name, beam_id, utc_start, fft_size, rfi_filter_string, segments, segment_id, dm_file, fil_base_name, fil_file, xml_path, start_sample)
+        return tuple(cluster, beam_name, beam_id, utc_start, fft_size, rfi_filter_string_id, rfi_filter_string, segments, segment_id, dm_file, fil_base_name, fil_file, xml_path, start_sample)
     }
 
     // Group peasoup outputs xml files of the same cluster, beam and segment chunk
-    peasoup_output_grouped = basename_ch.groupTuple(by: [0, 1, 2, 3, 4, 5, 6, 7, 9, 12]).map { cluster, beam_name, beam_id, utc_start, fft_size, rfi_filter_string, segments, segment_id, dm_file, fil_base_name, fil_files, xml_paths, start_sample -> 
+    peasoup_output_grouped = basename_ch.groupTuple(by: [0, 1, 2, 3, 4, 5, 6, 7,8, 10, 13]).map { cluster, beam_name, beam_id, utc_start, fft_size, rfi_filter_string_id, rfi_filter_string, segments, segment_id, dm_file, fil_base_name, fil_files, xml_paths, start_sample -> 
         def first_fil_file = fil_files[0]
-        return tuple(cluster, beam_name, beam_id, utc_start, fft_size, rfi_filter_string, segments, segment_id, dm_file, fil_base_name, first_fil_file, xml_paths, start_sample)
+        return tuple(cluster, beam_name, beam_id, utc_start, fft_size, rfi_filter_string_id, rfi_filter_string, segments, segment_id, dm_file, fil_base_name, first_fil_file, xml_paths, start_sample)
     }
 
     // Parse the XML files and adjust the tuple
     parse_xml_results = parse_xml(peasoup_output_grouped)
+
+    //rfi filter efficiency test
+    rfi_filter_efficiency_test = rfi_filter_efficiency(parse_xml_results)
 
     // // add sifting here
     splitcands = splitcands(parse_xml_results)
@@ -337,10 +381,10 @@ workflow {
     // Split the candidates and adjust the tuple
     splitcands_channel = splitcands
         .flatMap { it -> 
-            def (cluster, beam_name, beam_id, utc_start, fft_size, rfi_filter_string, segments, segment_id, dm_file, fil_base_name, fil_file, xml_file, start_sample, candidate_csv, metafile, allCands, candfiles, metatext) = it
+            def (cluster, beam_name, beam_id, utc_start, fft_size, rfi_filter_string_id,rfi_filter_string, segments, segment_id, dm_file, fil_base_name, fil_file, xml_file, start_sample, candidate_csv, metafile, allCands, candfiles, metatext) = it
             def cList = candfiles instanceof List ? candfiles : [candfiles]
             cList.collect { candfile ->
-                tuple(cluster, beam_name, beam_id, utc_start, fft_size, rfi_filter_string, segments, segment_id, fil_base_name, fil_file, start_sample, candfile, metatext)
+                tuple(cluster, beam_name, beam_id, utc_start, fft_size, rfi_filter_string_id, rfi_filter_string, segments, segment_id, fil_base_name, fil_file, start_sample, candfile, metatext)
             }
         }.view()
 
