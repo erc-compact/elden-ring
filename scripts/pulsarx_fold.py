@@ -37,11 +37,11 @@ def meta_parser(meta_file):
     return meta_dict
     
 def fold_with_pulsarx(meta_dict, output_dir, cand_file):
-    subint_length = int(meta_dict['SubintLength'])
-    start_fraction = int(meta_dict['start_fraction'])
-    end_fraction = int(meta_dict['end_fraction'])
-    tstart = int(meta_dict['SegmentPepoch'])
-    fft_size = int(meta_dict['fft_size'])
+    subint_length = float(meta_dict['SubintLength'])
+    start_fraction = float(meta_dict['start_fraction'])
+    end_fraction = float(meta_dict['end_fraction'])
+    tstart = float(meta_dict['SegmentPepoch'])
+    fft_size = float(meta_dict['fft_size'])
     chunk_id = str(meta_dict['ChunkId'])
     nsubband = int(meta_dict['Nsubband'])
     clfd_q_value = float(meta_dict['ClfdQValue'])
@@ -72,7 +72,7 @@ def fold_with_pulsarx(meta_dict, output_dir, cand_file):
     #print output with the cand_file
     print("Processing cand_file: ", cand_file)
     
-    script = "psrfold_fil --plotx -v -t {} --candfile {} -n {} {} {} --template {} --clfd {} -L {} -f {} --rfi zdot -o {} --pepoch {} --frac {} {}".format(
+    script = "psrfold_fil2 --plotx -v -t {} --candfile {} -n {} {} {} --template {} --clfd {} -L {} -f {} --rfi zdot -o {} --pepoch {} --frac {} {}".format(
         pulsarx_threads, cand_file, nsubband, nbins_string, beam_tag, template, clfd_q_value, subint_length, filterbank_file, output_rootname, tstart, start_fraction, end_fraction)
     print(script)
     subprocess.check_output(script, shell=True)

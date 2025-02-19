@@ -58,10 +58,11 @@ def read_candidate_files(files, chunk_id, verbose=False):
         fil_file = root[2].find("infilename").text
 
         # Get candidates from the XML file
-        candidates = root[6]
-
+        candidates = root[7]
+        
         # Create a row for each candidate and add it to the total list
         all_rows.extend(create_row(root, candidates, file, file_index, fil_file))
+        
 
         # Grab needed meta data
         if file_index == 0:
@@ -73,7 +74,7 @@ def read_candidate_files(files, chunk_id, verbose=False):
             xml_segment_pepoch = float(segment_params.find('segment_pepoch').text)
             tstart = float(root[1].find("tstart").text)
             fft_size = float(root.find('search_parameters/size').text)
-            obs_length = tsamp * nsamples
+            obs_length = tsamp * total_nsamples
             speed_of_light = 299792458.0
             obs_length_over_c = obs_length / speed_of_light
             source_name = root[1].find("source_name").text
@@ -103,6 +104,7 @@ def read_candidate_files(files, chunk_id, verbose=False):
 
     # Create a DataFrame from the list of rows
     df_candidates = pd.DataFrame(all_rows)
+    
 
     # Cast columns to the appropriate data types
     df_candidates = df_candidates.astype({"snr": float, "dm": float, "period": float,

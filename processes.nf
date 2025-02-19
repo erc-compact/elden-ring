@@ -1,9 +1,43 @@
+process syncFiles {
+    executor 'local'
+    maxForks 5
+    
+    input:
+    tuple val(fitsfilepath), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(filename)
+
+    output:
+    tuple path("*.fil"), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(filename)
+
+    script:
+    """
+    #!/bin/bash
+    mkdir -p ${params.basedir}/${cluster}/Data
+
+    rsync -avz ${params.copy_from_tape.remoteUser}@${params.copy_from_tape.remoteHost}:${fitsfilepath} .
+    """
+}
+
+process dataCleanup {
+
+    input:
+    tuple val(fits_files)
+
+    output:
+    stdout
+
+    script:
+    """
+    echo "Deleting original file: ${fits_files}"
+    rm -rf ${fits_files}
+    """
+}
+
 process readfile {
     label 'readfile'
     container "${params.presto_image}"
 
     input:
-    tuple path(fits_files), val(cluster), val(beam_name), val(beam_id), val(utc_start)
+    tuple path(fits_files), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(filename)
 
     output:
     tuple path(fits_files), val(cluster), val(beam_name), val(beam_id), val(utc_start), env(time_per_file), env(tsamp), env(nsamples), env(subintlength)
@@ -44,7 +78,7 @@ process generateRfiFilter {
     zap_commands=\$(grep -Eo '[0-9.]+ *- *[0-9.]+' combined_frequent_outliers.txt | \\
     awk -F '-' '{gsub(/ /,""); print "zap "\$1" "\$2}' | tr '\\n' ' ')
 
-    rfi_filter_string="kadaneF 8 4 zdot \${zap_commands}"
+    rfi_filter_string="kadaneF 8 4 kadaneT 8 4 zdot \${zap_commands}"
     echo "\${rfi_filter_string}" > rfi_filter_string.txt
 
     mv combined_sk_heatmap_and_histogram.png ${beam_name}_rfi.png
@@ -56,7 +90,7 @@ process generateRfiFilter {
 process filtool {
     label 'filtool'
     container "${params.pulsarx_image}"
-    publishDir "${params.basedir}/${cluster}/CLEANEDFIL/", pattern: "*.fil", mode: 'copy'
+    publishDir "${params.basedir}/${cluster}/CLEANEDFIL/", pattern: "*.fil", mode: 'symlink'
 
     input:
     tuple path(fits_files), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(rfi_filter_string), val(tsamp), val(nsamples) , val(subintlength)
@@ -64,7 +98,7 @@ process filtool {
     val telescope
 
     output:
-    tuple path("*.fil"), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(tsamp), val(nsamples), val(subintlength)
+    tuple path("*clean_01.fil"), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(tsamp), val(nsamples), val(subintlength)
     
     script:
     def outputFile = "${cluster.trim()}_${utc_start.trim()}_${beam_name.trim()}_clean"
@@ -98,35 +132,15 @@ process filtool {
             filtool -t ${threads} --telescope ${telescope} ${zaplist} -o "${outputFile}" -f ${fits_files} -s ${source_name}
         fi
     fi
+
+    # Delete the original fits files if the cleanup flag is set
+    if [[ ${params.filtool.run_filtool_cleanup} == true ]]; then
+        echo "Deleting original file: ${fits_files}"
+        rm -rf ${fits_files}
+    fi
     """
 }
 
-// process nearest_power_of_two_calculator {
-//     label 'nearest_power_two'
-//     container "${params.presto_image}"
-
-//     input:
-//     tuple path(fil_file), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(tsamp), val(nsamples), val(subintlength)
-  
-//     output:
-//     tuple path(fil_file), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(tsamp), val(nsamples), env(nearest_power_of_2)
-
-//     script:
-//     """
-//     #!/bin/bash
-
-//     # Function to calculate nearest power of 2
-//     nearest_power_of_2() {
-//     python3 -c "import math; value = int(\${1}); log2 = math.log(value, 2); rounded_log2 = math.ceil(log2) if log2 - int(log2) >= 0.35 else int(log2); nearest_power_of_2 = 2 ** rounded_log2; print(nearest_power_of_2)"
-//     }
-
-//     # Calculate nearest power of 2 for nsamples, nsamples/2, and nsamples/4
-//     nearest_power_of_2_value=\$(nearest_power_of_2 ${nsamples})
-
-//     # Output the results to a file
-//     echo "$nearest_power_of_2_value" > nearest_power_of_2.txt
-//     """
-// }
 
 process generateDMFiles {
     label "generateDMFiles"
@@ -134,7 +148,7 @@ process generateDMFiles {
     publishDir "${params.basedir}/${cluster}/DMFILES/", pattern: "*.dm", mode: 'copy'
 
     input:
-    tuple path(fits_files), val(cluster), val(beam_name), val(beam_id), val(utc_start)
+    tuple path(fits_files), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(filename)
 
     output:
     path("*.dm")
@@ -165,7 +179,8 @@ process generateDMFiles {
 process birdies {
     label 'birdies'
     container "${params.peasoup_image}"
-    publishDir "${params.basedir}/${cluster}/segment_${segments}/${segments}${segment_id}/${beam_name}/BIRDIES/", pattern: "*.{xml,txt}", mode: 'copy'
+    publishDir "${params.basedir}/${cluster}/${beam_name}/segment_${segments}/${segments}${segment_id}/BIRDIES/", pattern: "*.{xml,txt}", mode: 'copy'
+    stageInMode 'symlink'
 
     input:
     tuple path(fil_file), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(tsamp), val(nsamples), val(segments), val(segment_id), val(fft_size), val(start_sample)
@@ -176,7 +191,11 @@ process birdies {
     script:
     """
     #!/bin/bash
-    peasoup -p -i ${fil_file} --fft_size ${fft_size} -m 10.0 -t 1 -n 16 --acc_start 0.0 --acc_end 0.0 --ram_limit_gb 50.0 --dm_start 0.0 --dm_end 0.0  --start_sample ${start_sample} 
+    echo 'Running birdies'
+    echo 'What are the parameters?'
+
+    
+    peasoup -p -v -i ${fil_file} --fft_size ${fft_size} -m 10.0 -t 1 -n ${params.peasoup.nharmonics} --acc_start 0.0 --acc_end 0.0 --ram_limit_gb 50.0 --dm_start 0.0 --dm_end 0.0  --start_sample ${start_sample} 
 
     #Rename the output file
     mv **/*.xml ${beam_name}_birdies.xml
@@ -188,7 +207,7 @@ process birdies {
 process segmented_params {
     label 'segmented_params'
     container "${params.presto_image}"
-    publishDir "${params.basedir}/${cluster}/segment_${segments}/${beam_name}/SEGPARAMS/", pattern: "*.csv", mode: 'copy'
+    publishDir "${params.basedir}/${cluster}/${beam_name}/segment_${segments}/SEGPARAMS/", pattern: "*.csv", mode: 'copy'
 
     input:
     tuple path(fil_file), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(segments)
@@ -227,13 +246,14 @@ process segmented_params {
 process peasoup {
     label 'peasoup'
     container "${params.peasoup_image}"
-    publishDir "${params.basedir}/${cluster}/segment_${segments}${segment_id}/${beam_name}/SEARCH/", pattern: "*.xml", mode: 'copy'
+    publishDir "${params.basedir}/${cluster}/${beam_name}/segment_${segments}/${segments}${segment_id}/SEARCH/", pattern: "*.xml", mode: 'copy'
+    stageInMode 'symlink'
     scratch true
 
     input:
-    tuple path(fil_file), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(tsamp), val(nsamples), val(segments), val(segment_id), val(fft_size), val(start_sample) 
+    tuple path(fil_file), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(tsamp), val(nsamples), val(segments), val(segment_id), val(fft_size), val(start_sample)
+    each path(dm_file) 
     path(birdies_file)
-    each path(dm_file)
 
     output:
     tuple val(cluster),val(beam_name), val(beam_id), val(utc_start), val(fft_size), val(segments), val(segment_id), path(dm_file), path(fil_file, followLinks: false), path("*.xml"), path(birdies_file), val(start_sample), val(nsamples)
@@ -250,7 +270,7 @@ process peasoup {
         birdies_string="--zapfile ${birdies_file}"
     fi
 
-    peasoup -p -i ${fil_file} --fft_size ${fft_size} --limit ${params.peasoup.total_cands_limit} -m ${params.peasoup.min_snr} -t ${params.peasoup.ngpus} -n ${params.peasoup.nharmonics} --acc_start ${params.peasoup.acc_start} --acc_end ${params.peasoup.acc_end} --ram_limit_gb ${params.peasoup.ram_limit_gb} --dm_file ${dm_file} \${birdies_string} --start_sample ${start_sample} 
+    peasoup -p -v -i ${fil_file} --fft_size ${fft_size} --limit ${params.peasoup.total_cands_limit} -m ${params.peasoup.min_snr} -t ${params.peasoup.ngpus} -n ${params.peasoup.nharmonics} --acc_start ${params.peasoup.acc_start} --acc_end ${params.peasoup.acc_end} --ram_limit_gb ${params.peasoup.ram_limit_gb} --dm_file ${dm_file} \${birdies_string} --start_sample ${start_sample} 
 
     #Rename the output file
     mv **/*.xml ${beam_name}_${dm_file.baseName}_ck${segments}${segment_id}_overview.xml
@@ -259,8 +279,8 @@ process peasoup {
 
 process parse_xml {
     label 'parse_xml'
-    container "${params.presto_image}"
-    publishDir "${params.basedir}/${cluster}/segment_${segments}${segment_id}/${beam_name}/PARSEXML/", pattern: "*{csv,meta}", mode: 'copy'
+    container "${params.pulsarx_image}"
+    publishDir "${params.basedir}/${cluster}/${beam_name}/segment_${segments}/${segments}${segment_id}/PARSEXML/", pattern: "*{csv,meta}", mode: 'copy'
     stageInMode 'symlink'
 
     input:
@@ -278,13 +298,13 @@ process parse_xml {
 process splitcands {
     label 'splitcands'
     container "${params.pulsarx_image}"
-    publishDir "${params.basedir}/${cluster}/segment_${segments}${segment_id}/${beam_name}/SPLITS/", pattern: "*{allCands.txt,candfile,meta.txt}", mode: 'copy'
+    publishDir "${params.basedir}/${cluster}/${beam_name}/segment_${segments}/${segments}${segment_id}/SPLITS/", pattern: "*{allCands.txt,candfile,meta.txt}", mode: 'copy'
 
     input:
     tuple val(cluster),val(beam_name), val(beam_id), val(utc_start), val(fft_size), val(segments), val(segment_id), val(dm_file), val(fil_base_name), path(fil_file), path(xml_files), val(start_sample), path(candidate_csv), path(metafile)
 
     output:
-    tuple val(cluster),val(beam_name), val(beam_id), val(utc_start), val(fft_size), val(segments), val(segment_id), val(dm_file), val(fil_base_name), path(fil_file), path(xml_files), val(start_sample), path(candidate_csv), path(metafile), path('*allCands.txt'), path('*candfile'), path('*meta.txt')
+    tuple val(cluster),val(beam_name), val(beam_id), val(utc_start), val(fft_size), val(segments), val(segment_id), val(dm_file), val(fil_base_name), path(fil_file), path(xml_files), val(start_sample), path(candidate_csv), path(metafile), path('*allCands.txt'),path('*candfile'),path('*meta.txt')
 
     script:
     """
@@ -297,11 +317,12 @@ process psrfold {
     label "psrfold"
     container "${params.pulsarx_image}"
     scratch true
+    stageInMode 'symlink'
     // maxForks 100
-    publishDir "${params.basedir}/${cluster}/segment_${segments}${segment_id}/${beam_name}/FOLDING/", pattern: "*.png", mode: 'copy'
-    publishDir "${params.basedir}/${cluster}/segment_${segments}${segment_id}/${beam_name}/FOLDING/", pattern: "*.ar", mode: 'copy'
-    publishDir "${params.basedir}/${cluster}/segment_${segments}${segment_id}/${beam_name}/FOLDING/", pattern: "*.cands", mode: 'copy'
-    publishDir "${params.basedir}/${cluster}/segment_${segments}${segment_id}/${beam_name}/FOLDING/", pattern: "search_fold_cands.csv", mode: 'copy'
+    publishDir "${params.basedir}/${cluster}/${beam_name}/segment_${segments}/${segments}${segment_id}/FOLDING/", pattern: "*.png", mode: 'copy'
+    publishDir "${params.basedir}/${cluster}/${beam_name}/segment_${segments}/${segments}${segment_id}/FOLDING/", pattern: "*.ar", mode: 'copy'
+    publishDir "${params.basedir}/${cluster}/${beam_name}/segment_${segments}/${segments}${segment_id}/FOLDING/", pattern: "*.cands", mode: 'copy'
+    publishDir "${params.basedir}/${cluster}/${beam_name}/segment_${segments}/${segments}${segment_id}/FOLDING/", pattern: "search_fold_cands.csv", mode: 'copy'
     
     input:
     tuple val(cluster),val(beam_name), val(beam_id), val(utc_start), val(fft_size), val(segments), val(segment_id), val(fil_base_name), path(fil_file), val(start_sample), path(candfile), path(metatext)
@@ -309,16 +330,14 @@ process psrfold {
     output:
     tuple val(cluster),val(beam_name), val(beam_id), val(utc_start), val(fft_size), val(segments), val(segment_id), val(fil_base_name), path(fil_file, followLinks: false), path(candfile), path(metatext), path("*.png"), path("*.ar"), path("*.cands"), path("search_fold_cands.csv")
 
-
-    
     script:
     """
     python3 ${baseDir}/scripts/pulsarx_fold.py -meta ${metatext} -cands ${candfile}
 
-    # thought about adding the csv step here. 07/02/25
+    # take candfile number and multiply that with the number of candidates 
 
-    fold_cands = \$(ls -v *.ar)
-    pulsarx_cands_file = \$(ls -v *.cands)
+    fold_cands=\$(ls -v *.ar)
+    pulsarx_cands_file=\$(ls -v *.cands)
 
     python3 ${baseDir}/scripts/fold_cands_to_csv.py -f \${fold_cands} -c \${pulsarx_cands_file}
     """
@@ -327,13 +346,13 @@ process psrfold {
 process pics_classifier {
     label "pics_classifier"
     container "/hercules/scratch/fkareem/singularity_img/trapum_pulsarx_fold_docker_20220411.sif"
-    publishDir "${params.basedir}/${cluster}/segment_${segments}${segment_id}/${beam_name}/CLASSIFICATION/", pattern: "*pics_scores.csv", mode: 'copy'
+    publishDir "${params.basedir}/${cluster}/${beam_name}/segment_${segments}/${segments}${segment_id}/CLASSIFICATION/", pattern: "*scored.csv", mode: 'copy'
 
     input:
     tuple val(cluster),val(beam_name), val(beam_id), val(utc_start), val(fft_size), val(segments), val(segment_id), val(fil_base_name), path(fil_file), path(candfile), path(metatext), path(pngs), path(ars), path(cands), path(search_fold_cands_csv)
 
     output:
-    tuple val(cluster),val(beam_name), val(beam_id), val(utc_start), val(fft_size), val(fil_base_name), path(fil_file), path(candfile), path(metatext), path(search_fold_cands_csv), path("*pics_scores.csv") 
+    tuple val(cluster),val(beam_name), val(beam_id), val(utc_start), val(fft_size), val(fil_base_name), path(fil_file), path(candfile), path(metatext), path(search_fold_cands_csv), path("*scored.csv") 
 
     script:
     output_csv = "${cluster}_${beam_name}_ck${segments}${segment_id}_scored.csv"
@@ -343,23 +362,27 @@ process pics_classifier {
 }
 
 process alpha_beta_gamma_test {
-label "alpha_beta_gamma_test"
-container "${params.pulsarx_image}"
-publishDir "${params.basedir}/${cluster}/segment_${segments}${segment_id}/${beam_name}/ZERODM/", pattern: "DM0*.png", mode: 'copy'
-publishDir "${params.basedir}/${cluster}/segment_${segments}${segment_id}/${beam_name}/ABG", pattern: "search_fold_alpha_beta_gamma_merged.csv", mode: 'copy'
+    label "alpha_beta_gamma_test"
+    container "${params.pulsarx_image}"
+    publishDir "${params.basedir}/${cluster}/${beam_name}/segment_${segments}/${segments}${segment_id}/ZERODM/", pattern: "DM0*.png", mode: 'copy'
+    publishDir "${params.basedir}/${cluster}/${beam_name}/segment_${segments}/${segments}${segment_id}/ABG", pattern: "*alpha_beta_gamma.csv", mode: 'copy'
 
-input:
-tuple val(cluster),val(beam_name), val(beam_id), val(utc_start), val(fft_size), val(segments), val(segment_id), val(fil_base_name), path(fil_file), path(candfile), path(metatext), path(pngs), path(ars), path(cands), path(search_fold_cands_csv)
+    input:
+    tuple val(cluster),val(beam_name), val(beam_id), val(utc_start), val(fft_size), val(segments), val(segment_id), val(fil_base_name), path(fil_file), path(candfile), path(metatext), path(pngs), path(ars), path(cands), path(search_fold_cands_csv)
 
-output:
-tuple val(cluster),val(beam_name), val(beam_id), val(utc_start), val(fft_size), val(segments), val(segment_id), val(fil_base_name), path(fil_file), path(candfile), path(metatext), path(pngs), path(ars), path(cands), path(search_fold_cands_csv), path("*alpha_beta_gamma.csv")
+    output:
+    tuple val(cluster),val(beam_name), val(beam_id), val(utc_start), val(fft_size), val(segments), val(segment_id), val(fil_base_name), path(fil_file), path(candfile), path(metatext), path(pngs), path(ars), path(cands), path(search_fold_cands_csv), path("*alpha_beta_gamma.csv")
 
-script:
-"""
-#!/bin/bash
-publish_dir="${params.basedir}/${cluster}/segment_${segments}${segment_id}/${beam_name}/ABG"
-mkdir -p \${publish_dir}
-python3 ${baseDir}/scripts/calculate_alpha_beta_gamma_dmffdot.py -i ${search_fold_cands_csv} -o ${cluster}_${beam_name}_ck${segments}${segment_id}_alpha_beta_gamma.csv -t ${params.alpha_beta_gamma.snr_min} -c -p \${publish_dir} 
-"""
+    script:
+    """
+    #!/bin/bash
+    publish_dir="${params.basedir}/${cluster}/${beam_name}/segment_${segments}/${segments}${segment_id}/ABG"
+    mkdir -p \${publish_dir}
+    python3 ${baseDir}/scripts/calculate_alpha_beta_gamma_dmffdot.py -i ${search_fold_cands_csv} -o ${cluster}_${beam_name}_ck${segments}${segment_id}_alpha_beta_gamma.csv -t ${params.alpha_beta_gamma.snr_min} -c -p \${publish_dir} 
+    """
 }
+
+
+
+// processes for rfi-filter-test.nf
 

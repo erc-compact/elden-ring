@@ -10,11 +10,10 @@ from ubc_AI.data import pfdreader
 import subprocess, errno
 import importlib
 
-import theano
+# import theano
 # Force reload of Theano before loading the pickled model
 # importlib.reload(theano)
 
-os.environ['THEANO_FLAGS'] = 'base_compiledir={}'.format(opts.work_dir)
 
 def score_file(filename, classifier_model):
     try:
@@ -90,5 +89,6 @@ if __name__ == "__main__":
     pics_model_dir = args.model_dir
     output = args.output
     
+    os.environ['THEANO_FLAGS'] = 'base_compiledir={}'.format(input_dir)
     
     main(input_dir, pics_model_dir, output)

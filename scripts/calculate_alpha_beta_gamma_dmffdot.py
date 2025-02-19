@@ -58,7 +58,7 @@ def process_one_candidate(task):
         return (idx, np.nan, np.nan, np.nan)
     # 1) Construct name for DM=0 file
     output_filename = f"DM0_{archive_filename}"
-
+    
     try:
         # 2) Set DM=0
         set_archive_to_zero_dm(archive_filename, output_filename)

@@ -1,11 +1,5 @@
 import argparse
-import logging
-import os
 import pandas as pd
-import xml.etree.ElementTree as ET
-from bestprof_utils import parse_bestprof
-import subprocess
-import sys
 
 def a_to_pdot(P_s, acc_ms2):
     LIGHT_SPEED = 2.99792458e8  # Speed of Light in SI
@@ -36,7 +30,7 @@ def pulsarx_to_csv_format(filenames, pulsarx_cand_file, output_file):
         "#id": int, "fold_cands_filename": str, "f0_new": float, "f1_new": float,
         "dm_new": float, "S/N_new": float, "f0_old": float, "f1_old": float,
         "dm_old": float, "S/N": float, "p0_old": float, "p1_old": float,
-        "p0_new": float, "p1_new": float, "search_candidates_database_uuid": str
+        "p0_new": float, "p1_new": float
     })
     
     df.to_csv(output_file, index=False)

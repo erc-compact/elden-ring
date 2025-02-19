@@ -1,0 +1,9 @@
+1,kadaneF 8 4 
+2,kadaneT 8 4
+3,zdot
+4,kadaneF 16 1
+5,kadaneT 16 1
+6,kadaneF 8 4 kadaneT 8 4
+7,kadaneF 16 1 kadaneT 16 1
+8,kadaneF 8 4 kadaneT 8 4 zdot
+9,kadaneF 16 1 kadaneT 16 1 zdot

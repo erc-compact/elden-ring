@@ -43,7 +43,7 @@ def write_birdies_to_file(frequencies):
     """
     with open("birdies.txt", 'w') as f:
         for freq, spacing in frequencies:
-            f.write(f"{freq:.2f} {spacing:.3f}\n")
+            f.write(f"{freq:.6f} {spacing:.6f}\n")
 
 def main(args):
     frequencies = extract_frequencies(args.xml_file)

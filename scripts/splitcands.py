@@ -9,7 +9,7 @@ import sys, os, subprocess
 from datetime import datetime
 import xml.etree.ElementTree as ET
 
-def generate_pulsarX_cand_file(df, cands_dir, tsamp, fft_size, beam_name, source_name_prefix, cands_per_node=96):
+def generate_pulsarX_cand_file(df, cands_dir, tsamp, fft_size, chunk_id, beam_name, source_name_prefix, cands_per_node=96):
     cand_dms = df['dm'].values
     cand_accs = df['acc'].values
     cand_period = df['period'].values
@@ -18,7 +18,7 @@ def generate_pulsarX_cand_file(df, cands_dir, tsamp, fft_size, beam_name, source
     cand_mod_period_beginning_tobs = period_correction_for_prepfold(cand_period, pdot, tsamp, fft_size)
     cand_mod_frequencies = 1/cand_mod_period_beginning_tobs
     cand_snrs = df['snr'].values
-    cand_file_name = f"{source_name_prefix}_{beam_name}_allCands.txt"
+    cand_file_name = f"{source_name_prefix}_{beam_name}_ck{chunk_id}_allCands.txt"
     os.makedirs(cands_dir, exist_ok=True)
     cand_file_path = os.path.join(cands_dir, cand_file_name)
     number_of_candidates = len(cand_mod_frequencies)
@@ -27,18 +27,18 @@ def generate_pulsarX_cand_file(df, cands_dir, tsamp, fft_size, beam_name, source
         for i in range(number_of_candidates):
             f.write("%d %f %f %f 0 %f\n" % (i, cand_dms[i], cand_accs[i], cand_mod_frequencies[i], cand_snrs[i]))
     
-    cand_files = split_cand_file(cand_file_path, number_of_candidates, cands_per_node, cands_dir, beam_name, source_name_prefix)
+    cand_files = split_cand_file(cand_file_path, number_of_candidates, cands_per_node, cands_dir, chunk_id, beam_name, source_name_prefix)
     logging.info(f"{len(cand_files)} Candidate files created")
     return cand_files
     
-def split_cand_file(cand_file_path, number_of_candidates, cands_per_node, cands_dir, beam_name, source_name_prefix):
+def split_cand_file(cand_file_path, number_of_candidates, cands_per_node, cands_dir, chunk_id, beam_name, source_name_prefix):
     # Split the candidates into multiple candfiles
     cand_files = []
     num_files = number_of_candidates // cands_per_node + 1
     candidates_df = pd.read_csv(cand_file_path, sep=' ', header=0)
         
     for i in range(num_files):
-        cand_file = f"{source_name_prefix}_{beam_name}_{i+1}.candfile"
+        cand_file = f"{source_name_prefix}_{beam_name}_ck{chunk_id}_{i+1}.candfile"
         cand_file_path = os.path.join(cands_dir, cand_file)
         cand_files.append(cand_file_path)
         start_idx = i * cands_per_node
@@ -156,9 +156,9 @@ def main():
             else:
                 subint_length = args.subint_length
             
-            generate_pulsarX_cand_file(df, args.output_path, tsamp, fft_size, beam_name, source_name_prefix, args.cands_per_node)
+            generate_pulsarX_cand_file(df, args.output_path, tsamp, fft_size, chunk_id, beam_name, source_name_prefix, args.cands_per_node)
             # Create meta file
-            meta_file = f"{args.output_path}/{source_name_prefix}_{beam_name}__meta.txt"
+            meta_file = f"{args.output_path}/{source_name_prefix}_{beam_name}_ck{chunk_id}_meta.txt"
             with open(meta_file, 'w') as f:
                 f.write(f"Ncandidates: {len(df)}\n")
                 f.write(f"start_fraction: {start_fraction}\n")
