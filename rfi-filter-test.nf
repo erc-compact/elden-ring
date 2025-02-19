@@ -1,36 +1,10 @@
 #!/usr/bin/env nextflow
 nextflow.enable.dsl=2
 
-process readfile {
-    label 'readfile'
-    container "${params.presto_image}"
-
-    input:
-    tuple path(fits_files), val(cluster), val(beam_name), val(beam_id), val(utc_start)
-
-    output:
-    tuple path(fits_files), val(cluster), val(beam_name), val(beam_id), val(utc_start), env(tsamp), env(nsamples), env(subintlength)
-
-    script:
-    """
-    #!/bin/bash
-    output=\$(readfile ${fits_files})
-    echo "\$output"
-    time_per_file=\$(echo "\$output" | grep "Time per file (sec)" | awk '{print \$6}')
-    tsamp=\$(echo "\$output" | grep "Sample time (us)" | awk '{print \$5}')
-    nsamples=\$(echo "\$output" | grep "Spectra per file" | awk '{print \$5}')
-    subintlength=\$(echo "scale=10; \$nsamples * \$tsamp * (1/1000000) / 64.0" | bc -l | awk '{print int(\$0)}')
-    echo "\${time_per_file}" > time_per_file.txt
-    """
-}
-
 process generateDMFiles {
     label "generateDMFiles"
     container "${params.presto_image}"
     publishDir "${params.basedir}/${cluster}/DMFILES/", pattern: "*.dm", mode: 'copy'
-
-    input:
-    tuple path(fits_files), val(cluster), val(beam_name), val(beam_id), val(utc_start)
 
     output:
     path("*.dm")
@@ -64,12 +38,12 @@ process filtool {
     publishDir "${params.basedir}/${cluster}/CLEANEDFIL/", pattern: "*.fil", mode: 'copy'
 
     input:
-    tuple path(fits_files), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(tsamp), val(nsamples) , val(subintlength), val(rfi_filter_string_id), val(rfi_filter_string)
+    tuple path(fits_files), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(rfi_filter_string_id), val(rfi_filter_string)
     val threads
     val telescope
 
     output:
-    tuple path("*.fil"), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(tsamp), val(nsamples), val(subintlength), val(rfi_filter_string_id), val(rfi_filter_string)
+    tuple path("*.fil"), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(rfi_filter_string_id), val(rfi_filter_string)
     
     script:
     def outputFile = "${cluster.trim()}_${utc_start.trim()}_${beam_name.trim()}_rfi_${rfi_filter_string_id}_clean"
@@ -311,7 +285,8 @@ workflow {
             def beam_id = row.beam_id.trim()
             def utc_start = row.utc_start.trim().replace(" ", "-")
             return tuple(fits_files, cluster, beam_name, beam_id, utc_start)
-        }
+        }.view()
+
     // each row on rfi_filter file is a filter
     rfi_filters = Channel.fromPath("${params.rfi_filter_test.rfi_filter_file}")
         .splitCsv(header: false, sep: ',')
@@ -321,11 +296,10 @@ workflow {
             return [rfi_flag_id, rfi_filter_flag]
         }.view()
 
-    readfile_output = readfile(fits_file_channel_and_meta)
 
     // Combine each FITS file with each RFI filter tuple. 
     // This will create a channel that emits a list: [fits_file, rfi_flag_id, rfi_filter_flag]
-    combined = readfile_output.cross(rfi_filters)
+    combined = fits_file_channel_and_meta.cross(rfi_filters)
         .map { file, filterTuple -> 
             def (rfi_flag_id, rfi_filter_flag) = filterTuple
             return [file, rfi_flag_id, rfi_filter_flag]
@@ -335,7 +309,7 @@ workflow {
     new_fil_file_channel = filtool(combined, params.threads, params.telescope).view()
 
     // Split the data into segments
-    split_params_input = new_fil_file_channel.flatMap { filepath, cluster, beam_name, beam_id, utc_start, tsamp, nsamples, subintlength, rfi_filter_string_id, rfi_filter_string -> params.peasoup.segments.collect { segments -> 
+    split_params_input = new_fil_file_channel.flatMap { filepath, cluster, beam_name, beam_id, utc_start, rfi_filter_string_id, rfi_filter_string -> params.peasoup.segments.collect { segments -> 
         return tuple(filepath, cluster, beam_name, beam_id, utc_start, segments, rfi_filter_string_id, rfi_filter_string)}}
 
     segmented_params = segmented_params(split_params_input)
@@ -352,7 +326,7 @@ workflow {
         }
     }
 
-    dm_file = generateDMFiles(fits_file_channel_and_meta).flatMap {it}
+    dm_file = generateDMFiles()
 
     // Peasoup processing
     peasoup_output = peasoup(peasoup_input, dm_file)
