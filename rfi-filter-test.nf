@@ -4,7 +4,7 @@ nextflow.enable.dsl=2
 process generateDMFiles {
     label "generateDMFiles"
     container "${params.presto_image}"
-    publishDir "${params.basedir}/${cluster}/DMFILES/", pattern: "*.dm", mode: 'copy'
+    publishDir "${params.basedir}/DMFILES/", pattern: "*.dm", mode: 'copy'
 
     output:
     path("*.dm")
@@ -38,14 +38,16 @@ process filtool {
     publishDir "${params.basedir}/${cluster}/CLEANEDFIL/", pattern: "*.fil", mode: 'copy'
 
     input:
-    tuple path(fits_files), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(rfi_filter_string_id), val(rfi_filter_string)
-    val threads
-    val telescope
+    tuple val(fits_files), val(cluster), val(beam_name), val(beam_id), val(utc_start),val(rfi_filter_string_id), val(rfi_filter_string)
+    val(threads)
+    val(telescope)
 
     output:
     tuple path("*.fil"), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(rfi_filter_string_id), val(rfi_filter_string)
     
     script:
+    // def rfi_filter_string_id = rfi_filters[0]
+    // def rfi_filter_string = rfi_filters[1]
     def outputFile = "${cluster.trim()}_${utc_start.trim()}_${beam_name.trim()}_rfi_${rfi_filter_string_id}_clean"
     def source_name = "${cluster.trim()}"
 
@@ -56,26 +58,10 @@ process filtool {
     }
     """
     #!/bin/bash
-    # Get the first file from the inputFile string
-    # This is used to determine the file extension
-    first_file=\$(echo ${fits_files} | awk '{print \$1}')
-
-    # Extract the file extension from the first file
-    file_extension="\$(basename "\${first_file}" | sed 's/.*\\.//')"
-    
     if [[ ${telescope} == "effelsberg" ]]; then
-        if [[ "\${file_extension}" == "fits" ]]; then
-            filtool --psrfits --flip -t ${threads} --telescope ${telescope} ${zaplist} -o ${outputFile} -f ${fits_files} -s ${source_name}
-        else 
-            filtool -t ${threads} --telescope ${telescope} ${zaplist} -o ${outputFile} -f ${fits_files} -s ${source_name}
-        fi
-
+        filtool -t ${threads} --telescope ${telescope} ${zaplist} -o ${outputFile} -f ${fits_files} -s ${source_name}
     elif [[ ${telescope} == "meerkat" ]]; then
-        if [[ "\${file_extension}" == "sf" ]]; then
-            filtool --psrfits -t ${threads} --telescope ${telescope} ${zaplist} -o ${outputFile} -f ${fits_files} -s ${source_name}
-        else 
-            filtool -t ${threads} --telescope ${telescope} ${zaplist} -o "${outputFile}" -f ${fits_files} -s ${source_name}
-        fi
+        filtool -t ${threads} --telescope ${telescope} ${zaplist} -o "${outputFile}" -f ${fits_files} -s ${source_name}
     fi
     """
 }
@@ -123,31 +109,23 @@ process peasoup {
     label 'peasoup'
     container "${params.peasoup_image}"
     publishDir "${params.basedir}/${cluster}/${beam_name}/segment_${segments}/${segments}${segment_id}/SEARCH/", pattern: "*.xml", mode: 'copy'
-    scratch true
+    // scratch true
 
     input:
     tuple path(fil_file), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(tsamp), val(nsamples),val(rfi_filter_string_id), val(rfi_filter_string), val(segments), val(segment_id), val(fft_size), val(start_sample)
     each path(dm_file) 
 
     output:
-    tuple val(cluster),val(beam_name), val(beam_id), val(utc_start), val(fft_size), val(rfi_filter_string_id), val(rfi_filter_string), val(segments), val(segment_id), path(dm_file), path(fil_file, followLinks: false), path("*.xml"), path(birdies_file), val(start_sample), val(nsamples)
+    tuple val(cluster),val(beam_name), val(beam_id), val(utc_start), val(fft_size), val(rfi_filter_string_id), val(rfi_filter_string), val(segments), val(segment_id), path(dm_file), path(fil_file, followLinks: false), path("*.xml"), val(start_sample), val(nsamples)
 
     script:
     """
     #!/bin/bash
 
-    # check if birdies files is empty
-    if [ ! -s ${birdies_file} ]; then
-        echo "Birdies file is empty"
-        birdies_string=""
-    else
-        birdies_string="--zapfile ${birdies_file}"
-    fi
-
-    peasoup -p -v -i ${fil_file} --fft_size ${fft_size} --limit ${params.peasoup.total_cands_limit} -m ${params.peasoup.min_snr} -t ${params.peasoup.ngpus} -n ${params.peasoup.nharmonics} --acc_start ${params.peasoup.acc_start} --acc_end ${params.peasoup.acc_end} --ram_limit_gb ${params.peasoup.ram_limit_gb} --dm_file ${dm_file} \${birdies_string} --start_sample ${start_sample} 
+    peasoup -p -v -i ${fil_file} --fft_size ${fft_size} --limit ${params.peasoup.total_cands_limit} -m ${params.peasoup.min_snr} -t ${params.peasoup.ngpus} -n ${params.peasoup.nharmonics} --acc_start ${params.peasoup.acc_start} --acc_end ${params.peasoup.acc_end} --ram_limit_gb ${params.peasoup.ram_limit_gb} --dm_file ${dm_file} --start_sample ${start_sample} 
 
     #Rename the output file
-    mv **/*.xml ${beam_name}_${dm_file.baseName}_ck${segments}${segment_id}_rfi__overview.xml
+    mv **/*.xml ${beam_name}_${dm_file.baseName}_ck${segments}${segment_id}_rfi_${rfi_filter_string_id}_overview.xml
     """
 }
 
@@ -293,20 +271,14 @@ workflow {
         .map { row -> 
             def rfi_flag_id = row[0].trim()
             def rfi_filter_flag = row[1].trim()
-            return [rfi_flag_id, rfi_filter_flag]
+            return tuple(rfi_flag_id, rfi_filter_flag)
         }.view()
 
+    // Combine each FITS file entry with all RFI filters
+    combined_fits_rfi = fits_file_channel_and_meta.combine(rfi_filters).view()
 
-    // Combine each FITS file with each RFI filter tuple. 
-    // This will create a channel that emits a list: [fits_file, rfi_flag_id, rfi_filter_flag]
-    combined = fits_file_channel_and_meta.cross(rfi_filters)
-        .map { file, filterTuple -> 
-            def (rfi_flag_id, rfi_filter_flag) = filterTuple
-            return [file, rfi_flag_id, rfi_filter_flag]
-        }
-
-    // RFI removal with filtool using default rfi_filter_string
-    new_fil_file_channel = filtool(combined, params.threads, params.telescope).view()
+    // RFI removal with filtool using all combinations
+    new_fil_file_channel = filtool(combined_fits_rfi, params.threads, params.telescope).view()
 
     // Split the data into segments
     split_params_input = new_fil_file_channel.flatMap { filepath, cluster, beam_name, beam_id, utc_start, rfi_filter_string_id, rfi_filter_string -> params.peasoup.segments.collect { segments -> 
@@ -332,7 +304,7 @@ workflow {
     peasoup_output = peasoup(peasoup_input, dm_file)
 
     // Aggregate the output from peasoup
-    basename_ch = peasoup_output.map { cluster, beam_name, beam_id, utc_start, fft_size, rfi_filter_string_id, rfi_filter_string, segments, segment_id, dm_file, fil_file, xml_path, birdies_file, start_sample, nsamples -> 
+    basename_ch = peasoup_output.map { cluster, beam_name, beam_id, utc_start, fft_size, rfi_filter_string_id, rfi_filter_string, segments, segment_id, dm_file, fil_file, xml_path, start_sample, nsamples -> 
         def fil_base_name = fil_file.getBaseName()
         return tuple(cluster, beam_name, beam_id, utc_start, fft_size, rfi_filter_string_id, rfi_filter_string, segments, segment_id, dm_file, fil_base_name, fil_file, xml_path, start_sample)
     }
