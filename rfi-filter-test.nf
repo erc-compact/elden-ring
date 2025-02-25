@@ -109,7 +109,9 @@ process peasoup {
     label 'peasoup'
     container "${params.peasoup_image}"
     publishDir "${params.basedir}/${cluster}/${beam_name}/segment_${segments}/${segments}${segment_id}/SEARCH/", pattern: "*.xml", mode: 'copy'
-    // scratch true
+    scratch true
+    stageInMode 'copy'
+    stageOutMode 'move'
 
     input:
     tuple path(fil_file), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(tsamp), val(nsamples),val(rfi_filter_string_id), val(rfi_filter_string), val(segments), val(segment_id), val(fft_size), val(start_sample)
@@ -122,7 +124,7 @@ process peasoup {
     """
     #!/bin/bash
 
-    peasoup -p -v -i ${fil_file} --fft_size ${fft_size} --limit ${params.peasoup.total_cands_limit} -m ${params.peasoup.min_snr} -t ${params.peasoup.ngpus} -n ${params.peasoup.nharmonics} --acc_start ${params.peasoup.acc_start} --acc_end ${params.peasoup.acc_end} --ram_limit_gb ${params.peasoup.ram_limit_gb} --dm_file ${dm_file} --start_sample ${start_sample} 
+    peasoup -i ${fil_file} --fft_size ${fft_size} --limit ${params.peasoup.total_cands_limit} -m ${params.peasoup.min_snr} -t ${params.peasoup.ngpus} -n ${params.peasoup.nharmonics} --acc_start ${params.peasoup.acc_start} --acc_end ${params.peasoup.acc_end} --ram_limit_gb ${params.peasoup.ram_limit_gb} --dm_file ${dm_file} --start_sample ${start_sample} --cdm 52.0 --acc_pulse_width 64 --acc_tol 1.11 --dm_pulse_width 64 --min_freq 0.1 --max_freq 1100.0
 
     #Rename the output file
     mv **/*.xml ${beam_name}_${dm_file.baseName}_ck${segments}${segment_id}_rfi_${rfi_filter_string_id}_overview.xml
@@ -143,7 +145,7 @@ process parse_xml {
     
     script:
     """
-    python3 ${params.parse_xml.script} ${xml_files} --chunk_id ${segments}${segment_id} --outfile ${utc_start}_${beam_name}_ck${segments}${segment_id}_candidates.csv --metafile ${utc_start}_${beam_name}_ck${segments}${segment_id}_metafile.meta
+    python3 ${params.parse_xml.script} ${xml_files} --chunk_id ${segments}${segment_id} --outfile ${utc_start}_${beam_name}_ck${segments}${segment_id}_rfi_${rfi_filter_string_id}_candidates.csv --metafile ${utc_start}_${beam_name}_ck${segments}${segment_id}_rfi_${rfi_filter_string_id}_metafile.meta
     """
 }
 
@@ -156,12 +158,12 @@ process rfi_filter_efficiency {
     tuple val(cluster),val(beam_name), val(beam_id), val(utc_start), val(fft_size), val(rfi_filter_string_id), val(rfi_filter_string), val(segments), val(segment_id), val(dm_file), val(fil_base_name), path(fil_file), path(xml_files), val(start_sample), path(candidate_csv), path(metafile)
 
     output:
-    tuple val(cluster),val(beam_name), val(beam_id), val(utc_start), val(fft_size), val(rfi_filter_string_id), val(rfi_filter_string), val(segments), val(segment_id), val(dm_file), val(fil_base_name), path(fil_file), path(xml_files), val(start_sample), path(candidate_csv), path(metafile), path('*allCands.txt'),path('*candfile'),path('*meta.txt'), path('*efficiency.csv'), path('*report.txt')
+    tuple val(cluster),val(beam_name), val(beam_id), val(utc_start), val(fft_size), val(rfi_filter_string_id), val(rfi_filter_string), val(segments), val(segment_id), val(dm_file), val(fil_base_name), path(fil_file), path(xml_files), val(start_sample), path(candidate_csv), path(metafile), path('*efficiency.csv'), path('*report.txt')
 
     script:
     """
-    echo "rfi_filter_efficiency test"
-    python3 ${baseDir}/scripts/rfi_filter_efficiency_test.py --candidates_csv ${candidate_csv} --known_csv ${params.rfi_filter_test.known_csv} --rfi_flag ${rfi_filter_string} --output ${cluster}_${beam_name}_ck${segments}${segment_id}_rfi_${rfi_filter_string_id}_efficiency.csv --report ${cluster}_${beam_name}_ck${segments}${segment_id}_rfi_${rfi_filter_string_id}_report.txt --period_tol 0.00001 --dm_tol 0.1
+    echo "rfi_flag_efficiency test"
+    python3 ${baseDir}/scripts/rfi_flag_efficiency_test.py --candidates_csv ${candidate_csv} --known_csv ${params.rfi_filter_test.known_csv} --rfi_flag "${rfi_filter_string}" --output ${cluster}_${beam_name}_ck${segments}${segment_id}_rfi_${rfi_filter_string_id}_efficiency.csv --report ${cluster}_${beam_name}_ck${segments}${segment_id}_rfi_${rfi_filter_string_id}_report.txt --period_tol 0.00005 --dm_tol 0.1
     """
 }
 
@@ -179,7 +181,7 @@ process splitcands {
     script:
     """
     echo "Running splitcands"
-    python3 ${params.splitcands.script} -i ${candidate_csv} -fil ${fil_file} -t pulsarx -n ${params.splitcands.nh} -b ${beam_name}  -threads ${params.splitcands.threads} -p ${params.template_dir} --snr_min ${params.splitcands.snr_min} -ncands ${params.splitcands.ncands} -clfd ${params.splitcands.clfd} -cpn ${params.splitcands.cands_per_node} --beam_id ${beam_id} --utc ${utc_start} --metafile ${metafile}
+    python3 ${baseDir}/scripts/splitcands.py -i ${candidate_csv} -fil ${fil_file} -t pulsarx -n ${params.splitcands.nh} -b ${beam_name}  -threads ${params.splitcands.threads} -p ${params.template_dir} --snr_min ${params.splitcands.snr_min} -ncands ${params.splitcands.ncands} -clfd ${params.splitcands.clfd} -cpn ${params.splitcands.cands_per_node} --beam_id ${beam_id} --utc ${utc_start} --metafile ${metafile}
     """
 }
 
@@ -214,7 +216,7 @@ process psrfold {
 
 process pics_classifier {
     label "pics_classifier"
-    container "/hercules/scratch/fkareem/singularity_img/trapum_pulsarx_fold_docker_20220411.sif"
+    container "${params.pics_classifier_image}"
     publishDir "${params.basedir}/${cluster}/${beam_name}/segment_${segments}/${segments}${segment_id}/CLASSIFICATION/", pattern: "*scored.csv", mode: 'copy'
 
     input:
