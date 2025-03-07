@@ -1,0 +1,2 @@
+fits_files,cluster,beam_name,beam_id,utc_start
+/hercules/scratch/fkareem/TRAPUM/NGC6717/CLEANEDFIL/NGC6717_2024-11-28T15:22:52_cfbf00000_clean_01.fil,NGC6717,cfbf00000,0,2024-11-28T15:22:52

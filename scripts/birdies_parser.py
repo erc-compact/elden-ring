@@ -26,7 +26,7 @@ def extract_frequencies(xml_file):
     nsamples = int(root.find('.//nsamples').text)
     
     # Calculate bin spacing upto 4 decimal places
-    bin_spacing = float(1.0 / (2 * tsamp * nsamples))  # Nyquist frequency is 1/(2 * tsamp)
+    bin_spacing = float(5.0 / (tsamp * nsamples))  # Nyquist frequency is 1/(2 * tsamp)
 
     # Prepare the list of frequencies with the corresponding bin spacing
     freq_bin_pairs = [(freq, bin_spacing) for freq in periods]

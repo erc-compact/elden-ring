@@ -1,5 +1,5 @@
 .nextflow*
-work
+work*
 *.html
 *.log
 *.trace

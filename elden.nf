@@ -15,7 +15,6 @@ include { readfile } from './processes'
 include { generateRfiFilter } from './processes'
 include { alpha_beta_gamma_test } from './processes'
 include { syncFiles } from './processes'
-include { dataCleanup } from './processes'
 
 
 workflow {
@@ -31,7 +30,7 @@ workflow {
             // extract file name from path
             def filename = fits_files.tokenize("/")[-1]
             return tuple(fits_files, cluster, beam_name, beam_id, utc_start, filename)
-        }.view()
+        }
 
     // Copy from tape? 
     def orig_fits_channel
@@ -42,7 +41,7 @@ workflow {
     }
 
     // Generate DM files
-    dm_file = generateDMFiles(orig_fits_channel).flatMap {it}
+    dm_file = generateDMFiles().flatMap {it}
 
     // def new_fil_file_channel  // Declare the variable here so it can be used for each case
 
@@ -146,7 +145,7 @@ workflow {
             cList.collect { candfile ->
                 tuple(cluster, beam_name, beam_id, utc_start, fft_size, segments, segment_id, fil_base_name, fil_file, start_sample, candfile, metatext)
             }
-        }.view()
+        }
 
     // Fold the candidates
     pulsarx_output = psrfold(splitcands_channel)

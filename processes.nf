@@ -1,34 +1,22 @@
 process syncFiles {
     executor 'local'
-    maxForks 5
+    maxForks 10
     
     input:
     tuple val(fitsfilepath), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(filename)
 
     output:
-    tuple path("*.fil"), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(filename)
+    tuple path("${filename}"), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(filename)
 
     script:
     """
     #!/bin/bash
     mkdir -p ${params.basedir}/${cluster}/Data
 
-    rsync -avz ${params.copy_from_tape.remoteUser}@${params.copy_from_tape.remoteHost}:${fitsfilepath} .
-    """
-}
-
-process dataCleanup {
-
-    input:
-    tuple val(fits_files)
-
-    output:
-    stdout
-
-    script:
-    """
-    echo "Deleting original file: ${fits_files}"
-    rm -rf ${fits_files}
+    rsync -avz ${params.copy_from_tape.remoteUser}@${params.copy_from_tape.remoteHost}:${fitsfilepath} ${params.basedir}/${cluster}/Data/
+     
+    # Create symlink in the work directory
+    ln -s ${params.basedir}/${cluster}/Data/${filename} ${filename}
     """
 }
 
@@ -132,12 +120,6 @@ process filtool {
             filtool -t ${threads} --telescope ${telescope} ${zaplist} -o "${outputFile}" -f ${fits_files} -s ${source_name}
         fi
     fi
-
-    # Delete the original fits files if the cleanup flag is set
-    if [[ ${params.filtool.run_filtool_cleanup} == true ]]; then
-        echo "Deleting original file: ${fits_files}"
-        rm -rf ${fits_files}
-    fi
     """
 }
 
@@ -145,10 +127,7 @@ process filtool {
 process generateDMFiles {
     label "generateDMFiles"
     container "${params.presto_image}"
-    publishDir "${params.basedir}/${cluster}/DMFILES/", pattern: "*.dm", mode: 'copy'
-
-    input:
-    tuple path(fits_files), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(filename)
+    publishDir "${params.basedir}/DMFILES/", pattern: "*.dm", mode: 'copy'
 
     output:
     path("*.dm")
@@ -180,7 +159,7 @@ process birdies {
     label 'birdies'
     container "${params.peasoup_image}"
     publishDir "${params.basedir}/${cluster}/${beam_name}/segment_${segments}/${segments}${segment_id}/BIRDIES/", pattern: "*.{xml,txt}", mode: 'copy'
-    stageInMode 'symlink'
+    // stageInMode 'symlink'
 
     input:
     tuple path(fil_file), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(tsamp), val(nsamples), val(segments), val(segment_id), val(fft_size), val(start_sample)
@@ -195,7 +174,7 @@ process birdies {
     echo 'What are the parameters?'
 
     
-    peasoup -p -v -i ${fil_file} --fft_size ${fft_size} -m 10.0 -t 1 -n ${params.peasoup.nharmonics} --acc_start 0.0 --acc_end 0.0 --ram_limit_gb 50.0 --dm_start 0.0 --dm_end 0.0  --start_sample ${start_sample} 
+    peasoup -p -v -i ${fil_file} --fft_size ${fft_size} -m 10.0 -t 1 -n ${params.peasoup.nharmonics} --acc_start 0.0 --acc_end 0.0 --ram_limit_gb 200.0 --dm_start 0.0 --dm_end 0.0  --start_sample ${start_sample} 
 
     #Rename the output file
     mv **/*.xml ${beam_name}_birdies.xml
@@ -247,8 +226,9 @@ process peasoup {
     label 'peasoup'
     container "${params.peasoup_image}"
     publishDir "${params.basedir}/${cluster}/${beam_name}/segment_${segments}/${segments}${segment_id}/SEARCH/", pattern: "*.xml", mode: 'copy'
-    stageInMode 'symlink'
-    scratch true
+    // stageInMode 'symlink'
+    // stageOutMode 'move'
+    // scratch true
 
     input:
     tuple path(fil_file), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(tsamp), val(nsamples), val(segments), val(segment_id), val(fft_size), val(start_sample)
@@ -270,7 +250,7 @@ process peasoup {
         birdies_string="--zapfile ${birdies_file}"
     fi
 
-    peasoup -p -v -i ${fil_file} --fft_size ${fft_size} --limit ${params.peasoup.total_cands_limit} -m ${params.peasoup.min_snr} -t ${params.peasoup.ngpus} -n ${params.peasoup.nharmonics} --acc_start ${params.peasoup.acc_start} --acc_end ${params.peasoup.acc_end} --ram_limit_gb ${params.peasoup.ram_limit_gb} --dm_file ${dm_file} \${birdies_string} --start_sample ${start_sample} 
+    peasoup -i ${fil_file} --fft_size ${fft_size} --limit ${params.peasoup.total_cands_limit} -m ${params.peasoup.min_snr} -t ${params.peasoup.ngpus} -n ${params.peasoup.nharmonics} --acc_start ${params.peasoup.acc_start} --acc_end ${params.peasoup.acc_end} --ram_limit_gb ${params.peasoup.ram_limit_gb} --dm_file ${dm_file} \${birdies_string} --start_sample ${start_sample} 
 
     #Rename the output file
     mv **/*.xml ${beam_name}_${dm_file.baseName}_ck${segments}${segment_id}_overview.xml
@@ -280,7 +260,7 @@ process peasoup {
 process parse_xml {
     label 'parse_xml'
     container "${params.pulsarx_image}"
-    publishDir "${params.basedir}/${cluster}/${beam_name}/segment_${segments}/${segments}${segment_id}/PARSEXML/", pattern: "*{csv,meta}", mode: 'copy'
+    publishDir "${params.basedir}/${cluster}/${beam_name}/segment_${segments}/${segments}${segment_id}/PARSEXML/", pattern: "*.{csv,meta}", mode: 'copy'
     stageInMode 'symlink'
 
     input:
@@ -318,6 +298,7 @@ process psrfold {
     container "${params.pulsarx_image}"
     scratch true
     stageInMode 'symlink'
+    stageOutMode 'move'
     // maxForks 100
     publishDir "${params.basedir}/${cluster}/${beam_name}/segment_${segments}/${segments}${segment_id}/FOLDING/", pattern: "*.png", mode: 'copy'
     publishDir "${params.basedir}/${cluster}/${beam_name}/segment_${segments}/${segments}${segment_id}/FOLDING/", pattern: "*.ar", mode: 'copy'
