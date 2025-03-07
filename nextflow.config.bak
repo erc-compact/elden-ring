@@ -62,7 +62,7 @@ params {
         min_snr             = 7.0
         acc_start           = -10
         acc_end             = 10
-        ram_limit_gb        = 200
+        ram_limit_gb        = 300
         nharmonics          = 4
         ngpus               = 1
         total_cands_limit   = 100000

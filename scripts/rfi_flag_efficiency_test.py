@@ -18,9 +18,9 @@ def main():
         description="Compare candidate pulsars with known pulsars and generate an annotated CSV and report."
     )
     # Accept one or more candidate CSV files
-    parser.add_argument("candidates_csv", nargs='+',
+    parser.add_argument("--candidates_csv", nargs='+',
                         help="List of candidate CSV files (e.g., ck10candidates.csv ck20candidates.csv ...)")
-    parser.add_argument("known_csv", help="CSV file containing known pulsars (e.g., known_pulsars.csv)")
+    parser.add_argument("--known_csv", help="CSV file containing known pulsars (e.g., known_pulsars.csv)")
     parser.add_argument("--output", default="annotated_candidates.csv",
                         help="Output CSV file name.")
     parser.add_argument("--report", default="report.txt",
@@ -76,6 +76,10 @@ def main():
     num_known_total = known_df.shape[0]
     num_unknown = unknown_df.shape[0]
     total = df_candidates.shape[0]
+    
+    # Find SNR of 1000th and 2500th candidate
+    snr_1000 = df_candidates.iloc[999]['snr']
+    snr_2500 = df_candidates.iloc[2499]['snr']
 
     # Build the report
     report_lines = []
@@ -96,6 +100,9 @@ def main():
         report_lines.append(f"  {pulsar}: {count}")
     report_lines.append("")
     report_lines.append(f"UNKNOWN candidates: {num_unknown}")
+    report_lines.append("")
+    report_lines.append(f"SNR of 1000th candidate: {snr_1000}")
+    report_lines.append(f"SNR of 2500th candidate: {snr_2500}")
 
     # Write the report file
     with open(args.report, "w") as report_file:
