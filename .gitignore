@@ -4,3 +4,4 @@ work*
 *.log
 *.trace
 inputfiles*.txt
+*txt
