@@ -47,9 +47,9 @@ def split_cand_file(cand_file_path, number_of_candidates, cands_per_node, cands_
         logging.info(f"Writing candidates {start_idx} to {end_idx} to a new candfile")
         try:
             with open(cand_file_path, 'w') as f:
-                f.write('#id DM accel F0 F1 S/N\n')
+                f.write('#id DM accel F0 F1 F2 S/N\n')
                 for index, row in cands.iterrows():
-                    f.write(f"{index} {row['DM']} {row['accel']} {row['F0']} 0 {row['S/N']}\n")
+                    f.write(f"{index} {row['DM']} {row['accel']} {row['F0']} 0 0 {row['S/N']}\n")
         
         except IOError as e:
             logging.error(f"Error writing candidate files {e}")
@@ -68,20 +68,6 @@ def a_to_pdot(P_s, acc_ms2):
     return P_s * acc_ms2 /LIGHT_SPEED
 
 def main():
-    # parser = argparse.ArgumentParser(description='Parse XML file to candfile')
-    # parser.add_argument('-i', '--input_file', help='Name of the input xml file', type=str)
-    # parser.add_argument('-dm_name', help='Name of the dm file', type=str)
-    # parser.add_argument('-o', '--output_path', help='Output path to save results',  default=os.getcwd(), type=str)
-    # parser.add_argument('-n', '--nh', help='Filter candidates with nh value', type=int, default=0)
-    # parser.add_argument('-f', '--fold_technique', help='Technique to use for folding (presto or pulsarx)', type=str, default='pulsarx')
-    # parser.add_argument('-sub', '--subint_length', help='Subint length (s). Default is tobs/64', type=int, default=None)
-    # parser.add_argument('-cpn', '--cands_per_node', help='Number of candidates to fold per node', type=int, default=96)
-    # parser.add_argument('-nsub', '--nsubband', help='Number of subbands', type=int, default=64)
-    # parser.add_argument('-clfd', '--clfd_q_value', help='CLFD Q value', type=float, default=2.0)
-    # parser.add_argument('-fn', '--fast_nbins', help='High profile bin limit for slow-spinning pulsars', type=int, default=128)
-    # parser.add_argument('-sn', '--slow_nbins', help='Low profile bin limit for fast-spinning pulsars', type=int, default=64)
-    # parser.add_argument('-c', '--chan_mask', help='Peasoup Channel mask file to be passed onto pulsarx', type=str, default='')
-    # args = parser.parse_args()
     start_time = time.time()
     parser = argparse.ArgumentParser(description='Fold all candidates from Peasoup xml file')
     parser.add_argument('-o', '--output_path', help='Output path to save results',  default=os.getcwd(), type=str)
@@ -90,8 +76,8 @@ def main():
     parser.add_argument('-m', '--mask_file', help='Mask file for prepfold', type=str)
     parser.add_argument('-t', '--fold_technique', help='Technique to use for folding (presto or pulsarx)', type=str, default='presto')
     parser.add_argument('-n', '--nh', help='Filter candidates with nh value', type=int, default=0)
-    parser.add_argument('-f', '--fast_nbins', help='High profile bin limit for slow-spinning pulsars', type=int, default=128)
-    parser.add_argument('-s', '--slow_nbins', help='Low profile bin limit for fast-spinning pulsars', type=int, default=64)
+    parser.add_argument('-f', '--fast_nbins', help='High profile bin limit for slow-spinning pulsars', type=int, default=16)
+    parser.add_argument('--binplan', help='Low profile bin limit for fast-spinning pulsars', type=str)
     parser.add_argument('-sub', '--subint_length', help='Subint length (s). Default is tobs/64', type=int, default=None)
     parser.add_argument('-nsub', '--nsubband', help='Number of subbands', type=int, default=64)
     parser.add_argument('-b', '--beam_name', help='Beam name string', type=str, default='cfbf00000')
@@ -140,7 +126,7 @@ def main():
         PulsarX_Template = f"{args.pulsarx_fold_template}/meerkat_fold.template"
     elif args.telescope == 'effelsberg':
         PulsarX_Template = f"{args.pulsarx_fold_template}/Effelsberg_{args.beam_id}.template"
-        
+
     start_fraction = round(segment_start_sample / total_nsamples, 3)
     end_fraction = round((segment_start_sample + segment_nsamples) / total_nsamples, 3)
     
@@ -182,7 +168,7 @@ def main():
                 f.write(f"StartTime: {tstart}\n")
                 f.write(f"Numberofharmonics: {args.nh}\n")
                 f.write(f"Fast_nbins: {args.fast_nbins}\n")
-                f.write(f"Slow_nbins: {args.slow_nbins}\n")
+                f.write(f"Slow_nbins: {args.binplan}\n")
                 f.write(f"Threads: {threads}\n")
             logging.info(f"Done")
         else:

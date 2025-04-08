@@ -1,12 +1,12 @@
 process syncFiles {
     executor 'local'
-    maxForks 10
+    maxForks 11
     
     input:
-    tuple val(fitsfilepath), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(filename)
+    tuple val(pointing), val(fitsfilepath), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(filename)
 
     output:
-    tuple path("${filename}"), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(filename)
+    tuple val(pointing), path("${filename}"), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(filename)
 
     script:
     """
@@ -25,10 +25,10 @@ process readfile {
     container "${params.presto_image}"
 
     input:
-    tuple path(fits_files), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(filename)
+    tuple val(pointing), path(fits_files), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(filename)
 
     output:
-    tuple path(fits_files), val(cluster), val(beam_name), val(beam_id), val(utc_start), env(time_per_file), env(tsamp), env(nsamples), env(subintlength)
+    tuple val(pointing), path(fits_files), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), env(time_per_file), env(tsamp), env(nsamples), env(subintlength)
 
     script:
     """
@@ -43,16 +43,47 @@ process readfile {
     """
 }
 
+process generateDMFiles {
+    label "generateDMFiles"
+    container "${params.presto_image}"
+    publishDir "${params.basedir}/DMFILES/", pattern: "*.dm", mode: 'copy'
+
+    output:
+    path("*.dm")
+
+    script:
+    """
+    #!/usr/bin/env python3
+    import numpy as np
+
+    # Generate the DM file
+    dm_start = ${params.ddplan.dm_start}
+    dm_end = ${params.ddplan.dm_end}
+    dm_step = ${params.ddplan.dm_step}
+    dm_sample = ${params.ddplan.dm_sample}
+
+    # Create DM values with a step of dm_step
+    dm_values = np.round(np.arange(dm_start, dm_end, dm_step), 3)
+
+    # Split DM values into multiple files, each containing dm_sample number of lines
+    for i in range(0, len(dm_values), dm_sample):
+        chunk = dm_values[i:i + dm_sample]
+        end_index = min(i + dm_sample, len(dm_values))
+        filename = f'dm_{dm_values[i]}_{dm_values[end_index - 1]}.dm'
+        np.savetxt(filename, chunk, fmt='%f')
+    """
+}
+
 process generateRfiFilter {
     label 'generate_rfi_filter'
     container "${params.rfi_mitigation_image}"
     publishDir "${params.basedir}/${cluster}/${beam_name}/RFIFILTER/", pattern: "*.{png,txt}", mode: 'symlink'
 
     input:
-    tuple path(fits_files), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(time_per_file), val(tsamp), val(nsamples), val(subintlength)
+    tuple val(pointing), path(fits_files), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(time_per_file), val(tsamp), val(nsamples), val(subintlength)
 
     output:
-    tuple path(fits_files), val(cluster), val(beam_name), val(beam_id), val(utc_start), env(rfi_filter_string) , val(tsamp), val(nsamples) , val(subintlength), path("*.png"), path("*.txt")
+    tuple val(pointing), path(fits_files), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), env(rfi_filter_string) , val(tsamp), val(nsamples) , val(subintlength), path("*.png"), path("*.txt")
 
     script:
     def num_intervals = Math.floor(time_per_file.toFloat() / 400) as int
@@ -61,7 +92,7 @@ process generateRfiFilter {
     #!/bin/bash
     export MPLCONFIGDIR=/tmp
     export NUMBA_CACHE_DIR=/tmp
-    python3 ${params.generateRfiFilter.script} ${fits_files} . --target_resolution_ms ${params.generateRfiFilter.target_resolution_ms} --num_intervals ${num_intervals}
+    python3 ${projectDir}/scripts/rfi_mitigation_modified.py ${fits_files} . --target_resolution_ms ${params.generateRfiFilter.target_resolution_ms} --num_intervals ${num_intervals}
 
     zap_commands=\$(grep -Eo '[0-9.]+ *- *[0-9.]+' combined_frequent_outliers.txt | \\
     awk -F '-' '{gsub(/ /,""); print "zap "\$1" "\$2}' | tr '\\n' ' ')
@@ -81,12 +112,12 @@ process filtool {
     publishDir "${params.basedir}/${cluster}/CLEANEDFIL/", pattern: "*.fil", mode: 'symlink'
 
     input:
-    tuple path(fits_files), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(rfi_filter_string), val(tsamp), val(nsamples) , val(subintlength)
+    tuple val(pointing), path(fits_files), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(rfi_filter_string), val(tsamp), val(nsamples) , val(subintlength)
     val threads
     val telescope
 
     output:
-    tuple path("*clean_01.fil"), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(tsamp), val(nsamples), val(subintlength)
+    tuple val(pointing), path("*clean_01.fil"), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(tsamp), val(nsamples), val(subintlength)
     
     script:
     def outputFile = "${cluster.trim()}_${utc_start.trim()}_${beam_name.trim()}_clean"
@@ -123,76 +154,16 @@ process filtool {
     """
 }
 
-
-process generateDMFiles {
-    label "generateDMFiles"
-    container "${params.presto_image}"
-    publishDir "${params.basedir}/DMFILES/", pattern: "*.dm", mode: 'copy'
-
-    output:
-    path("*.dm")
-
-    script:
-    """
-    #!/usr/bin/env python3
-    import numpy as np
-
-    # Generate the DM file
-    dm_start = ${params.ddplan.dm_start}
-    dm_end = ${params.ddplan.dm_end}
-    dm_step = ${params.ddplan.dm_step}
-    dm_sample = ${params.ddplan.dm_sample}
-
-    # Create DM values with a step of dm_step
-    dm_values = np.round(np.arange(dm_start, dm_end, dm_step), 3)
-
-    # Split DM values into multiple files, each containing dm_sample number of lines
-    for i in range(0, len(dm_values), dm_sample):
-        chunk = dm_values[i:i + dm_sample]
-        end_index = min(i + dm_sample, len(dm_values))
-        filename = f'dm_{dm_values[i]}_{dm_values[end_index - 1]}.dm'
-        np.savetxt(filename, chunk, fmt='%f')
-    """
-}
-
-process birdies {
-    label 'birdies'
-    container "${params.peasoup_image}"
-    publishDir "${params.basedir}/${cluster}/${beam_name}/segment_${segments}/${segments}${segment_id}/BIRDIES/", pattern: "*.{xml,txt}", mode: 'copy'
-    // stageInMode 'symlink'
-
-    input:
-    tuple path(fil_file), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(tsamp), val(nsamples), val(segments), val(segment_id), val(fft_size), val(start_sample)
-
-    output:
-    path("birdies.txt")
-
-    script:
-    """
-    #!/bin/bash
-    echo 'Running birdies'
-    echo 'What are the parameters?'
-
-    
-    peasoup -p -v -i ${fil_file} --fft_size ${fft_size} -m 10.0 -t 1 -n ${params.peasoup.nharmonics} --acc_start 0.0 --acc_end 0.0 --ram_limit_gb 200.0 --dm_start 0.0 --dm_end 0.0  --start_sample ${start_sample} 
-
-    #Rename the output file
-    mv **/*.xml ${beam_name}_birdies.xml
-
-    python3 ${projectDir}/scripts/birdies_parser.py --xml_file  *birdies.xml
-    """
-}
-
 process segmented_params {
     label 'segmented_params'
     container "${params.presto_image}"
     publishDir "${params.basedir}/${cluster}/${beam_name}/segment_${segments}/SEGPARAMS/", pattern: "*.csv", mode: 'copy'
 
     input:
-    tuple path(fil_file), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(segments)
+    tuple val(pointing), path(fil_file), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(segments)
     
     output:
-    tuple path(fil_file), val(cluster), val(beam_name), val(beam_id), val(utc_start), env(tsamp), env(nsamples), val(segments), path("*.csv")
+    tuple val(pointing), path(fil_file), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), env(tsamp), env(nsamples), val(segments), path("*.csv")
 
     script:
     """
@@ -222,21 +193,45 @@ process segmented_params {
     """
 }
 
+process birdies {
+    label 'birdies'
+    container "${params.peasoup_image}"
+    publishDir "${params.basedir}/${cluster}/${beam_name}/segment_${segments}/${segments}${segment_id}/BIRDIES/", pattern: "*.{xml,txt}", mode: 'copy'
+
+    input:
+    tuple val(pointing), path(fil_file), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(tsamp), val(nsamples), val(segments), val(segment_id), val(fft_size), val(start_sample)
+
+    output:
+    tuple val(pointing), path(fil_file), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(tsamp), val(nsamples), val(segments), val(segment_id), val(fft_size), val(start_sample), path("birdies.txt")
+
+    script:
+    """
+    #!/bin/bash
+    echo 'Running birdies'
+    echo 'What are the parameters?'
+
+    
+    peasoup -p -v -i ${fil_file} --fft_size ${fft_size} -m 10.0 -t 1 -n ${params.peasoup.nharmonics} --acc_start 0.0 --acc_end 0.0 --ram_limit_gb 200.0 --dm_start 0.0 --dm_end 0.0  --start_sample ${start_sample} 
+
+    #Rename the output file
+    mv **/*.xml ${beam_name}_birdies.xml
+
+    python3 ${projectDir}/scripts/birdies_parser.py --xml_file  *birdies.xml
+    """
+}
+
 process peasoup {
     label 'peasoup'
     container "${params.peasoup_image}"
     publishDir "${params.basedir}/${cluster}/${beam_name}/segment_${segments}/${segments}${segment_id}/SEARCH/", pattern: "*.xml", mode: 'copy'
-    // stageInMode 'symlink'
-    // stageOutMode 'move'
-    // scratch true
-
+    cache 'lenient'
+    
     input:
-    tuple path(fil_file), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(tsamp), val(nsamples), val(segments), val(segment_id), val(fft_size), val(start_sample)
-    each path(dm_file) 
-    path(birdies_file)
+    tuple val(pointing), path(fil_file), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(tsamp), val(nsamples), val(segments), val(segment_id), val(fft_size), val(start_sample), path(birdies_file)
+    each path(dm_file)
 
     output:
-    tuple val(cluster),val(beam_name), val(beam_id), val(utc_start), val(fft_size), val(segments), val(segment_id), path(dm_file), path(fil_file, followLinks: false), path("*.xml"), path(birdies_file), val(start_sample), val(nsamples)
+    tuple val(pointing), val(cluster),val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(fft_size), val(segments), val(segment_id), path(dm_file), path(fil_file, followLinks: false), path("*.xml"), path(birdies_file), val(start_sample), val(nsamples)
 
     script:
     """
@@ -260,85 +255,99 @@ process peasoup {
 process parse_xml {
     label 'parse_xml'
     container "${params.pulsarx_image}"
-    publishDir "${params.basedir}/${cluster}/${beam_name}/segment_${segments}/${segments}${segment_id}/PARSEXML/", pattern: "*.{csv,meta}", mode: 'copy'
-    stageInMode 'symlink'
+    publishDir "${params.basedir}/${cluster}/${beam_name}/segment_${segments}/${segments}${segment_id}/PARSEXML/", pattern: "*.{csv,meta,txt,candfile}", mode: 'copy'
 
     input:
-    tuple val(cluster),val(beam_name), val(beam_id), val(utc_start), val(fft_size), val(segments), val(segment_id), val(dm_file), val(fil_file_base), path(fil_file), path(xml_files), val(start_sample)
+    tuple val(pointing), val(cluster),val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(fft_size), val(segments), val(segment_id), val(dm_file), val(fil_file_base), path(fil_file), path(xml_files), val(start_sample)
 
     output:
-    tuple val(cluster),val(beam_name), val(beam_id), val(utc_start), val(fft_size),val(segments), val(segment_id), val(dm_file), val(fil_file_base), path(fil_file), path(xml_files),  val(start_sample), path("*candidates.csv"), path("*.meta")
+    tuple val(pointing), val(cluster),val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(fft_size),val(segments), val(segment_id), val(dm_file), val(fil_file_base), path(fil_file), path(xml_files), val(start_sample), path("filtered_candidates_file.csv"), path("unfiltered_for_folding.csv"), path("*.candfile"), path("*.meta"), path("*allCands.txt")
     
     script:
-    """
-    python3 ${params.parse_xml.script} ${xml_files} --chunk_id ${segments}${segment_id} --outfile ${utc_start}_${beam_name}_ck${segments}${segment_id}_candidates.csv --metafile ${utc_start}_${beam_name}_ck${segments}${segment_id}_metafile.meta
-    """
-}
-
-process splitcands {
-    label 'splitcands'
-    container "${params.pulsarx_image}"
-    publishDir "${params.basedir}/${cluster}/${beam_name}/segment_${segments}/${segments}${segment_id}/SPLITS/", pattern: "*{allCands.txt,candfile,meta.txt}", mode: 'copy'
-
-    input:
-    tuple val(cluster),val(beam_name), val(beam_id), val(utc_start), val(fft_size), val(segments), val(segment_id), val(dm_file), val(fil_base_name), path(fil_file), path(xml_files), val(start_sample), path(candidate_csv), path(metafile)
-
-    output:
-    tuple val(cluster),val(beam_name), val(beam_id), val(utc_start), val(fft_size), val(segments), val(segment_id), val(dm_file), val(fil_base_name), path(fil_file), path(xml_files), val(start_sample), path(candidate_csv), path(metafile), path('*allCands.txt'),path('*candfile'),path('*meta.txt')
-
-    script:
-    """
-    echo "Running splitcands"
-    python3 ${params.splitcands.script} -i ${candidate_csv} -fil ${fil_file} -t pulsarx -n ${params.splitcands.nh} -b ${beam_name}  -threads ${params.splitcands.threads} -p ${params.template_dir} --snr_min ${params.splitcands.snr_min} -ncands ${params.splitcands.ncands} -clfd ${params.splitcands.clfd} -cpn ${params.splitcands.cands_per_node} --beam_id ${beam_id} --utc ${utc_start} --metafile ${metafile}
+    def subintlengthstring = params.psrfold.subintlength && params.psrfold.subintlength != "None" ? "-sub ${params.psrfold.subintlength}" : ""
+    """ 
+    #!/bin/bash
+    echo "Running parse_xml"
+    echo "What are the parameters?"
+    python3 ${params.parse_xml.script} -i ${xml_files} --chunk_id ${segments}${segment_id} --fold_technique ${params.psrfold.fold_technique} --nbins_default ${params.psrfold.nbins} --binplan "${params.psrfold.binplan}" ${subintlengthstring} -nsub ${params.psrfold.nsub} -clfd ${params.psrfold.clfd} -b ${beam_name} -b_id ${beam_id} -utc ${utc_start} -threads ${params.psrfold.threads}  --template_dir ${params.psrfold.template_dir} --telescope ${params.telescope} --config_file ${params.parse_xml.config_file} --cdm ${params.psrfold.cdm} --cands_per_node ${params.psrfold.cands_per_node}
     """
 }
+
 
 process psrfold {
     label "psrfold"
     container "${params.pulsarx_image}"
-    scratch true
-    stageInMode 'symlink'
-    stageOutMode 'move'
     // maxForks 100
-    publishDir "${params.basedir}/${cluster}/${beam_name}/segment_${segments}/${segments}${segment_id}/FOLDING/", pattern: "*.png", mode: 'copy'
-    publishDir "${params.basedir}/${cluster}/${beam_name}/segment_${segments}/${segments}${segment_id}/FOLDING/", pattern: "*.ar", mode: 'copy'
-    publishDir "${params.basedir}/${cluster}/${beam_name}/segment_${segments}/${segments}${segment_id}/FOLDING/", pattern: "*.cands", mode: 'copy'
-    publishDir "${params.basedir}/${cluster}/${beam_name}/segment_${segments}/${segments}${segment_id}/FOLDING/", pattern: "search_fold_cands.csv", mode: 'copy'
+    publishDir "${params.basedir}/${cluster}/${beam_name}/segment_${segments}/${segments}${segment_id}/FOLDING/", pattern: "*.{png,ar,cands}", mode: 'copy'
     
     input:
-    tuple val(cluster),val(beam_name), val(beam_id), val(utc_start), val(fft_size), val(segments), val(segment_id), val(fil_base_name), path(fil_file), val(start_sample), path(candfile), path(metatext)
+    tuple val(pointing), val(cluster),val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(fft_size), val(segments), val(segment_id), val(fil_base_name), path(fil_file), val(start_sample), path(filtered_candidate_csv), path(candfile), path(metafile)
 
     output:
-    tuple val(cluster),val(beam_name), val(beam_id), val(utc_start), val(fft_size), val(segments), val(segment_id), val(fil_base_name), path(fil_file, followLinks: false), path(candfile), path(metatext), path("*.png"), path("*.ar"), path("*.cands"), path("search_fold_cands.csv")
+    tuple val(pointing), val(cluster),val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(fft_size), val(segments), val(segment_id), val(fil_base_name), path(fil_file, followLinks: false), path(filtered_candidate_csv), path(candfile), path(metafile), path("*.png"), path("*.ar"), path("*.cands")
 
     script:
     """
-    python3 ${baseDir}/scripts/pulsarx_fold.py -meta ${metatext} -cands ${candfile}
-
-    # take candfile number and multiply that with the number of candidates 
+    #!/bin/bash
+    
+    python3 ${baseDir}/scripts/pulsarx_fold.py -meta ${metafile} -cands ${candfile}
 
     fold_cands=\$(ls -v *.ar)
-    pulsarx_cands_file=\$(ls -v *.cands)
 
-    python3 ${baseDir}/scripts/fold_cands_to_csv.py -f \${fold_cands} -c \${pulsarx_cands_file}
+    #Run dmffdot if there are missing png files.
+    for file in \$fold_cands; do
+        png_file="\${file%.ar}.png"
+        if [ ! -f "\$png_file" ]; then
+            echo "Missing PNG file for \$png_file. Running dmffdot."
+            dmffdot --telescope ${params.telescope} -f \$file
+        fi
+    done
+
+    shopt -s nullglob # Enables automatic removal of non-matching patterns
+    for file in *.ar *.png; do
+        candfile_no=\$(basename \${file} | cut -d'_' -f2)
+        # candidate number is the last number in the file name in the format 0000n.ar
+        cand_no=\$(basename \${file} | cut -d'_' -f6 | cut -d'.' -f1)
+        new_cand_no=\$(( (10#\${candfile_no} -1) * ${params.psrfold.cands_per_node} + 10#\${cand_no} ))
+        new_cand_fmt=\$(printf "%05d" \${new_cand_no})
+        name=\$(basename \${file})
+        prefix=\${name%_*}
+        suffix=\${name##*.}
+        new_name="\${prefix}_\${new_cand_fmt}.\${suffix}"
+        # Move the file only if the new name is different
+        if [[ \${file} != \${new_name} ]]; then
+            echo "Renaming \${file} to \${new_name}"
+            mv \${file} \${new_name}
+        else
+            echo "No renaming needed for \${file}"
+        fi
+    done
+    shopt -u nullglob  # Restore default behavior
     """
 }
 
-process pics_classifier {
-    label "pics_classifier"
-    container "/hercules/scratch/fkareem/singularity_img/trapum_pulsarx_fold_docker_20220411.sif"
-    publishDir "${params.basedir}/${cluster}/${beam_name}/segment_${segments}/${segments}${segment_id}/CLASSIFICATION/", pattern: "*scored.csv", mode: 'copy'
+process search_fold_merge {
+    label "search_fold_merge"
+    container "${params.pulsarx_image}"
+    publishDir "${params.basedir}/${cluster}/${beam_name}/segment_${segments}/${segments}${segment_id}/FOLDING/", pattern: "*{.csv,master.cands}", mode: 'copy'
 
     input:
-    tuple val(cluster),val(beam_name), val(beam_id), val(utc_start), val(fft_size), val(segments), val(segment_id), val(fil_base_name), path(fil_file), path(candfile), path(metatext), path(pngs), path(ars), path(cands), path(search_fold_cands_csv)
+    tuple val(pointing), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(fft_size), val(segments), val(segment_id), val(fil_base_name), path(filtered_candidate_csv), path(candfile), path(metafile), path(pngs), path(ars), path(cands)
 
     output:
-    tuple val(cluster),val(beam_name), val(beam_id), val(utc_start), val(fft_size), val(fil_base_name), path(fil_file), path(candfile), path(metatext), path(search_fold_cands_csv), path("*scored.csv") 
-
+    tuple val(pointing), val(cluster),val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(fft_size), val(segments), val(segment_id), val(fil_base_name), path(filtered_candidate_csv), env(publish_dir), path(ars), path("*master.cands"), path("search_fold_cands*.csv")
+    
     script:
-    output_csv = "${cluster}_${beam_name}_ck${segments}${segment_id}_scored.csv"
     """
-    python2 ${baseDir}/scripts/pics_classifier_multiple_models.py -m ${params.pics_model_dir} -o ${output_csv}
+    publish_dir="${params.basedir}/${cluster}/${beam_name}/segment_${segments}/${segments}${segment_id}/FOLDING"
+    mkdir -p \${publish_dir}
+    echo "I wanna do this again"
+    echo "made some changes"
+
+    fold_cands=\$(ls -v *.ar)
+    pulsarx_cands_file=\$(ls -v *.cands)
+    
+    python3 ${baseDir}/scripts/fold_cands_to_csv.py -f \${fold_cands} -c \${pulsarx_cands_file} -x ${filtered_candidate_csv} -o search_fold_cands_${beam_name}_ck${segments}${segment_id}.csv -p \${publish_dir} 
     """
 }
 
@@ -349,21 +358,61 @@ process alpha_beta_gamma_test {
     publishDir "${params.basedir}/${cluster}/${beam_name}/segment_${segments}/${segments}${segment_id}/ABG", pattern: "*alpha_beta_gamma.csv", mode: 'copy'
 
     input:
-    tuple val(cluster),val(beam_name), val(beam_id), val(utc_start), val(fft_size), val(segments), val(segment_id), val(fil_base_name), path(fil_file), path(candfile), path(metatext), path(pngs), path(ars), path(cands), path(search_fold_cands_csv)
+    tuple val(pointing), val(cluster),val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(fft_size), val(segments), val(segment_id), val(fil_base_name), path(filtered_candidate_csv), val(png_source_dir), path(ars), path(master_cands), path(search_fold_cands_csv)
 
     output:
-    tuple val(cluster),val(beam_name), val(beam_id), val(utc_start), val(fft_size), val(segments), val(segment_id), val(fil_base_name), path(fil_file), path(candfile), path(metatext), path(pngs), path(ars), path(cands), path(search_fold_cands_csv), path("*alpha_beta_gamma.csv")
+    tuple path("*alpha_beta_gamma.csv"), val(pointing), val(cluster),val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(segments), val(segment_id), val(png_source_dir)
 
     script:
     """
     #!/bin/bash
     publish_dir="${params.basedir}/${cluster}/${beam_name}/segment_${segments}/${segments}${segment_id}/ABG"
     mkdir -p \${publish_dir}
-    python3 ${baseDir}/scripts/calculate_alpha_beta_gamma_dmffdot.py -i ${search_fold_cands_csv} -o ${cluster}_${beam_name}_ck${segments}${segment_id}_alpha_beta_gamma.csv -t ${params.alpha_beta_gamma.snr_min} -c -p \${publish_dir} 
+    python3 ${baseDir}/scripts/calculate_alpha_beta_gamma_dmffdot.py -i ${search_fold_cands_csv} -o ${cluster}_${beam_name}_ck${segments}${segment_id}_alpha_beta_gamma.csv -t ${params.alpha_beta_gamma.snr_min} -p \${publish_dir} -s ${png_source_dir} -c
+    """
+}
+
+process pics_classifier {
+    label "pics_classifier"
+    container "/hercules/scratch/fkareem/singularity_img/trapum_pulsarx_fold_docker_20220411.sif"
+    publishDir "${params.basedir}/${cluster}/${beam_name}/segment_${segments}/${segments}${segment_id}/CLASSIFICATION/", pattern: "*scored.csv", mode: 'copy'
+
+    input:
+    tuple val(pointing), val(cluster),val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(fft_size), val(segments), val(segment_id), val(fil_base_name), path(filtered_candidate_csv), val(png_source_dir), path(ars), path(master_cands), path(search_fold_cands_csv)
+
+    output:
+    tuple path("*scored.csv"), val(pointing), val(cluster),val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(segments), val(segment_id), val(png_source_dir)
+
+    script:
+    output_csv = "${cluster}_${beam_name}_ck${segments}${segment_id}_scored.csv"
+    """
+    python2 ${baseDir}/scripts/pics_classifier_multiple_models.py -m ${params.pics_model_dir} -o ${output_csv}
     """
 }
 
 
+process create_candyjar_tarball {
+    executor 'local'
+    container "${params.pulsarx_image}"
+    //publishDir "${params.publish_dir_prefix}/${target}/CANDIDATE_TARBALLS", pattern: "*.tar.gz", mode: 'copy'
 
-// processes for rfi-filter-test.nf
+    input:
+    tuple path(candidate_results_file), val(output_tarball_name)
 
+    output:
+    stdout
+
+    script:
+    """
+    #!/bin/bash
+    echo "Creating tarball of all the candidate results"
+    header="pointing,target,beam,beam_id,utc_start,ra,dec,segments,segment_id,fold_cands_filepath,alpha_beta_file,pics_file"
+
+    # Extract basename without extension and append "_header.csv"
+    candidate_results_file_with_header="\$(basename ${candidate_results_file} .csv)_header.csv"
+    echo "\$header" > "\$candidate_results_file_with_header"
+    cat "${candidate_results_file}" >> "\$candidate_results_file_with_header"
+
+    python ${baseDir}/scripts/create_candyjar_tarball.py -i \$candidate_results_file_with_header -o ${output_tarball_name} --verbose --npointings 0 -m ${params.metafile_source_path} -d ${params.basedir}
+    """
+}
