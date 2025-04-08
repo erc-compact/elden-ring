@@ -3,8 +3,4 @@ work*
 *.html
 *.log
 *.trace
-Filtool
-Peasoup
-scripts/birdies.txt
-scripts/overview_dm_318.500000_500.100000.xml
-inputfiles7099.txt
+inputfiles*.txt
