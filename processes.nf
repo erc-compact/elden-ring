@@ -289,7 +289,8 @@ process psrfold {
     script:
     """
     #!/bin/bash
-    
+    echo "try again"
+    echo "what about now?"
     python3 ${baseDir}/scripts/pulsarx_fold.py -meta ${metafile} -cands ${candfile}
 
     fold_cands=\$(ls -v *.ar)
@@ -332,7 +333,7 @@ process search_fold_merge {
     publishDir "${params.basedir}/${cluster}/${beam_name}/segment_${segments}/${segments}${segment_id}/FOLDING/", pattern: "*{.csv,master.cands}", mode: 'copy'
 
     input:
-    tuple val(pointing), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(fft_size), val(segments), val(segment_id), val(fil_base_name), path(filtered_candidate_csv), path(candfile), path(metafile), path(pngs), path(ars), path(cands)
+    tuple val(pointing), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(fft_size), val(segments), val(segment_id), val(fil_base_name), path(filtered_candidate_csv), path(ars), path(cands)
 
     output:
     tuple val(pointing), val(cluster),val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(fft_size), val(segments), val(segment_id), val(fil_base_name), path(filtered_candidate_csv), env(publish_dir), path(ars), path("*master.cands"), path("search_fold_cands*.csv")
@@ -341,8 +342,6 @@ process search_fold_merge {
     """
     publish_dir="${params.basedir}/${cluster}/${beam_name}/segment_${segments}/${segments}${segment_id}/FOLDING"
     mkdir -p \${publish_dir}
-    echo "I wanna do this again"
-    echo "made some changes"
 
     fold_cands=\$(ls -v *.ar)
     pulsarx_cands_file=\$(ls -v *.cands)
@@ -405,7 +404,6 @@ process create_candyjar_tarball {
     script:
     """
     #!/bin/bash
-    echo "Creating tarball of all the candidate results"
     header="pointing,target,beam,beam_id,utc_start,ra,dec,segments,segment_id,fold_cands_filepath,alpha_beta_file,pics_file"
 
     # Extract basename without extension and append "_header.csv"
@@ -413,6 +411,6 @@ process create_candyjar_tarball {
     echo "\$header" > "\$candidate_results_file_with_header"
     cat "${candidate_results_file}" >> "\$candidate_results_file_with_header"
 
-    python ${baseDir}/scripts/create_candyjar_tarball.py -i \$candidate_results_file_with_header -o ${output_tarball_name} --verbose --npointings 0 -m ${params.metafile_source_path} -d ${params.basedir}
+    python ${baseDir}/scripts/create_candyjar_tarball.py -i \$candidate_results_file_with_header -o ${output_tarball_name} --verbose --npointings 0 -m ${params.metafile_source_path} -d ${params.basedir} --threshold 0
     """
 }

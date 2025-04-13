@@ -134,7 +134,8 @@ workflow {
     .map { pointing, cluster, beam_name, beam_id, utc_start, ra, dec, fft_size, segments, segment_id, dm_file, fil_base_name, fil_file, xml_paths, start_sample -> 
         def combined = []
          // select only one fil file name from the list of same fil_file names.
-        def first_fil_file = (fil_file instanceof List) ? fil_file[0] : fil_file
+        def fil_file_sorted = fil_file instanceof List ? fil_file.sort() : [fil_file]
+        def first_fil_file = (fil_file_sorted instanceof List) ? fil_file_sorted[0] : fil_file_sorted
         // Combine and sort to keep the resume functionality
         (0..<dm_file.size()).each { i -> 
             combined << [dm: dm_file[i], xml: xml_paths[i]]
@@ -148,8 +149,6 @@ workflow {
     // Parse the XML files and adjust the tuple
     parse_xml_results = parse_xml(peasoup_output_grouped)
 
-    //add sifting here
-    // splitcands = splitcands(parse_xml_results)
 
     // Split the candidates and adjust the tuple
     splitcands_channel = parse_xml_results
@@ -161,19 +160,17 @@ workflow {
             }
         }
 
-    // Fold the candidates
-    // pulsarx_output = psrfold(splitcands_channel)
+    pulsarx_output = psrfold(splitcands_channel)
 
-    pulsarx_output_grouped = psrfold(splitcands_channel)
-        .groupTuple(by: [0, 1, 2, 3, 4, 5, 6, 7, 9])
+    pulsarx_output_grouped = pulsarx_output.groupTuple(by: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
         .map { pointing, cluster, beam_name, beam_id, utc_start, ra, dec, fft_size, segments, segment_id, fil_base_name, fil_file, filtered_candidate_csv, candfile, metatext, pngs, archives, cands -> 
-            pngs = pngs instanceof List ? pngs : [pngs]
+            def filtered_candidate_sorted = filtered_candidate_csv instanceof List ? filtered_candidate_csv.sort() : [filtered_candidate_csv]
+            def first_filtered_csv = (filtered_candidate_sorted instanceof List) ? filtered_candidate_sorted[0] : filtered_candidate_sorted
             archives = archives instanceof List ? archives : [archives]
             cands = cands instanceof List ? cands : [cands]
-            pngs = pngs.flatten()
             archives = archives.flatten()
             cands = cands.flatten()
-            return tuple(pointing, cluster, beam_name, beam_id, utc_start, ra, dec, fft_size, segments, segment_id, fil_base_name, filtered_candidate_csv, candfile, metatext, pngs, archives, cands)
+            return tuple(pointing, cluster, beam_name, beam_id, utc_start, ra, dec, fft_size, segments, segment_id, fil_base_name, first_filtered_csv, archives, cands)
         }
 
     search_fold_merged = search_fold_merge(pulsarx_output_grouped)
@@ -196,7 +193,7 @@ workflow {
     alpha_beta_pics_results_file = alpha_beta_pics_combined
         .map { row -> row.join(',') } // Convert each list to a CSV line
         .collectFile(name: 'alpha_beta_pics_combined.csv', newLine: true, storeDir: params.basedir)  // Append to the CSV file
-     if (params.alpha_beta_gamma.create_candyjar_tarball) {
+    if (params.alpha_beta_gamma.create_candyjar_tarball) {
 
     def output_tarballname = "${params.alpha_beta_gamma.output_dir_alpha_pics_results}.tar.gz"
 
@@ -205,7 +202,4 @@ workflow {
     }
     create_candyjar_tarball(candyjar_tarball_input)
     }
-    
-    // Prepare candidates for candyjar and create the tarball
-    // candyjar_output = candyjar(classified_cands)
 }

@@ -113,7 +113,7 @@ def read_candidate_files(files, chunk_id, verbose=False):
     if verbose:
         print(f"{len(df_candidates)} candidates read.")
 
-    # Sort DataFrame by snr
+    # Sort DataFrame by snr and dm
     df_candidates.sort_values('snr', inplace=True, ascending=False)
     df_candidates.reset_index(inplace=True, drop=True)
 

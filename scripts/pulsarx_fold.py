@@ -12,6 +12,34 @@ from multiprocessing import Pool, cpu_count
 
 logging.basicConfig(level=logging.INFO)
 
+def buffered_stream_output(pipe, logger, log_level=logging.INFO, flush_interval=1.0):
+    """
+    Reads lines from 'pipe' and logs them every 'flush_interval' seconds.
+    All lines are flushed at the end, ensuring none are skipped.
+    """
+    buffer = []
+    last_flush = time.time()
+
+    try:
+        for line in iter(pipe.readline, ''):
+            # Some commands produce empty lines occasionally; don't skip them
+            buffer.append(line)
+
+            # Flush if we've exceeded the interval
+            if (time.time() - last_flush) >= flush_interval:
+                for msg in buffer:
+                    logger.log(log_level, msg.rstrip('\n'))
+                buffer.clear()
+                last_flush = time.time()
+
+        # Final flush in case anything’s left
+        for msg in buffer:
+            logger.log(log_level, msg.rstrip('\n'))
+        buffer.clear()
+
+    finally:
+        pipe.close()
+
 def create_symlink_to_output_dir(output_dir):
     # temp_dir = tempfile.mkdtemp()
     # symlink_path = os.path.join(temp_dir, 'output_symlink')
@@ -88,15 +116,15 @@ def fold_with_pulsarx(meta_dict, output_dir, cand_file):
     cand_file_name = os.path.basename(cand_file)
     logging.info(f"folding {cand_file_name}")
     output_rootname = os.path.join(output_dir, f"{cand_file_name.split('_')[0]}_{cand_file_name.split('_')[-1].split('.')[0]}_ck{chunk_id}")
+    # output_rootname = output_dir
     logging.info(f"Output path: {output_rootname}")
-    os.makedirs(output_rootname, exist_ok=True)
+    # os.makedirs(output_rootname, exist_ok=True)
     #print output with the cand_file
     print("Processing cand_file: ", cand_file)
     
     # Build the base command
     script = (
-        "psrfold_fil2 --render --plotx --output_width --cdm {} -t {} --candfile {} -n {} {} {} --template {} "
-        "--clfd {} -L {} -f {} {} -o {} --srcname {} --pepoch {} --frac {} {} {}"
+        "psrfold_fil2 -v --dmboost 300.0 --render --plotx --output_width --cdm {} -t {} --candfile {} -n {} {} {} --template {} --clfd {} -L {} -f {} {} -o {} --srcname {} --pepoch {} --frac {} {} {}"
     ).format(
         coherent_dm,
         pulsarx_threads,
@@ -126,6 +154,24 @@ def fold_with_pulsarx(meta_dict, output_dir, cand_file):
         text=True,
         bufsize=1  # line-buffered
     )
+    
+    # Two threads, one for stdout (INFO level), one for stderr (WARNING level)
+    stdout_thread = threading.Thread(
+        target=buffered_stream_output,
+        args=(process.stdout, logging.getLogger(), logging.INFO, 10.0),
+        daemon=True
+    )
+    stderr_thread = threading.Thread(
+        target=buffered_stream_output,
+        args=(process.stderr, logging.getLogger(), logging.WARNING, 10.0),
+        daemon=True
+    )
+
+    stdout_thread.start()
+    stderr_thread.start()
+
+    stdout_thread.join()
+    stderr_thread.join()
 
     return_code = process.wait()
 

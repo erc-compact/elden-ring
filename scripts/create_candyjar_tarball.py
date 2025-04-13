@@ -235,7 +235,8 @@ class CandidateProcessor:
             "acc_new": "acc_opt",
             "S/N": "sn_fft",
             "S/N_new": "sn_fold",
-            "#id": "id"
+            "#id": "id",
+            "filterbank_file": "filterbank_path"
         }
         df.rename(columns=rename_map, inplace=True)
 
@@ -258,7 +259,7 @@ class CandidateProcessor:
                          "maxdm_ymw16", "dist_ymw16", "pics_trapum_ter5",
                          "pics_palfa", "pics_palfa_meerkat_l_sband_best_fscore",
                          "pics_meerkat_l_sband_combined_best_recall",
-                         "png_path", "metafile_path", "filterbank_file", "candidate_tarball_path"]
+                         "png_path", "metafile_path", "filterbank_path", "candidate_tarball_path"]
         extra_cols = [col for col in df.columns if col not in required_cols]
         final_df = df[required_cols + extra_cols]
 
