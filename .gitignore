@@ -5,3 +5,4 @@ work*
 *.trace
 inputfiles*.txt
 *txt
+nextflow.config
