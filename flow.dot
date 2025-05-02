@@ -1,0 +1,150 @@
+digraph "flow" {
+v0 [shape=point,label="",fixedsize=true,width=0.1,xlabel="Channel.fromPath"];
+v1 [shape=circle,label="",fixedsize=true,width=0.1,xlabel="splitCsv"];
+v0 -> v1;
+
+v1 [shape=circle,label="",fixedsize=true,width=0.1,xlabel="splitCsv"];
+v2 [shape=circle,label="",fixedsize=true,width=0.1,xlabel="map"];
+v1 -> v2;
+
+v2 [shape=circle,label="",fixedsize=true,width=0.1,xlabel="map"];
+v5 [label="readfile"];
+v2 -> v5 [label="fits_file_channel_and_meta"];
+
+v3 [label="generateDMFiles"];
+v4 [shape=circle,label="",fixedsize=true,width=0.1,xlabel="flatMap"];
+v3 -> v4;
+
+v4 [shape=circle,label="",fixedsize=true,width=0.1,xlabel="flatMap"];
+v15 [label="peasoup"];
+v4 -> v15 [label="dm_file"];
+
+v5 [label="readfile"];
+v6 [label="generateRfiFilter"];
+v5 -> v6;
+
+v6 [label="generateRfiFilter"];
+v7 [shape=circle,label="",fixedsize=true,width=0.1,xlabel="map"];
+v6 -> v7;
+
+v7 [shape=circle,label="",fixedsize=true,width=0.1,xlabel="map"];
+v10 [label="filtool"];
+v7 -> v10 [label="generateRfiFilter_output"];
+
+v8 [shape=point,label="",fixedsize=true,width=0.1];
+v10 [label="filtool"];
+v8 -> v10 [label="threads"];
+
+v9 [shape=point,label="",fixedsize=true,width=0.1];
+v10 [label="filtool"];
+v9 -> v10 [label="telescope"];
+
+v10 [label="filtool"];
+v11 [shape=circle,label="",fixedsize=true,width=0.1,xlabel="flatMap"];
+v10 -> v11;
+
+v11 [shape=circle,label="",fixedsize=true,width=0.1,xlabel="flatMap"];
+v12 [label="segmented_params"];
+v11 -> v12 [label="split_params_input"];
+
+v12 [label="segmented_params"];
+v13 [shape=circle,label="",fixedsize=true,width=0.1,xlabel="flatMap"];
+v12 -> v13;
+
+v13 [shape=circle,label="",fixedsize=true,width=0.1,xlabel="flatMap"];
+v14 [label="birdies"];
+v13 -> v14 [label="peasoup_input"];
+
+v14 [label="birdies"];
+v15 [label="peasoup"];
+v14 -> v15;
+
+v15 [label="peasoup"];
+v16 [shape=circle,label="",fixedsize=true,width=0.1,xlabel="map"];
+v15 -> v16;
+
+v16 [shape=circle,label="",fixedsize=true,width=0.1,xlabel="map"];
+v17 [shape=circle,label="",fixedsize=true,width=0.1,xlabel="groupTuple"];
+v16 -> v17;
+
+v17 [shape=circle,label="",fixedsize=true,width=0.1,xlabel="groupTuple"];
+v18 [shape=circle,label="",fixedsize=true,width=0.1,xlabel="map"];
+v17 -> v18;
+
+v18 [shape=circle,label="",fixedsize=true,width=0.1,xlabel="map"];
+v19 [label="parse_xml"];
+v18 -> v19 [label="peasoup_output_grouped"];
+
+v19 [label="parse_xml"];
+v20 [shape=circle,label="",fixedsize=true,width=0.1,xlabel="flatMap"];
+v19 -> v20;
+
+v20 [shape=circle,label="",fixedsize=true,width=0.1,xlabel="flatMap"];
+v21 [label="psrfold"];
+v20 -> v21 [label="splitcands_channel"];
+
+v21 [label="psrfold"];
+v22 [shape=circle,label="",fixedsize=true,width=0.1,xlabel="groupTuple"];
+v21 -> v22;
+
+v22 [shape=circle,label="",fixedsize=true,width=0.1,xlabel="groupTuple"];
+v23 [shape=circle,label="",fixedsize=true,width=0.1,xlabel="map"];
+v22 -> v23;
+
+v23 [shape=circle,label="",fixedsize=true,width=0.1,xlabel="map"];
+v24 [label="search_fold_merge"];
+v23 -> v24 [label="pulsarx_output_grouped"];
+
+v24 [label="search_fold_merge"];
+v25 [label="alpha_beta_gamma_test"];
+v24 -> v25;
+
+v25 [label="alpha_beta_gamma_test"];
+v27 [shape=circle,label="",fixedsize=true,width=0.1,xlabel="collect"];
+v25 -> v27;
+
+v24 [label="search_fold_merge"];
+v26 [label="pics_classifier"];
+v24 -> v26;
+
+v26 [label="pics_classifier"];
+v28 [shape=circle,label="",fixedsize=true,width=0.1,xlabel="collect"];
+v26 -> v28;
+
+v27 [shape=circle,label="",fixedsize=true,width=0.1,xlabel="collect"];
+v29 [shape=circle,label="",fixedsize=true,width=0.1,xlabel="flatMap"];
+v27 -> v29 [label="alpha_beta_output_combined"];
+
+v28 [shape=circle,label="",fixedsize=true,width=0.1,xlabel="collect"];
+v30 [shape=circle,label="",fixedsize=true,width=0.1,xlabel="flatMap"];
+v28 -> v30 [label="pics_output_combined"];
+
+v29 [shape=circle,label="",fixedsize=true,width=0.1,xlabel="flatMap"];
+v31 [shape=circle,label="",fixedsize=true,width=0.1,xlabel="join"];
+v29 -> v31 [label="alpha_beta_channel"];
+
+v30 [shape=circle,label="",fixedsize=true,width=0.1,xlabel="flatMap"];
+v31 [shape=circle,label="",fixedsize=true,width=0.1,xlabel="join"];
+v30 -> v31 [label="pics_channel"];
+
+v31 [shape=circle,label="",fixedsize=true,width=0.1,xlabel="join"];
+v32 [shape=circle,label="",fixedsize=true,width=0.1,xlabel="map"];
+v31 -> v32 [label="alpha_beta_pics_combined"];
+
+v32 [shape=circle,label="",fixedsize=true,width=0.1,xlabel="map"];
+v33 [shape=circle,label="",fixedsize=true,width=0.1,xlabel="collectFile"];
+v32 -> v33;
+
+v33 [shape=circle,label="",fixedsize=true,width=0.1,xlabel="collectFile"];
+v34 [shape=circle,label="",fixedsize=true,width=0.1,xlabel="map"];
+v33 -> v34 [label="alpha_beta_pics_results_file"];
+
+v34 [shape=circle,label="",fixedsize=true,width=0.1,xlabel="map"];
+v35 [label="create_candyjar_tarball"];
+v34 -> v35 [label="candyjar_tarball_input"];
+
+v35 [label="create_candyjar_tarball"];
+v36 [shape=point];
+v35 -> v36 [label="-"];
+
+}

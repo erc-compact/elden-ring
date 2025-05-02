@@ -49,35 +49,45 @@ def setup_logging(verbose: bool) -> logging.Logger:
 
 class TarballCreator:
     @staticmethod
-    def create_tarball(output_csv: str, meta_files: list, png_files: list, tarball_name: str,
-                       additional_files: list, logger: logging.Logger = None) -> None:
+    def create_tarball(
+        output_csv: str,
+        meta_files: list,
+        png_files: list,
+        tarball_name: str,
+        additional_files: list,
+        logger: logging.Logger = None,
+    ) -> None:
         # If a logger is provided (i.e. in main process), log events; otherwise, skip logging.
         if logger:
             logger.info("Packaging files into tarball: %s", tarball_name)
         try:
             with tarfile.open(tarball_name, "w:gz", dereference=True) as tar:
                 # Add the main CSV file.
-                tar.add(output_csv, arcname='candidates.csv')
+                tar.add(output_csv, arcname="candidates.csv")
                 if logger:
                     logger.debug("Added main CSV: %s", output_csv)
                 # Add metafiles into the 'metafiles' folder.
                 for metafile in meta_files:
-                    tar.add(metafile, arcname=os.path.join("metafiles", os.path.basename(metafile)))
+                    tar.add(
+                        metafile,
+                        arcname=os.path.join("metafiles", os.path.basename(metafile)),
+                    )
                     if logger:
                         logger.debug("Added metafile: %s", metafile)
                 # Add PNG images into the 'plots' folder.
                 for png in png_files:
-                    #check if the file exists
+                    # check if the file exists
                     if os.path.isfile(png):
-                        tar.add(png, arcname=os.path.join("plots", os.path.basename(png)))
+                        tar.add(
+                            png, arcname=os.path.join("plots", os.path.basename(png))
+                        )
                         if logger:
                             logger.debug("Added PNG: %s", png)
                     else:
                         if logger:
-                            #Add a warning if the file does not exist, but continue
+                            # Add a warning if the file does not exist, but continue
                             logger.warning("PNG file does not exist: %s", png)
 
-                    
                 # Add any extra files at the top level.
                 for file in additional_files:
                     tar.add(file, arcname=os.path.basename(file))
@@ -97,8 +107,15 @@ class CandidateProcessor:
     merging candidate-related files, and saving outputs.
     """
 
-    def __init__(self, input_file: str, output_tarball: str, output_tarball_path: str,
-                 metafile_source_path: str, threshold: float, logger: logging.Logger):
+    def __init__(
+        self,
+        input_file: str,
+        output_tarball: str,
+        output_tarball_path: str,
+        metafile_source_path: str,
+        threshold: float,
+        logger: logging.Logger,
+    ):
         self.input_file = input_file
         self.output_tarball = output_tarball
         self.output_tarball_path = output_tarball_path
@@ -124,25 +141,27 @@ class CandidateProcessor:
     def preprocess_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
         self.logger.info("Preprocessing candidate data.")
         df["beam_id"] = df["beam_id"].apply(lambda x: str(x).zfill(2))
-        
+
         # Combine segment and segment_id into a two-digit segment_id
-        df['segment_id'] = df['segments'].astype(str) + df['segment_id'].astype(str)
+        df["segment_id"] = df["segments"].astype(str) + df["segment_id"].astype(str)
 
         # Convert the combined column to integer for numerical consistency
-        df['segment_id'] = df['segment_id'].astype(int)
+        df["segment_id"] = df["segment_id"].astype(int)
 
         # Drop the original segment column as it's now merged
-        df = df.drop(columns=['segments'])
+        df = df.drop(columns=["segments"])
 
         df = df.sort_values(by=["beam_id", "segment_id"]).reset_index(drop=True)
-        pointing_ids = {pointing: idx for idx, pointing in enumerate(df["pointing"].unique())}
+        pointing_ids = {
+            pointing: idx for idx, pointing in enumerate(df["pointing"].unique())
+        }
         df["pointing_id"] = df["pointing"].map(pointing_ids)
         # df["beam_id"] = df["beam"]
 
         # df["utc_start"] = df["pointing"].apply(
         #     lambda x: datetime.strptime(x, "%Y-%m-%d-%H:%M:%S").strftime("%Y-%m-%dT%H:%M:%S")
         # )
-        
+
         df["metafile_path"] = df["utc_start"].apply(lambda x: f"metafiles/{x}.meta")
         self.logger.debug("Preprocessing done. Rows: %d", len(df))
         return df
@@ -153,7 +172,9 @@ class CandidateProcessor:
         coords = SkyCoord(ra=unique["ra"], dec=unique["dec"], unit=(u.hourangle, u.deg))
         unique["gl"] = coords.galactic.l.deg
         unique["gb"] = coords.galactic.b.deg
-        unique["mjd_start"] = Time(unique["utc_start"].tolist(), format="isot", scale="utc").mjd
+        unique["mjd_start"] = Time(
+            unique["utc_start"].tolist(), format="isot", scale="utc"
+        ).mjd
 
         max_dm = []
         for idx, row in unique.iterrows():
@@ -165,8 +186,11 @@ class CandidateProcessor:
                 max_dm.append(float("nan"))
         unique["maxdm_ymw16"] = max_dm
 
-        df = df.merge(unique[["utc_start", "beam", "gl", "gb", "mjd_start", "maxdm_ymw16"]],
-                      on=["utc_start", "beam"], how="left")
+        df = df.merge(
+            unique[["utc_start", "beam", "gl", "gb", "mjd_start", "maxdm_ymw16"]],
+            on=["utc_start", "beam"],
+            how="left",
+        )
         self.logger.debug("Galactic info added.")
         return df
 
@@ -181,7 +205,13 @@ class CandidateProcessor:
             try:
                 df_alpha = pd.read_csv(alpha_beta_file)
                 df_pics = pd.read_csv(pics_file)
-                merged = df_alpha.merge(df_pics, left_on="fold_cands_filename", right_on="filename", how="inner", suffixes=("", "_drop"))
+                merged = df_alpha.merge(
+                    df_pics,
+                    left_on="fold_cands_filename",
+                    right_on="filename",
+                    how="inner",
+                    suffixes=("", "_drop"),
+                )
                 merged = merged.loc[:, ~merged.columns.str.endswith("_drop")]
                 if "filename" in merged.columns:
                     merged.drop(columns=["filename"], inplace=True)
@@ -203,15 +233,20 @@ class CandidateProcessor:
                 total_rows += merged.shape[0]
                 merged_results.extend(merged.values.tolist())
             except Exception as err:
-                self.logger.error("Error merging '%s' and '%s': %s", alpha_beta_file, pics_file, err)
+                self.logger.error(
+                    "Error merging '%s' and '%s': %s", alpha_beta_file, pics_file, err
+                )
 
         if not merged_results:
             self.logger.error("No candidate data merged. Exiting.")
             sys.exit(1)
 
         final_df = pd.DataFrame(merged_results, columns=merged.columns)
-        self.logger.info("Merged candidate files: expected %d rows, got %d rows.",
-                         total_rows, final_df.shape[0])
+        self.logger.info(
+            "Merged candidate files: expected %d rows, got %d rows.",
+            total_rows,
+            final_df.shape[0],
+        )
         return final_df
 
     def finalize_dataframe(self, df: pd.DataFrame) -> (pd.DataFrame, list, list):
@@ -236,35 +271,78 @@ class CandidateProcessor:
             "S/N": "sn_fft",
             "S/N_new": "sn_fold",
             "#id": "id",
-            "filterbank_file": "filterbank_path"
+            "filterbank_file": "filterbank_path",
         }
         df.rename(columns=rename_map, inplace=True)
 
         # Generate PNG file paths.
         df["png_path"] = df.apply(
-            lambda row: os.path.join("plots", os.path.splitext(row["fold_cands_filename"])[0] + ".png"),
-            axis=1
+            lambda row: os.path.join(
+                "plots", os.path.splitext(row["fold_cands_filename"])[0] + ".png"
+            ),
+            axis=1,
         )
-        png_files = df.apply(lambda row: os.path.join(row["fold_cands_filepath"],
-                                                       os.path.splitext(row["fold_cands_filename"])[0] + ".png"),
-                             axis=1).unique().tolist()
+        png_files = (
+            df.apply(
+                lambda row: os.path.join(
+                    row["fold_cands_filepath"],
+                    os.path.splitext(row["fold_cands_filename"])[0] + ".png",
+                ),
+                axis=1,
+            )
+            .unique()
+            .tolist()
+        )
 
-        df["candidate_tarball_path"] = os.path.join(self.output_tarball_path, self.output_tarball)
+        df["candidate_tarball_path"] = os.path.join(
+            self.output_tarball_path, self.output_tarball
+        )
 
-        required_cols = ["pointing_id", "beam_id", "beam_name", "source_name", "segment_id",
-                         "ra", "dec", "gl", "gb", "mjd_start", "utc_start",
-                         "f0_user", "f0_opt", "f0_opt_err", "f1_user", "f1_opt",
-                         "f1_opt_err", "acc_user", "acc_opt", "acc_opt_err",
-                         "dm_user", "dm_opt", "dm_opt_err", "sn_fft", "sn_fold",
-                         "maxdm_ymw16", "dist_ymw16", "pics_trapum_ter5",
-                         "pics_palfa", "pics_palfa_meerkat_l_sband_best_fscore",
-                         "pics_meerkat_l_sband_combined_best_recall",
-                         "png_path", "metafile_path", "filterbank_path", "candidate_tarball_path"]
+        required_cols = [
+            "pointing_id",
+            "beam_id",
+            "beam_name",
+            "source_name",
+            "segment_id",
+            "ra",
+            "dec",
+            "gl",
+            "gb",
+            "mjd_start",
+            "utc_start",
+            "f0_user",
+            "f0_opt",
+            "f0_opt_err",
+            "f1_user",
+            "f1_opt",
+            "f1_opt_err",
+            "acc_user",
+            "acc_opt",
+            "acc_opt_err",
+            "dm_user",
+            "dm_opt",
+            "dm_opt_err",
+            "sn_fft",
+            "sn_fold",
+            "maxdm_ymw16",
+            "dist_ymw16",
+            "pics_trapum_ter5",
+            "pics_palfa",
+            "pics_palfa_meerkat_l_sband_best_fscore",
+            "pics_meerkat_l_sband_combined_best_recall",
+            "png_path",
+            "metafile_path",
+            "filterbank_path",
+            "candidate_tarball_path",
+        ]
         extra_cols = [col for col in df.columns if col not in required_cols]
         final_df = df[required_cols + extra_cols]
 
         unique_starts = final_df["utc_start"].unique()
-        meta_files = [os.path.join(self.metafile_source_path, f"{start}.meta") for start in unique_starts]
+        meta_files = [
+            os.path.join(self.metafile_source_path, f"{start}.meta")
+            for start in unique_starts
+        ]
 
         self.logger.info("Final DataFrame ready with %d rows.", final_df.shape[0])
         return final_df, png_files, meta_files
@@ -275,17 +353,21 @@ class CandidateProcessor:
 
         alpha_df = final_df.loc[final_df["alpha"] < 1.0]
         alpha_df.to_csv(self.alpha_csv, index=False)
-        self.logger.info("Saved %d alpha candidates to '%s'.", alpha_df.shape[0], self.alpha_csv)
+        self.logger.info(
+            "Saved %d alpha candidates to '%s'.", alpha_df.shape[0], self.alpha_csv
+        )
 
         condition = (
-            (final_df["pics_trapum_ter5"] >= self.threshold) |
-            (final_df["pics_palfa"] >= self.threshold) |
-            (final_df["pics_palfa_meerkat_l_sband_best_fscore"] >= self.threshold) |
-            (final_df["pics_meerkat_l_sband_combined_best_recall"] >= self.threshold)
+            (final_df["pics_trapum_ter5"] >= self.threshold)
+            | (final_df["pics_palfa"] >= self.threshold)
+            | (final_df["pics_palfa_meerkat_l_sband_best_fscore"] >= self.threshold)
+            | (final_df["pics_meerkat_l_sband_combined_best_recall"] >= self.threshold)
         )
         pics_df = final_df.loc[condition]
         pics_df.to_csv(self.pics_csv, index=False)
-        self.logger.info("Saved %d pics candidates to '%s'.", pics_df.shape[0], self.pics_csv)
+        self.logger.info(
+            "Saved %d pics candidates to '%s'.", pics_df.shape[0], self.pics_csv
+        )
 
     def process(self) -> (list, list):
         df = self.load_input_dataframe()
@@ -298,32 +380,62 @@ class CandidateProcessor:
 
 
 def chunk_list(lst: list, n: int) -> list:
-    return [lst[i:i + n] for i in range(0, len(lst), n)]
+    return [lst[i : i + n] for i in range(0, len(lst), n)]
 
 
 def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Process candidate CSV files and package outputs into tarball(s)."
     )
-    parser.add_argument("-i", "--input_file", help="Path to the input CSV file", required=True)
-    parser.add_argument("-o", "--output_file", help="Base name for the output tarball(s)", required=True)
-    parser.add_argument("-d", "--output_path", help="Output directory for tarball(s)",
-                        default="/hercules/scratch/fkareem/CANDIDATE_TARBALLS/")
-    parser.add_argument("-m", "--metafile_source_path", help="Directory for metafiles",
-                        default="/hercules/scratch/fkareem/elden-ring/include/metafiles/")
-    parser.add_argument("--threshold", type=float, default=0.1,
-                        help="Threshold for pics score filtering (default: 0.1)")
-    parser.add_argument("--npointings", type=int, default=0,
-                        help=("Number of unique pointings per tarball. "
-                              "If 0, all candidates are packaged in one tarball "
-                              "and a separate tarball for alpha < 1.0 is created."))
+    parser.add_argument(
+        "-i", "--input_file", help="Path to the input CSV file", required=True
+    )
+    parser.add_argument(
+        "-o", "--output_file", help="Base name for the output tarball(s)", required=True
+    )
+    parser.add_argument(
+        "-d",
+        "--output_path",
+        help="Output directory for tarball(s)",
+        default="/hercules/scratch/fkareem/CANDIDATE_TARBALLS/",
+    )
+    parser.add_argument(
+        "-m",
+        "--metafile_source_path",
+        help="Directory for metafiles",
+        default="/hercules/scratch/fkareem/elden-ring/include/metafiles/",
+    )
+    parser.add_argument(
+        "--threshold",
+        type=float,
+        default=0.1,
+        help="Threshold for pics score filtering (default: 0.1)",
+    )
+    parser.add_argument(
+        "--npointings",
+        type=int,
+        default=0,
+        help=(
+            "Number of unique pointings per tarball. "
+            "If 0, all candidates are packaged in one tarball "
+            "and a separate tarball for alpha < 1.0 is created."
+        ),
+    )
     parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
     return parser.parse_args()
 
 
 def process_pointing_group(args_tuple):
     # Multiprocessing worker (logging omitted to avoid inter-process issues).
-    (group, idx, candidate_csv, output_prefix, metafile_source_path, threshold, output_path) = args_tuple
+    (
+        group,
+        idx,
+        candidate_csv,
+        output_prefix,
+        metafile_source_path,
+        threshold,
+        output_path,
+    ) = args_tuple
 
     # Each worker reads the candidate CSV from disk and filters for its group.
     subset_df = pd.read_csv(candidate_csv)
@@ -339,25 +451,35 @@ def process_pointing_group(args_tuple):
     alpha_df.to_csv(subset_alpha_csv, index=False)
 
     condition = (
-        (subset_df["pics_trapum_ter5"] >= threshold) |
-        (subset_df["pics_palfa"] >= threshold) |
-        (subset_df["pics_palfa_meerkat_l_sband_best_fscore"] >= threshold) |
-        (subset_df["pics_meerkat_l_sband_combined_best_recall"] >= threshold)
+        (subset_df["pics_trapum_ter5"] >= threshold)
+        | (subset_df["pics_palfa"] >= threshold)
+        | (subset_df["pics_palfa_meerkat_l_sband_best_fscore"] >= threshold)
+        | (subset_df["pics_meerkat_l_sband_combined_best_recall"] >= threshold)
     )
     pics_df = subset_df.loc[condition]
     pics_df.to_csv(subset_pics_csv, index=False)
 
     # Prepare metafile and PNG file lists.
     subset_pointings = subset_df["utc_start"].unique()
-    subset_meta_files = [os.path.join(metafile_source_path, f"{utc}.meta") for utc in subset_pointings]
-    subset_png_files = subset_df.apply(lambda row: os.path.join(
-        row["fold_cands_filepath"], os.path.splitext(row["fold_cands_filename"])[0] + ".png"),
-        axis=1).unique().tolist()
+    subset_meta_files = [
+        os.path.join(metafile_source_path, f"{utc}.meta") for utc in subset_pointings
+    ]
+    subset_png_files = (
+        subset_df.apply(
+            lambda row: os.path.join(
+                row["fold_cands_filepath"],
+                os.path.splitext(row["fold_cands_filename"])[0] + ".png",
+            ),
+            axis=1,
+        )
+        .unique()
+        .tolist()
+    )
 
     # Create main tarball.
     tarball_name = f"{output_prefix}_set_{idx}.tar.gz"
-    #additional_files = [subset_alpha_csv, subset_pics_csv]
-    #Comment this out if you want the tarball with all the candidates
+    # additional_files = [subset_alpha_csv, subset_pics_csv]
+    # Comment this out if you want the tarball with all the candidates
     # TarballCreator.create_tarball(
     #     output_csv=subset_candidates_csv,
     #     meta_files=subset_meta_files,
@@ -368,12 +490,24 @@ def process_pointing_group(args_tuple):
     # )
 
     # Create separate alpha tarball.
-    alpha_png_files = alpha_df.apply(lambda row: os.path.join(
-        row["fold_cands_filepath"], os.path.splitext(row["fold_cands_filename"])[0] + ".png"),
-        axis=1).unique().tolist()
+    alpha_png_files = (
+        alpha_df.apply(
+            lambda row: os.path.join(
+                row["fold_cands_filepath"],
+                os.path.splitext(row["fold_cands_filename"])[0] + ".png",
+            ),
+            axis=1,
+        )
+        .unique()
+        .tolist()
+    )
     alpha_pointings = alpha_df["utc_start"].unique()
-    alpha_meta_files = [os.path.join(metafile_source_path, f"{utc}.meta") for utc in alpha_pointings]
-    alpha_output_file = os.path.join(output_path, tarball_name.replace(".tar.gz", "_alpha_below_one.tar.gz"))
+    alpha_meta_files = [
+        os.path.join(metafile_source_path, f"{utc}.meta") for utc in alpha_pointings
+    ]
+    alpha_output_file = os.path.join(
+        output_path, tarball_name.replace(".tar.gz", "_alpha_below_one.tar.gz")
+    )
     print(f"Creating tarball: {alpha_output_file}")
     TarballCreator.create_tarball(
         output_csv=subset_alpha_csv,
@@ -381,16 +515,29 @@ def process_pointing_group(args_tuple):
         png_files=alpha_png_files,
         tarball_name=alpha_output_file,
         additional_files=[subset_pics_csv],
-        logger=None
+        logger=None,
     )
 
     # Create separate pics tarball.
-    pics_png_files = pics_df.apply(lambda row: os.path.join(
-        row["fold_cands_filepath"], os.path.splitext(row["fold_cands_filename"])[0] + ".png"),
-        axis=1).unique().tolist()
+    pics_png_files = (
+        pics_df.apply(
+            lambda row: os.path.join(
+                row["fold_cands_filepath"],
+                os.path.splitext(row["fold_cands_filename"])[0] + ".png",
+            ),
+            axis=1,
+        )
+        .unique()
+        .tolist()
+    )
     pics_pointings = pics_df["utc_start"].unique()
-    pics_meta_files = [os.path.join(metafile_source_path, f"{utc}.meta") for utc in pics_pointings]
-    pics_output_file = os.path.join(output_path, tarball_name.replace(".tar.gz", "_pics_above_threshold.tar.gz"))
+    pics_meta_files = [
+        os.path.join(metafile_source_path, f"{utc}.meta") for utc in pics_pointings
+    ]
+    pics_output_file = os.path.join(
+        output_path,
+        tarball_name.replace(".tar.gz", f"_pics_above_threshold_{threshold}.tar.gz"),
+    )
     print(f"Creating tarball: {pics_output_file}")
     TarballCreator.create_tarball(
         output_csv=subset_pics_csv,
@@ -398,15 +545,15 @@ def process_pointing_group(args_tuple):
         png_files=pics_png_files,
         tarball_name=pics_output_file,
         additional_files=[subset_alpha_csv],
-        logger=None
+        logger=None,
     )
 
 
 def create_single_tarball(processor, meta_files, png_files, args, logger):
 
-    #Comment this out if you want the tarball with all the candidates
-    #main_tarball = os.path.join(args.output_path, args.output_file)
-    #additional_files = [processor.alpha_csv, processor.pics_csv]
+    # Comment this out if you want the tarball with all the candidates
+    # main_tarball = os.path.join(args.output_path, args.output_file)
+    # additional_files = [processor.alpha_csv, processor.pics_csv]
     # TarballCreator.create_tarball(
     #     output_csv=processor.candidates_csv,
     #     meta_files=meta_files,
@@ -419,37 +566,63 @@ def create_single_tarball(processor, meta_files, png_files, args, logger):
 
     # Create separate alpha tarball.
     alpha_df = pd.read_csv(processor.alpha_csv)
-    alpha_png_files = alpha_df.apply(lambda row: os.path.join(
-        row["fold_cands_filepath"], os.path.splitext(row["fold_cands_filename"])[0] + ".png"),
-        axis=1).unique().tolist()
+    alpha_png_files = (
+        alpha_df.apply(
+            lambda row: os.path.join(
+                row["fold_cands_filepath"],
+                os.path.splitext(row["fold_cands_filename"])[0] + ".png",
+            ),
+            axis=1,
+        )
+        .unique()
+        .tolist()
+    )
     alpha_pointings = alpha_df["utc_start"].unique()
-    alpha_meta_files = [os.path.join(args.metafile_source_path, f"{utc}.meta") for utc in alpha_pointings]
-    alpha_output_file = os.path.join(args.output_path, args.output_file.replace(".tar.gz", "_alpha_below_one.tar.gz"))
+    alpha_meta_files = [
+        os.path.join(args.metafile_source_path, f"{utc}.meta")
+        for utc in alpha_pointings
+    ]
+    alpha_output_file = os.path.join(
+        args.output_path, args.output_file.replace(".tar.gz", "_alpha_below_one.tar.gz")
+    )
     TarballCreator.create_tarball(
         output_csv=processor.alpha_csv,
         meta_files=alpha_meta_files,
         png_files=alpha_png_files,
         tarball_name=alpha_output_file,
         additional_files=[],
-        logger=logger
+        logger=logger,
     )
     logger.info("Created separate alpha tarball: %s", alpha_output_file)
 
     # Create separate pics tarball.
     pics_df = pd.read_csv(processor.pics_csv)
-    pics_png_files = pics_df.apply(lambda row: os.path.join(
-        row["fold_cands_filepath"], os.path.splitext(row["fold_cands_filename"])[0] + ".png"),
-        axis=1).unique().tolist()
+    pics_png_files = (
+        pics_df.apply(
+            lambda row: os.path.join(
+                row["fold_cands_filepath"],
+                os.path.splitext(row["fold_cands_filename"])[0] + ".png",
+            ),
+            axis=1,
+        )
+        .unique()
+        .tolist()
+    )
     pics_pointings = pics_df["utc_start"].unique()
-    pics_meta_files = [os.path.join(args.metafile_source_path, f"{utc}.meta") for utc in pics_pointings]
-    pics_output_file = os.path.join(args.output_path, args.output_file.replace(".tar.gz", "_pics_above_threshold.tar.gz"))
+    pics_meta_files = [
+        os.path.join(args.metafile_source_path, f"{utc}.meta") for utc in pics_pointings
+    ]
+    pics_output_file = os.path.join(
+        args.output_path,
+        args.output_file.replace(".tar.gz", "_pics_above_threshold.tar.gz"),
+    )
     TarballCreator.create_tarball(
         output_csv=processor.pics_csv,
         meta_files=pics_meta_files,
         png_files=pics_png_files,
         tarball_name=pics_output_file,
         additional_files=[],
-        logger=logger
+        logger=logger,
     )
     logger.info("Created separate pics tarball: %s", pics_output_file)
 
@@ -465,14 +638,17 @@ def main():
         output_tarball_path=args.output_path,
         metafile_source_path=args.metafile_source_path,
         threshold=args.threshold,
-        logger=logger
+        logger=logger,
     )
 
     # Process the candidate CSV and generate supporting files.
     png_files, meta_files = processor.process()
 
     if args.npointings > 0:
-        logger.info("Splitting output into multiple tarballs with %d unique pointings each.", args.npointings)
+        logger.info(
+            "Splitting output into multiple tarballs with %d unique pointings each.",
+            args.npointings,
+        )
         full_df = pd.read_csv(processor.candidates_csv)
         unique_pointings = sorted(full_df["utc_start"].unique())
         pointing_groups = chunk_list(unique_pointings, args.npointings)
@@ -480,9 +656,20 @@ def main():
         # Prepare arguments for each worker without sending the full DataFrame.
         args_list = []
         for idx, group in enumerate(pointing_groups, start=1):
-            args_list.append((group, idx, processor.candidates_csv, output_prefix,
-                              args.metafile_source_path, args.threshold, args.output_path))
-        with multiprocessing.Pool(processes=min(len(args_list), multiprocessing.cpu_count())) as pool:
+            args_list.append(
+                (
+                    group,
+                    idx,
+                    processor.candidates_csv,
+                    output_prefix,
+                    args.metafile_source_path,
+                    args.threshold,
+                    args.output_path,
+                )
+            )
+        with multiprocessing.Pool(
+            processes=min(len(args_list), multiprocessing.cpu_count())
+        ) as pool:
             pool.map(process_pointing_group, args_list)
     else:
         create_single_tarball(processor, meta_files, png_files, args, logger)

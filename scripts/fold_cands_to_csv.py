@@ -79,7 +79,7 @@ def pulsarx_to_csv_format(filenames, df, search_candidates_file, output_file, pu
     fold_data['fold_cands_filename'] = filenames
     fold_data['fold_cands_filepath'] = publish_dir
     search_data = pd.read_csv(search_candidates_file)
-    search_data['index'] = search_data.index
+    search_data['index'] = search_data.index + 1
     df = pd.merge(fold_data, search_data, left_on='#id', right_on='index', how='inner')
     del df['index']
     

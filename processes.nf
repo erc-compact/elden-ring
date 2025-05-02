@@ -86,7 +86,7 @@ process generateRfiFilter {
     tuple val(pointing), path(fits_files), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), env(rfi_filter_string) , val(tsamp), val(nsamples) , val(subintlength), path("*.png"), path("*.txt")
 
     script:
-    def num_intervals = Math.floor(time_per_file.toFloat() / 400) as int
+    def num_intervals = Math.floor(time_per_file.toFloat() / 200) as int
     // def num_intervals = 2
     """
     #!/bin/bash
@@ -266,6 +266,7 @@ process parse_xml {
     script:
     def subintlengthstring = params.psrfold.subintlength && params.psrfold.subintlength != "None" ? "-sub ${params.psrfold.subintlength}" : ""
     """ 
+    echo "Rerun this"
     #!/bin/bash
     echo "Running parse_xml"
     echo "What are the parameters?"
@@ -289,8 +290,6 @@ process psrfold {
     script:
     """
     #!/bin/bash
-    echo "try again"
-    echo "what about now?"
     python3 ${baseDir}/scripts/pulsarx_fold.py -meta ${metafile} -cands ${candfile}
 
     fold_cands=\$(ls -v *.ar)
@@ -373,7 +372,7 @@ process alpha_beta_gamma_test {
 
 process pics_classifier {
     label "pics_classifier"
-    container "/hercules/scratch/fkareem/singularity_img/trapum_pulsarx_fold_docker_20220411.sif"
+    container "${params.pics_classifier_image}"
     publishDir "${params.basedir}/${cluster}/${beam_name}/segment_${segments}/${segments}${segment_id}/CLASSIFICATION/", pattern: "*scored.csv", mode: 'copy'
 
     input:
@@ -411,6 +410,6 @@ process create_candyjar_tarball {
     echo "\$header" > "\$candidate_results_file_with_header"
     cat "${candidate_results_file}" >> "\$candidate_results_file_with_header"
 
-    python ${baseDir}/scripts/create_candyjar_tarball.py -i \$candidate_results_file_with_header -o ${output_tarball_name} --verbose --npointings 0 -m ${params.metafile_source_path} -d ${params.basedir} --threshold 0
+    python ${baseDir}/scripts/create_candyjar_tarball.py -i \$candidate_results_file_with_header -o ${output_tarball_name} --verbose --npointings 0 -m ${params.metafile_source_path} -d ${params.basedir} --threshold ${params.alpha_beta_gamma.threshold}
     """
 }
