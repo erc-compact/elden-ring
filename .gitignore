@@ -1,6 +1,29 @@
-.nextflow*
-work
-*.html
-*.log
-*.txt
-nextflow.config
+# Nextflow artifacts
+.work/
+.nextflow.log
+.trace/
+.report.html
+.profile.html
+*.exec
+
+# outputs & logs
+results/
+output/
+logs/
+
+# local configs
+conf/profiles/*.config
+conf/nextflow.config
+nextflow.config*
+
+# editor & OS
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*~
+
+# Python envs
+__pycache__/
+env/
+venv/

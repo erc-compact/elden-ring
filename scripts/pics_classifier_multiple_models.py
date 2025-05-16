@@ -5,19 +5,20 @@ import glob
 import cPickle
 import argparse
 import pandas as pd
-import logging
 sys.path.append('/home/psr')
 from ubc_AI.data import pfdreader
 import subprocess, errno
+import importlib
 
-# Set up logging for verbose output
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+# import theano
+# Force reload of Theano before loading the pickled model
+# importlib.reload(theano)
+
 
 def score_file(filename, classifier_model):
     try:
         return classifier_model.report_score([pfdreader(filename)])
     except Exception as e:
-        logging.error("Error scoring file %s: %s" % (filename, e))
         return 0
 
 def mkdir_p(path):
@@ -29,15 +30,15 @@ def mkdir_p(path):
         else:
             raise
 
+
+
 def run_pics_parallel(filenames, pics_model, model_name):
-    logging.info("Running parallel scoring for model %s..." % model_name)
     classifier_model = cPickle.load(open(pics_model,'rb'))
     AI_scores = classifier_model.report_score([pfdreader(f) for f in filenames])
     df = pd.DataFrame({'filename': filenames, model_name: AI_scores})
     return df
 
 def run_pics_sequential(filenames, pics_model, model_name):
-    logging.info("Running sequential scoring for model %s..." % model_name)
     classifier_model = cPickle.load(open(pics_model, 'rb'))
     AI_scores = []
     for f in filenames:
@@ -45,26 +46,24 @@ def run_pics_sequential(filenames, pics_model, model_name):
             score = classifier_model.report_score([pfdreader(f)])
             AI_scores.append(score)
         except Exception as e:
-            logging.error("Error scoring file %s: %s" % (f, e))
             AI_scores.append(0)
     df = pd.DataFrame({'filename': filenames, model_name: AI_scores})
     return df
 
-def main(input_dir, pics_model_dir):
-    logging.info("Starting processing in directory %s" % input_dir)
+
+def main(input_dir, pics_model_dir, output):
     os.chdir(input_dir)
     filenames = glob.glob('*.pfd') + glob.glob('*.ar') + glob.glob('*.ar2')
-    logging.info("Found %d files to process" % len(filenames))
     master_df = pd.DataFrame({'filename': filenames})
     models = glob.glob(pics_model_dir + '/' + '*.pkl')
-    logging.info("Found %d models to apply" % len(models))
 
+    
     for pics_model in models:
+       
         model_name = os.path.splitext(os.path.basename(pics_model))[0]
         try:
             df = run_pics_parallel(filenames, pics_model, model_name)
         except Exception as e:
-            logging.error("Parallel scoring failed for model %s, falling back to sequential scoring: %s" % (model_name, e))
             df = run_pics_sequential(filenames, pics_model, model_name)
         
         # Sort individual model DataFrame
@@ -74,17 +73,22 @@ def main(input_dir, pics_model_dir):
         master_df = pd.merge(master_df, df, on='filename', how='left')
         
     # Save the master DataFrame
-    output_file = os.path.join(input_dir, 'pics_scores.csv')
-    master_df.to_csv(output_file, index=False)
-    logging.info("Scoring completed. Results saved to %s" % output_file)
+    master_df.to_csv(output, index=False)
+
+    
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Process a directory of files and output to a CSV file.')
-    parser.add_argument('-i', '--input_dir', required=True, help='Input dir of files to process')
+    parser.add_argument('-i', '--input_dir', help='Input dir of files to process', default=os.getcwd())
     parser.add_argument('-m', '--model_dir', required=True, help='PICS model directory used to score')
+    parser.add_argument('-o', '--output', help='Output CSV file', default='pics_scores.csv')
 
     args = parser.parse_args()
     input_dir = args.input_dir
     pics_model_dir = args.model_dir
+    output = args.output
     
-    main(input_dir, pics_model_dir)
+    os.environ['THEANO_FLAGS'] = 'base_compiledir={}'.format(input_dir)
+    
+    main(input_dir, pics_model_dir, output)

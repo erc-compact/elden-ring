@@ -1,0 +1,96 @@
+{
+    "the_undead": [
+        {
+            "spin_period": {
+                "min": 0.0001,
+                "max": 10.0
+            },
+            "dm": {
+                "min": null,
+                "max": null
+            },
+            "fft_snr": {
+                "min": 7.0,
+                "max": 10000.0
+            },
+            "nh": {
+                "min": 0,
+                "max": 5
+            },
+            "acc": {
+                "min": null,
+                "max": null
+            },
+            "total_cands_limit": 2500
+        },
+        {
+            "spin_period": {
+                "min": 0.003,
+                "max": 10.0
+            },
+            "dm": {
+                "min": null,
+                "max": null
+            },
+            "fft_snr": {
+                "min": 6.0,
+                "max": 7.0
+            },
+            "nh": {
+                "min": 0,
+                "max": 5
+            },
+            "acc": {
+                "min": null,
+                "max": null
+            },
+            "total_cands_limit": 1000
+        },
+        {
+            "spin_period": {
+                "min": 0.002,
+                "max": 0.003
+            },
+            "dm": {
+                "min": null,
+                "max": null
+            },
+            "fft_snr": {
+                "min": 6.0,
+                "max": 7.0
+            },
+            "nh": {
+                "min": 0,
+                "max": 5
+            },
+            "acc": {
+                "min": -10.0,
+                "max": 10.0
+            },
+            "total_cands_limit": 1000
+        },
+        {
+            "spin_period": {
+                "min": 0.0001,
+                "max": 0.002
+            },
+            "dm": {
+                "min": null,
+                "max": null
+            },
+            "fft_snr": {
+                "min": 0.0,
+                "max": 8.0
+            },
+            "nh": {
+                "min": 2,
+                "max": 5
+            },
+            "acc": {
+                "min": -2.0,
+                "max": 2.0
+            },
+            "total_cands_limit": 1000
+        }
+    ]
+}
