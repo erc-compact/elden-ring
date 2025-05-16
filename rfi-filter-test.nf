@@ -46,8 +46,6 @@ process filtool {
     tuple path("*.fil"), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(rfi_filter_string_id), val(rfi_filter_string)
     
     script:
-    // def rfi_filter_string_id = rfi_filters[0]
-    // def rfi_filter_string = rfi_filters[1]
     def outputFile = "${cluster.trim()}_${utc_start.trim()}_${beam_name.trim()}_rfi_${rfi_filter_string_id}_clean"
     def source_name = "${cluster.trim()}"
 

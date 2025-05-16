@@ -2,13 +2,11 @@
 nextflow.enable.dsl=2
 
 include { filtool } from './processes'
-// include { nearest_power_of_two_calculator } from './processes'
 include { generateDMFiles } from './processes'
 include { segmented_params } from './processes'
 include { peasoup } from './processes'
 include { birdies } from './processes'
 include { parse_xml } from './processes'
-// include { splitcands } from './processes'
 include { search_fold_merge } from './processes'
 include { psrfold } from './processes'
 include { pics_classifier } from './processes'
@@ -17,9 +15,12 @@ include { generateRfiFilter } from './processes'
 include { alpha_beta_gamma_test } from './processes'
 include { syncFiles } from './processes'
 include { create_candyjar_tarball } from './processes'
+include { parfold } from './processes'
+include { candypolice_pulsarx} from './processes'
+include { extract_candidates } from './processes'
 
-
-workflow {
+workflow intake {
+    main:
     // Parse the CSV file to get the list of FITS files and parameters
     fits_file_channel_and_meta = Channel.fromPath("${params.files_list}")
         .splitCsv(header : true, sep : ',')
@@ -38,168 +39,298 @@ workflow {
         }
 
     // Copy from tape? 
-    def orig_fits_channel
-    if (params.copy_from_tape.run_copy) {
-        orig_fits_channel = syncFiles(fits_file_channel_and_meta)
+    orig_fits_channel = params.copy_from_tape.run_copy
+    ? syncFiles(fits_file_channel_and_meta)
+    : fits_file_channel_and_meta
+    
+    orig_fits_channel.view()
+
+    emit:
+    orig_fits_channel
+}
+
+workflow dm {
+    main:
+    generateDMFiles()
+        .flatMap {it}
+        .set{ dm_file }
+    emit:
+    dm_file
+}
+
+// generate_rfi_filter 
+workflow rfi_filter {
+    take:
+    orig_fits_channel
+    
+    main:
+    readfile(orig_fits_channel).set{ rdout }
+
+    if (params.generateRfiFilter.run_rfi_filter) {
+        fil_input = generateRfiFilter(rdout).map { p,f,c,bn,bi,u,ra,dec,rfi,ts,ns,si -> 
+            return tuple(p,f,c,bn,bi,u,ra,dec,rfi,ts,ns,si)   
+        }
     } else {
-        orig_fits_channel = fits_file_channel_and_meta
+        fil_input = rdout.map { p,f,c,bn,bi,u,ra,dec,tpf,ts,ns,si -> 
+            return tuple(
+                p,f,c,bn,bi,u,ra,dec,
+                params.filtool.rfi_filter_list[params.telescope],
+                ts,ns,si
+            )
+        }
     }
 
-    // Generate DM files
-    dm_file = generateDMFiles().flatMap {it}
+    emit: 
+    fil_input
+}
 
-    // def new_fil_file_channel  // Declare the variable here so it can be used for each case
+// rfi_clean: read metadata → (opt) generateRfiFilter → filtool
+workflow rfi_clean {
+    take:
+    fil_input
 
-    if (params.filtool.run_filtool) {
+    main:
+    new_fil = params.filtool.run_filtool
+    ? filtool(fil_input, params.threads, params.telescope)
+    : fil_input.map{ p,f,c,bn,bi,u,ra,dec,rfi,ts,ns,si -> 
+        tuple(p,f,c,bn,bi,u,ra,dec,ts,ns,si)
+    }
 
-        // Run readfile process to get metadata
-        readfile_output = readfile(orig_fits_channel)
+    emit:
+    new_fil
+}
 
-        if (params.generateRfiFilter.run_rfi_filter) {
-            // Run generateRfiFilter process using the time_per_file
-            generateRfiFilter_output = generateRfiFilter(readfile_output).map { pointing, fits_files, cluster, beam_name, beam_id, utc_start, ra, dec, rfi_filter_string, tsamp, nsamples, subintlength, pngs, rfitxt -> 
-                return tuple(pointing, fits_files, cluster, beam_name, beam_id, utc_start, ra, dec, rfi_filter_string, tsamp, nsamples, subintlength)
+// segmentation: break into segments → format for peasoup
+workflow segmentation {
+    take:
+    new_fil
+
+    main:
+    split_params = new_fil
+        .flatMap { p,fp,c,bn,bi,u,ra,dec,ts,ns,si -> 
+            params.peasoup.segments.collect { segments -> 
+                tuple(p,fp,c,bn,bi,u,ra,dec,segments)
             }
+        }
+    segmented_params(split_params)
+        .set{ seg_ch }
 
-            // RFI removal with filtool using the generated rfi_filter_string   
-            new_fil_file_channel = filtool(generateRfiFilter_output, params.threads, params.telescope)
-
-        } else {
-            // Skip RFI filtering processes
-            // Use default RFI filters based on telescope
-            filtool_input = readfile_output.map { pointing, fits_files, cluster, beam_name, beam_id, utc_start, ra, dec, time_per_file, tsamp, nsamples, subintlength ->
-                def default_rfi_filter = params.filtool.rfi_filter_list[params.telescope]
-                return tuple(pointing, fits_files, cluster, beam_name, beam_id, utc_start, ra, dec, default_rfi_filter, tsamp, nsamples, subintlength)
+    peasoup_input = seg_ch
+        .flatMap { p,fp,c,bn,bi,u,ra,dec,ts,ns,seg,segf -> 
+            segf.splitCsv(header : true, sep : ',').collect { row -> 
+                tuple(
+                    p,fp,c,bn,bi,u,ra,dec,ts,
+                    row.nsamples_per_segment.trim(),
+                    seg, row.i.trim(),
+                    row.fft_size.trim(), row.start_sample.trim()
+                )
             }
-            // RFI removal with filtool using default rfi_filter_string
-            new_fil_file_channel = filtool(filtool_input, params.threads, params.telescope)
-        } 
-
-        // def cleanup_input = orig_fits_channel.combine(new_fil_file_channel).map { tuple -> tuple[0] }.view()
-
-        // if (params.filtool.run_filtool_cleanup) {
-        //     // Cleanup branch: Remove the original files after processing
-        //     cleanupResult = dataCleanup(cleanup_input)
-        // } else {
-        //     // No cleanup branch: Do not remove the original files after processing
-        //     cleanupResult = cleanup_input
-        // }
-
-    // no filtool
-
-    } else {
-        // Run readfile process to get metadata
-        readfile_output = readfile(orig_fits_channel)
-
-        // Create a new channel with the metadata and new file path
-        new_fil_file_channel = readfile_output.map { pointing, fits_files, cluster, beam_name, beam_id, utc_start, ra, dec, time_per_file, tsamp, nsamples, subintlength -> 
-            return tuple(pointing, fits_files, cluster, beam_name, beam_id, utc_start, ra, dec, tsamp, nsamples, subintlength)
         }
-    }
 
-    // segmented search
-    // Split the data into segments
-    split_params_input = new_fil_file_channel.flatMap { pointing, filepath, cluster, beam_name, beam_id, utc_start, ra, dec, tsamp, nsamples, subintlength -> params.peasoup.segments.collect { segments -> 
-        return tuple(pointing, filepath, cluster, beam_name, beam_id, utc_start, ra, dec, segments)}}
+    emit:
+    peasoup_input
+}
+            
+// search: birdies → search → grouping
+workflow search {
+    take:
+    segmentation
+    dm_file
 
-    segmented_params = segmented_params(split_params_input)
+    main:
+    birdies(segmentation)
+        .set{ bird_out }
 
-    // Create a channel with the segmented parameters for peasoup
-    peasoup_input = segmented_params.flatMap { pointing, filepath, cluster, beam_name, beam_id, utc_start, ra, dec, tsamp, nsamples, segments, segment_file -> 
-        // parse the segment file
-        segment_file.splitCsv(header : true, sep : ',').collect { row -> 
-            def segment_id = row.i.trim()
-            def fft_size = row.fft_size.trim()
-            def start_sample = row.start_sample.trim()
-            def nsamples_per_segment = row.nsamples_per_segment.trim()
-            return tuple(pointing, filepath, cluster, beam_name, beam_id, utc_start, ra, dec, tsamp, nsamples_per_segment, segments, segment_id, fft_size, start_sample)
+    peasoup(bird_out, dm_file)
+        .map { p,c,bn,bi,u,ra,dec,fft_size,seg,seg_id,dm_file,fil_file,xml_path,birds,ss,ns ->
+            def fil_base = fil_file.getBaseName()
+            tuple(p,c,bn,bi,u,ra,dec,fft_size,seg,seg_id,dm_file,fil_base,fil_file,xml_path,ss)
         }
-    }
-
-    // you wanted to work from here onwards by making the changes to this channel.
-
-    // // Generate birdies file
-    birdies_output = birdies(peasoup_input)
-
-    // Peasoup processing
-    peasoup_output = peasoup(birdies_output, dm_file)
-
-    // Aggregate the output from peasoup
-    peasoup_output_grouped = peasoup_output.map { pointing, cluster, beam_name, beam_id, utc_start, ra, dec, fft_size, segments, segment_id, dm_file, fil_file, xml_path, birdies_file, start_sample, nsamples -> 
-        def fil_base_name = fil_file.getBaseName()
-        return tuple(pointing, cluster, beam_name, beam_id, utc_start, ra, dec, fft_size, segments, segment_id, dm_file, fil_base_name, fil_file, xml_path, start_sample)
-    }
-    .groupTuple(by: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 14])
-    //Group by the pointing, cluster, beam_name, beam_id, utc_start,ra, dec, fft_size, segments, segment_id, fil_base_name, and start_sample
-    .map { pointing, cluster, beam_name, beam_id, utc_start, ra, dec, fft_size, segments, segment_id, dm_file, fil_base_name, fil_file, xml_paths, start_sample -> 
-        def combined = []
-         // select only one fil file name from the list of same fil_file names.
-        def fil_file_sorted = fil_file instanceof List ? fil_file.sort() : [fil_file]
-        def first_fil_file = (fil_file_sorted instanceof List) ? fil_file_sorted[0] : fil_file_sorted
-        // Combine and sort to keep the resume functionality
-        (0..<dm_file.size()).each { i -> 
-            combined << [dm: dm_file[i], xml: xml_paths[i]]
+        .groupTuple(by: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 14])
+        .map { p,c,bn,bi,u,ra,dec,fft_size,seg,seg_id,dm_file,fil_base,fil_file,xml_paths,start_sample ->
+            def combined = []
+            def fil_file_sorted = fil_file instanceof List ? fil_file.sort() : [fil_file]
+            def first_fil_file = (fil_file_sorted instanceof List) ? fil_file_sorted[0] : fil_file_sorted
+            (0..<dm_file.size()).each { i -> 
+                combined << [dm: dm_file[i], xml: xml_paths[i]]
+            }
+            def combined_sorted = combined.sort { a, b -> a.dm <=> b.dm }
+            def sorted_dm_file = combined_sorted.collect { it.dm }
+            def sorted_xml_file = combined_sorted.collect { it.xml}
+            tuple(p,c,bn,bi,u,ra,dec,fft_size,seg,seg_id,sorted_dm_file,fil_base,first_fil_file,sorted_xml_file,start_sample)
         }
-        def combined_sorted = combined.sort { a, b -> a.dm <=> b.dm }
-        def sorted_dm_file = combined_sorted.collect { it.dm }
-        def sorted_xml_file = combined_sorted.collect { it.xml}
-        return tuple(pointing, cluster, beam_name, beam_id, utc_start, ra, dec, fft_size, segments, segment_id, sorted_dm_file, fil_base_name, first_fil_file, sorted_xml_file, start_sample)
-    }
+        .set{ search_out }
 
-    // Parse the XML files and adjust the tuple
-    parse_xml_results = parse_xml(peasoup_output_grouped)
+    emit:
+    search_out
+}
 
+// xml_parse: parse XML -> split candidates
+workflow xml_parse {
+    take:
+    search_out
 
-    // Split the candidates and adjust the tuple
-    splitcands_channel = parse_xml_results
-        .flatMap { it -> 
-            def (pointing, cluster, beam_name, beam_id, utc_start, ra, dec, fft_size, segments, segment_id, dm_file, fil_base_name, fil_file, xml_file, start_sample, filtered_candidate_csv, unfiltered_candidates_csv, candfiles, metafile, allCands) = it
+    main:
+    parse_xml(search_out)
+        .flatMap {  it ->
+            def (p,c,bn,bi,u,ra,dec,fft_size,seg,seg_id,dm_file,fil_base,fil_file,xml_file,start_sample,filtered_candidate_csv,unfiltered_candidates_csv,candfiles,metafile,allCands) = it
             def cList = candfiles instanceof List ? candfiles : [candfiles]
             cList.collect { candfile ->
-            return tuple(pointing, cluster, beam_name, beam_id, utc_start, ra, dec, fft_size, segments, segment_id, fil_base_name, fil_file, start_sample, filtered_candidate_csv, candfile, metafile)
+                tuple(p,c,bn,bi,u,ra,dec,fft_size,seg,seg_id,fil_base,fil_file,start_sample,filtered_candidate_csv,candfile,metafile)
             }
         }
+        .set{ splitcands_ch }
 
-    pulsarx_output = psrfold(splitcands_channel)
+    emit:
+    splitcands_ch
+}
 
-    pulsarx_output_grouped = pulsarx_output.groupTuple(by: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
-        .map { pointing, cluster, beam_name, beam_id, utc_start, ra, dec, fft_size, segments, segment_id, fil_base_name, fil_file, filtered_candidate_csv, candfile, metatext, pngs, archives, cands -> 
-            def filtered_candidate_sorted = filtered_candidate_csv instanceof List ? filtered_candidate_csv.sort() : [filtered_candidate_csv]
-            def first_filtered_csv = (filtered_candidate_sorted instanceof List) ? filtered_candidate_sorted[0] : filtered_candidate_sorted
-            archives = archives instanceof List ? archives : [archives]
+// fold : pulsarx -> grouping
+workflow fold { 
+    take:
+    splitcands_ch
+
+    main:
+    psrfold(splitcands_ch)
+        .groupTuple(by: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+        .map { p,c,bn,bi,u,ra,dec,fft_size,seg,seg_id,fil_base,fil,f_csv,candfile,metatext,pngs,ar,cands ->
+            def f_csv_sort = f_csv instanceof List ? f_csv.sort() : [f_csv]
+            def first_f_csv = (f_csv_sort instanceof List) ? f_csv_sort[0] : f_csv_sort
+            ar = ar instanceof List ? ar : [ar]
             cands = cands instanceof List ? cands : [cands]
-            archives = archives.flatten()
+            ar = ar.flatten()
             cands = cands.flatten()
-            return tuple(pointing, cluster, beam_name, beam_id, utc_start, ra, dec, fft_size, segments, segment_id, fil_base_name, first_filtered_csv, archives, cands)
+            tuple(p,c,bn,bi,u,ra,dec,fft_size,seg,seg_id,fil_base,first_f_csv,ar,cands)
         }
+        .set{ fold_grouped }
 
-    search_fold_merged = search_fold_merge(pulsarx_output_grouped)
-    
-    // collect all the output from pulsarx for a single filterbank file.
+    emit:
+    fold_grouped
+}
+            
+// fold_merge: merge pulsarx output
+workflow fold_merge {
+    take:
+    fold_grouped
 
-    alpha_beta_gamma = alpha_beta_gamma_test(search_fold_merged)
+    main:
+    search_fold_merge(fold_grouped)
+        .set{ search_fold_merged }
 
-    // Classify the candidates (optional)
-    classified_cands = pics_classifier(search_fold_merged)
+    emit:
+    search_fold_merged
+}
 
-    //Wait for all the alpha_beta_output and pics_output to be ready
-    alpha_beta_output_combined = alpha_beta_gamma.collect(flat: false)
-    pics_output_combined = classified_cands.collect(flat: false)
-    
-    alpha_beta_channel   = alpha_beta_output_combined.flatMap{ it }
-    pics_channel = pics_output_combined.flatMap { it }
-    alpha_beta_pics_combined = alpha_beta_channel.join(pics_channel, by: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
-    
-    alpha_beta_pics_results_file = alpha_beta_pics_combined
+// classify: alpha_beta_gamma + pics_classifier -> combine -> tarball
+workflow classify {
+    take:
+    search_fold_merged
+
+    main:
+    def abg = alpha_beta_gamma_test(search_fold_merged)
+    def pics = pics_classifier(search_fold_merged)
+
+    abg.flatMap{ it }
+        .join(pics.flatMap{ it }, by: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
         .map { row -> row.join(',') } // Convert each list to a CSV line
-        .collectFile(name: 'alpha_beta_pics_combined.csv', newLine: true, storeDir: params.basedir)  // Append to the CSV file
+        .collectFile(
+            name: 'alpha_beta_pics_combined.csv', 
+            newLine: true, 
+            storeDir: params.basedir
+        )  
+        .set{ abg_pics_combined_csv }
+
+    emit:
+    abg_pics_combined_csv
+}
+
+workflow candyjar_tarball {
+    take:
+    abg_pics_combined_csv
+
+    main:
     if (params.alpha_beta_gamma.create_candyjar_tarball) {
+    def tar_input = abg_pics_combined_csv.map { f -> 
+        tuple(f, "${params.alpha_beta_gamma.output_dir_alpha_pics_results}.tar.gz") }
 
-    def output_tarballname = "${params.alpha_beta_gamma.output_dir_alpha_pics_results}.tar.gz"
+    create_candyjar_tarball(tar_input)
+}
+}
 
-    candyjar_tarball_input = alpha_beta_pics_results_file.map { it -> 
-        return tuple(it, output_tarballname)
+// ----------------Main workflow ------------------
+workflow full {
+    main:
+    def dm_ch        = dm()
+    def intake_ch    = intake()
+    def rfi_ch       = rfi_filter(intake_ch)
+    def cleaned_ch   = rfi_clean(rfi_ch)
+    def seg_ch       = segmentation(cleaned_ch)
+    def search_ch    = search(seg_ch, dm_ch)
+    def xml_ch       = xml_parse(search_ch)
+    def fold_ch      = fold(xml_ch)
+    def merged_ch    = fold_merge(fold_ch)
+    def classify_ch  = classify(merged_ch)
+    candyjar_tarball(classify_ch)
+}
+
+// -------------Generate the rfi plots ----------
+workflow generate_rfi_filter {
+    intake()
+    rfi_filter(intake.out)
+}
+
+//-------------Filtool the files ----------------
+workflow run_rfi_clean {
+    intake()
+    rfi_filter(intake.out)
+    rfi_clean(rfi_filter.out)
+}
+
+// ---------- Run search and fold on filtooled files -----
+// run_search assumes rfi_cleaned files inside the files_lists
+workflow run_search_fold {
+    intake()
+    dm()
+    readfile(intake.out).map{ p,f,c,bn,bi,u,ra,dec,tpf,ts,ns,si ->
+        tuple(p,f,c,bn,bi,u,ra,dec,ts,ns,si)
+    }.set{rdout}
+    segmentation(rdout)
+    search(segmentation.out,dm.out)
+    xml_parse(search.out)
+    fold(xml_parse.out)
+    fold_merge(fold.out)
+    classify(fold_merge.out)
+    candyjar_tarball(classify.out)
+}
+
+//------------- parfold workflow ---------------
+workflow fold_par {
+    parfile_ch = Channel.fromPath("${params.parfold.parfile_path}")
+    intake()
+    generate_rfi_filter(intake.out)
+    rfi_clean(generate_rfi_filter.out)
+    parfold(rfi_clean.out, parfile_ch)
+        .set{ parfold_out }
+    
+    emit:
+        parfold_out
+}
+
+workflow candypolice {
+    intake()
+    readfile(intake.out).map{ p,f,c,bn,bi,u,ra,dec,tpf,ts,ns,si ->
+        tuple(p,f,c,bn,bi,u,ra,dec,ts,ns,si)
+    }.set{rdout}
+    candyjar_csv = Channel.fromPath("${params.candypolice.input_csv}")
+    candfiles = extract_candidates(candyjar_csv).flatMap{ cd, cf ->
+        def cList = cf instanceof List ? cf : [cf]
+        return tuple(cList)
     }
-    create_candyjar_tarball(candyjar_tarball_input)
-    }
+    
+    candypolice_pulsarx(rdout, candfiles)
+}
+
+// Default to `full` if no --entry is given
+workflow {
+    full()
 }

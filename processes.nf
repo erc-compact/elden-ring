@@ -266,10 +266,7 @@ process parse_xml {
     script:
     def subintlengthstring = params.psrfold.subintlength && params.psrfold.subintlength != "None" ? "-sub ${params.psrfold.subintlength}" : ""
     """ 
-    echo "Rerun this"
     #!/bin/bash
-    echo "Running parse_xml"
-    echo "What are the parameters?"
     python3 ${params.parse_xml.script} -i ${xml_files} --chunk_id ${segments}${segment_id} --fold_technique ${params.psrfold.fold_technique} --nbins_default ${params.psrfold.nbins} --binplan "${params.psrfold.binplan}" ${subintlengthstring} -nsub ${params.psrfold.nsub} -clfd ${params.psrfold.clfd} -b ${beam_name} -b_id ${beam_id} -utc ${utc_start} -threads ${params.psrfold.threads}  --template_dir ${params.psrfold.template_dir} --telescope ${params.telescope} --config_file ${params.parse_xml.config_file} --cdm ${params.psrfold.cdm} --cands_per_node ${params.psrfold.cands_per_node}
     """
 }
@@ -411,5 +408,200 @@ process create_candyjar_tarball {
     cat "${candidate_results_file}" >> "\$candidate_results_file_with_header"
 
     python ${baseDir}/scripts/create_candyjar_tarball.py -i \$candidate_results_file_with_header -o ${output_tarball_name} --verbose --npointings 0 -m ${params.metafile_source_path} -d ${params.basedir} --threshold ${params.alpha_beta_gamma.threshold}
+    """
+}
+
+
+// other pipelines 
+process parfold {
+    label "parfold"
+    container "${params.pulsarx_image}"
+    maxForks 100
+    publishDir "${params.parfold.output_path}/", pattern: "*.png", mode: 'copy'
+    publishDir "${params.parfold.output_path}/", pattern: "*.ar", mode: 'copy'
+    publishDir "${params.parfold.output_path}/", pattern: "*.cands", mode: 'copy'
+    
+    input:
+    tuple val(pointing), path(fil_file), val(cluster),val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(tsamp), val(nsamples), val(subintlength)
+    each path(parfile_channel)
+
+    output:
+    tuple path("*.png"), path("*.ar"), path("*.cands")
+    
+    script:
+    def Outname = "${beam_name}_${parfile_channel.getName().replace(".par", "")}"
+    """
+    #!/bin/bash
+
+    psrfold_fil --plotx --nosearch -v -t ${params.parfold.threads} --parfile ${parfile_channel} -n ${params.parfold.nsub} -b ${params.parfold.nbins} --nbinplan ${params.parfold.binplan} --template ${params.template_dir}/Effelsberg_${beam_id}.template --clfd ${params.parfold.clfd} -L ${subintlength} -f ${fil_file} -o ${Outname}
+    """
+}
+
+// process for candypolice
+
+process extract_candidates {
+    container "${params.pulsarx_image}"
+    publishDir "${params.candypolice.output_dir}", pattern: "*{txt,candfile}", mode: 'copy'
+    input:
+    path csv_file
+
+    output:
+    tuple path("candidate_details.txt"), path("*candfile")
+
+    script:
+    """
+    #!/usr/bin/env python3
+    import csv, os
+
+    # columns to extract, in order
+    fields = [
+        'pointing_id',
+        'beam_name',
+        'beam_id',
+        'source_name',
+        'segment_id',
+        'f0_opt',
+        'f1_opt',
+        'p0_new',
+        'p1_new',
+        'acc_opt',
+        'dm_opt',
+        'sn_fold',
+        'pepoch',
+        'fold_cands_filename',
+        'classification'
+    ]
+
+    ## writing candfiles for each beam.
+    groups = {}
+
+    # Read + filter + write the big CSV *and* stash rows for the .candfile
+
+    with open('${csv_file}', newline='') as csvf, \
+         open('candidate_details.txt', 'w', newline='') as outf:
+
+        reader = csv.DictReader(csvf)
+        writer = csv.writer(outf, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+
+        # write header for candidate_details.txt
+        writer.writerow(fields)
+
+        for row in reader:
+            if row['classification'] in ('T1_CAND', 'T2_CAND'):
+                writer.writerow([row[f] for f in fields])
+
+                # group it to later write .candfile
+                key = (row['source_name'], row['beam_name'], row['pepoch'], row['segment_id'])
+                groups.setdefault(key, []).append(row)
+
+    # writing candfiles per group for pulsarx
+    for (source, beam, pepoch, seg_id), rows in groups.items():
+        fname = f"{source}_{beam}_{seg_id}_{pepoch}.candfile"
+        with open(fname, 'w') as out:
+            out.write('#id dm acc F0 F1 F2 S/N\\n')
+            for r in rows:
+                vals = [
+                    r['id'],       # id
+                    r['dm_opt'],   # dm
+                    r['acc_opt'],  # acc
+                    r['f0_opt'],   # F0
+                    r['f1_opt'],   # F1
+                    '0',           # F2 placeholder
+                    r['sn_fold']   # S/N
+                ]
+                out.write(' '.join(vals) + '\\n')
+
+    """
+}
+
+
+process candypolice_pulsarx {
+    label "candypolice_pulsarx"
+    container "${params.pulsarx_image}"
+    publishDir "${params.candypolice.output_path}", pattern: "**/*.{ar,png,cands}", mode: 'copy'
+
+    input:
+    tuple val(pointing), path(fil_file),val(cluster),val(beam_name),val(beam_id),val(utc_start),val(ra),val(dec),val(ts),val(ns),val(si)
+    each path(candfile)
+
+    output:
+
+    script:
+    """
+    #!/bin/bash
+    filename=\$(basename ${candfile})
+    base=\${filename%.candfile}
+
+    IFS='_' read -r source beam pepoch seg_id <<< "\$base"
+
+    Outname="\${base}_${beam_id}"
+    
+    i="\${seg_id:0:1}"
+    j="\${seg_id:1:1}"
+
+    end_frac=\$(awk -v i=\$i -v j=\$j 'BEGIN { printf "%.2f", (1/i)*(j+1) }')
+    start_frac=\$(awk -v i=\$i -v ef=\$end_frac 'BEGIN { printf "%.2f", ef - 1/i }')
+    echo "seg_id = \$seg_id, i=\$i, j=\$j"
+    echo "  end_frac = \$end_frac"
+    echo "  start_frac = \$start_frac"
+
+    psrfold_fil --plotx --nosearch -v -t ${params.candypolice.pulsarx_threads} --candfile ${candfile} -n ${params.candypolice.nsub} -b ${params.candypolice.nbins} --nbinplan ${params.candypolice.binplan} --template ${params.template_dir}/Effelsberg_${beam_id}.template --clfd ${params.candypolice.clfd} -L ${si} -f ${fil_file} -o \${Outname}
+    """
+}
+
+process candypolice_presto {
+    label "candypolice_presto"
+    container "${params.presto_image}"
+    scratch true
+    publishDir "${params.candypolice.output_path}", pattern: "**/*.{ps,png,pfd}", mode: 'copy'
+    
+    input:
+    each candidate_details_line
+    path(input_file)
+
+    output:
+    path "**/*.{ps,png,pfd}"
+
+    script:
+    """
+    #!/bin/env python3
+    import os
+    import subprocess
+
+    # Parse candidate details from the input line
+    line = "${candidate_details_line}".strip()
+    parts = line.split('|')
+    candidate = parts[0]
+    candidate_details = {kv.split(':')[0]: kv.split(':')[1] for kv in parts[1:]}
+
+
+    # Create a directory for the candidate
+    
+    # Expects input png_path in format: /fpra/timing/01/fazal/Scripts/Elden_Ring/work/9e/8421a89c0992bc364eec620d298e3a/TERZAN5_Band3_dm_file_48.0_48.9_1/60403.1458332005_cbf00000_00096.png
+
+    #expects input file in format: /fpra/timing/01/fazal/Eff_Data_Proc/NGC6544/Filtool/NGC6544_Band3_01.fil
+
+    
+    name = os.path.basename(candidate_details['png_path']).replace('.png', '').replace('/', '_').split('_')[-1]
+    bandname = os.path.basename("${input_file}").split('.')[0]
+    detection_band = os.path.dirname(candidate_details['png_path']).split('/')[-1]
+    dir_name = f"{detection_band}_{name}"
+
+    os.makedirs(dir_name, exist_ok=True)
+    
+    # Define commands
+    commands = [
+        f"prepfold -topo -dm {candidate_details['dm_opt']} -f {candidate_details['f0_opt']} -fd {candidate_details['f1_opt']} -o {dir_name}/{bandname}_{name} ${input_file}",
+        f"prepfold -topo -dm 0 -f {candidate_details['f0_opt']} -fd {candidate_details['f1_opt']} -o {dir_name}/{bandname}_{name}_0dm ${input_file}",
+        f"prepfold -topo -fine -dm {candidate_details['dm_opt']} -f {candidate_details['f0_opt']} -fd {candidate_details['f1_opt']} -o {dir_name}/{bandname}_{name}_fine ${input_file}",
+        f"prepfold -topo -nosearch -dm {candidate_details['dm_opt']} -f {candidate_details['f0_opt']} -fd {candidate_details['f1_opt']} -o {dir_name}/{bandname}_{name}_nosearch ${input_file}",
+        f"prepfold -topo -pfact 2 -dm {candidate_details['dm_opt']} -f {candidate_details['f0_opt']} -fd {candidate_details['f1_opt']} -o {dir_name}/{bandname}_{name}_pfact2 ${input_file}",
+        f"prepfold -topo -ffact 2 -dm {candidate_details['dm_opt']} -f {candidate_details['f0_opt']} -fd {candidate_details['f1_opt']} -o {dir_name}/{bandname}_{name}_ffact2 ${input_file}"
+    ]
+
+    # Execute all commands in parallel
+    processes = [subprocess.Popen(cmd, shell=True) for cmd in commands]
+    for p in processes:
+        p.wait()
     """
 }
