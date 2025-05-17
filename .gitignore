@@ -14,7 +14,6 @@ logs/
 # local configs
 conf/profiles/*.config
 conf/nextflow.config
-nextflow.config*
 
 # editor & OS
 .DS_Store
