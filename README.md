@@ -17,12 +17,18 @@ Follow these steps to get up and running in minutes.
 ```bash
 git clone https://github.com/erc-compact/elden-ring.git
 cd elden-ring
+```
+
+or 
+
+```bash
+nextflow pull erc-compact/elden-ring
+```
 
 # Copy the example into your working config
-cp example/nextflow.config.example nextflow.config
+cp example/params.config.example params.config
 
-# Edit `nextflow.config`:
-# • Choose or add the profile you need (e.g. `local`, `slurm`, `docker`, etc.)
+# Edit `params.config`:
 # • Tweak any global parameters (e.g. singularity cacheDir, threads)
 ```
 
@@ -42,7 +48,7 @@ cp examples/inputfile.txt .
 
 ### 3. (Optional) Tune pipeline parameters
 
-Open **`nextflow.config`** and adjust any of:
+Open **`params.config`** and adjust any of:
 * **File copy**
 You can switch this to true to copy files from other clusters. passwordless login required.
 
@@ -79,8 +85,7 @@ Replace `<workflow>` below with any of the above names.
 
 ```bash
 nextflow run erc-compact/elden-ring \
-  -r restructure \
-  -c nextflow.config \
+  -c params.config \
   --files_list inputfile.txt \
   -profile <profile> \
   --entry  <workflow> \
@@ -89,6 +94,7 @@ nextflow run erc-compact/elden-ring \
 
 * **`-profile <profile>`**
   One of the profiles defined in your `nextflow.config` (`local`, `slurm`, `hercules`, etc.).
+  If you need a new profile, copy the profile example file from `conf/profiles` and use 
 * **`-c <nextflow.config>`**
   Your local config overrides (you can chain `-c` multiple times).
 * **`--entry <workflow>`**

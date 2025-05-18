@@ -1,0 +1,118 @@
+process {
+    executor = 'condor'
+
+    // Filtool Process Configuration
+    withLabel: 'filtool' {
+        cpus           = 20  // Use the maximum available CPUs on Edgar or however many are needed
+        // make sure that threads and cpus are the same
+        memory         = '200 GB'
+        time           = '24h'
+    }
+
+    // Parse XML Process Configuration
+    withLabel: 'parse_xml' {
+        cpus       = 1
+        memory     = '5 GB'
+        time       = '15m'
+    }
+
+    // Peasoup Process Configuration
+    withLabel: 'peasoup' {
+        cpus           = 1
+        memory         = '50 GB'
+        clusterOptions = 'request_gpus = 1'
+    }
+
+    withLabel: 'birdies' {
+        cpus           = 1
+        memory         = '55 GB'
+        clusterOptions = 'request_gpus = 1'
+    }
+
+    // PsrFold Process Configuration
+    withLabel: 'psrfold' {
+        cpus           = 20
+        memory         = '200 GB'
+        time           = '7h'
+    }
+
+    // Pics Classifier Process Configuration
+    withLabel: 'pics_classifier' {
+        cpus       = 20
+        memory     = '200 GB'
+        time       = '4h'
+    }
+
+    // Splitcands Process Configuration
+    withLabel: 'splitcands' {
+        cpus       = 1
+        memory     = '10 GB'
+    }
+
+    // Readfile Process Configuration
+    withLabel: 'readfile' {
+        cpus           = 1
+        memory         = '10 GB'
+    }
+
+    // Generate RFI Filter Process Configuration
+    withLabel: 'generate_rfi_filter' {
+        cpus           = 60
+        memory         = '600 GB'
+    }
+
+    // Nearest Power of Two Calculator Process Configuration
+    withLabel: 'nearest_power_two_calculator' {
+        cpus       = 1
+        memory     = '10 GB'
+    }
+
+    // Generate DM Files Process Configuration
+    withLabel: 'generateDMFiles' {
+        cpus       = 1
+        memory     = '10 GB'
+    }
+
+    // for parfold
+    withLabel: 'parfold' {
+        cpus           = 20
+        memory         = '200 GB'
+        errorStrategy = 'ignore'
+    }
+}
+
+// Define container image paths specific to Edgar cluster
+params {
+    pulsarx_image         = 'docker://wintervolcano/pulsarx:latest'
+    presto_image          = 'docker://vishnubk/presto5:latest'
+    peasoup_image         = 'docker://vishnubk/peasoup:sm89'
+    rfi_mitigation_image  = 'docker://wintervolcano/rfi-mitigation-nextflow:amd64'
+    pics_classifier_image = 'docker://vishnubk/pics:20230630_pics_model_update'
+
+    // Number of threads for processes
+    threads = 20  // Adjust as per the Edgar cluster's CPU availability
+
+    // Update splitcands threads
+    splitcands {
+        threads = 20
+    }
+}
+
+// Singularity configuration for Edgar
+apptainer {
+        enabled = true
+        autoMounts   = true
+        cacheDir     = "${projectDir}/.singularity"
+        ociAutoPull  = true
+        envWhitelist = 'APPTAINER_BINDPATH, APPTAINER_LD_LIBRARY_PATH'
+    }
+
+
+// Report and trace settings
+report {
+    overwrite = true
+}
+
+trace {
+    overwrite = true
+}

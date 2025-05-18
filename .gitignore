@@ -1,6 +1,7 @@
 # Nextflow artifacts
 .work/
 .nextflow.log
+.nextflow*
 .trace/
 .report.html
 .profile.html
@@ -14,6 +15,7 @@ logs/
 # local configs
 conf/profiles/*.config
 conf/nextflow.config
+
 
 # editor & OS
 .DS_Store
