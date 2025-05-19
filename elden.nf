@@ -33,9 +33,10 @@ workflow intake {
             def utc_start = row.utc_start.trim().replace(" ", "-")
             def ra = row.ra.trim()
             def dec = row.dec.trim()
+            def cdm = row.cdm.trim()
             // extract file name from path
             def filename = fits_files.tokenize("/")[-1]
-            return tuple(pointing,fits_files, cluster, beam_name, beam_id, utc_start, ra, dec, filename)
+            return tuple(pointing,fits_files, cluster, beam_name, beam_id, utc_start, ra, dec, cdm, filename)
         }
 
     // Copy from tape? 
@@ -67,13 +68,13 @@ workflow rfi_filter {
     readfile(orig_fits_channel).set{ rdout }
 
     if (params.generateRfiFilter.run_rfi_filter) {
-        fil_input = generateRfiFilter(rdout).map { p,f,c,bn,bi,u,ra,dec,rfi,ts,ns,si -> 
-            return tuple(p,f,c,bn,bi,u,ra,dec,rfi,ts,ns,si)   
+        fil_input = generateRfiFilter(rdout).map { p,f,c,bn,bi,u,ra,dec,cdm,rfi,ts,ns,si -> 
+            return tuple(p,f,c,bn,bi,u,ra,dec, cdm,rfi,ts,ns,si)   
         }
     } else {
-        fil_input = rdout.map { p,f,c,bn,bi,u,ra,dec,tpf,ts,ns,si -> 
+        fil_input = rdout.map { p,f,c,bn,bi,u,ra,dec,cdm,tpf,ts,ns,si -> 
             return tuple(
-                p,f,c,bn,bi,u,ra,dec,
+                p,f,c,bn,bi,u,ra,dec,cdm,
                 params.filtool.rfi_filter_list[params.telescope],
                 ts,ns,si
             )
@@ -92,8 +93,8 @@ workflow rfi_clean {
     main:
     new_fil = params.filtool.run_filtool
     ? filtool(fil_input, params.threads, params.telescope)
-    : fil_input.map{ p,f,c,bn,bi,u,ra,dec,rfi,ts,ns,si -> 
-        tuple(p,f,c,bn,bi,u,ra,dec,ts,ns,si)
+    : fil_input.map{ p,f,c,bn,bi,u,ra,dec,cdm,rfi,ts,ns,si -> 
+        tuple(p,f,c,bn,bi,u,ra,dec,cdm,ts,ns,si)
     }
 
     emit:
@@ -107,19 +108,19 @@ workflow segmentation {
 
     main:
     split_params = new_fil
-        .flatMap { p,fp,c,bn,bi,u,ra,dec,ts,ns,si -> 
+        .flatMap { p,fp,c,bn,bi,u,ra,dec,cdm,ts,ns,si -> 
             params.peasoup.segments.collect { segments -> 
-                tuple(p,fp,c,bn,bi,u,ra,dec,segments)
+                tuple(p,fp,c,bn,bi,u,ra,dec,cdm,segments)
             }
         }
     segmented_params(split_params)
         .set{ seg_ch }
 
     peasoup_input = seg_ch
-        .flatMap { p,fp,c,bn,bi,u,ra,dec,ts,ns,seg,segf -> 
+        .flatMap { p,fp,c,bn,bi,u,ra,dec,cdm,ts,ns,seg,segf -> 
             segf.splitCsv(header : true, sep : ',').collect { row -> 
                 tuple(
-                    p,fp,c,bn,bi,u,ra,dec,ts,
+                    p,fp,c,bn,bi,u,ra,dec,cdm,ts,
                     row.nsamples_per_segment.trim(),
                     seg, row.i.trim(),
                     row.fft_size.trim(), row.start_sample.trim()
@@ -142,12 +143,12 @@ workflow search {
         .set{ bird_out }
 
     peasoup(bird_out, dm_file)
-        .map { p,c,bn,bi,u,ra,dec,fft_size,seg,seg_id,dm_file,fil_file,xml_path,birds,ss,ns ->
+        .map { p,c,bn,bi,u,ra,dec,cdm,fft_size,seg,seg_id,dm_file,fil_file,xml_path,birds,ss,ns ->
             def fil_base = fil_file.getBaseName()
-            tuple(p,c,bn,bi,u,ra,dec,fft_size,seg,seg_id,dm_file,fil_base,fil_file,xml_path,ss)
+            tuple(p,c,bn,bi,u,ra,dec,cdm,fft_size,seg,seg_id,dm_file,fil_base,fil_file,xml_path,ss)
         }
-        .groupTuple(by: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 14])
-        .map { p,c,bn,bi,u,ra,dec,fft_size,seg,seg_id,dm_file,fil_base,fil_file,xml_paths,start_sample ->
+        .groupTuple(by: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 15])
+        .map { p,c,bn,bi,u,ra,dec,cdm,fft_size,seg,seg_id,dm_file,fil_base,fil_file,xml_paths,start_sample ->
             def combined = []
             def fil_file_sorted = fil_file instanceof List ? fil_file.sort() : [fil_file]
             def first_fil_file = (fil_file_sorted instanceof List) ? fil_file_sorted[0] : fil_file_sorted
@@ -157,7 +158,7 @@ workflow search {
             def combined_sorted = combined.sort { a, b -> a.dm <=> b.dm }
             def sorted_dm_file = combined_sorted.collect { it.dm }
             def sorted_xml_file = combined_sorted.collect { it.xml}
-            tuple(p,c,bn,bi,u,ra,dec,fft_size,seg,seg_id,sorted_dm_file,fil_base,first_fil_file,sorted_xml_file,start_sample)
+            tuple(p,c,bn,bi,u,ra,dec,cdm,fft_size,seg,seg_id,sorted_dm_file,fil_base,first_fil_file,sorted_xml_file,start_sample)
         }
         .set{ search_out }
 
@@ -173,10 +174,10 @@ workflow xml_parse {
     main:
     parse_xml(search_out)
         .flatMap {  it ->
-            def (p,c,bn,bi,u,ra,dec,fft_size,seg,seg_id,dm_file,fil_base,fil_file,xml_file,start_sample,filtered_candidate_csv,unfiltered_candidates_csv,candfiles,metafile,allCands) = it
+            def (p,c,bn,bi,u,ra,dec,cdm,fft_size,seg,seg_id,dm_file,fil_base,fil_file,xml_file,start_sample,filtered_candidate_csv,unfiltered_candidates_csv,candfiles,metafile,allCands) = it
             def cList = candfiles instanceof List ? candfiles : [candfiles]
             cList.collect { candfile ->
-                tuple(p,c,bn,bi,u,ra,dec,fft_size,seg,seg_id,fil_base,fil_file,start_sample,filtered_candidate_csv,candfile,metafile)
+                tuple(p,c,bn,bi,u,ra,dec,cdm,fft_size,seg,seg_id,fil_base,fil_file,start_sample,filtered_candidate_csv,candfile,metafile)
             }
         }
         .set{ splitcands_ch }

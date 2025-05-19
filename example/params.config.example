@@ -86,7 +86,6 @@ params {
         clfd               = 2.0   
         threads            = 50        // Number of threads to use for folding // use 48 for hercules
         template_dir       = "${projectDir}/templates"  // Path to the template directory
-        cdm                 = 0.0    // Coherent DM usually 0.0 unless specified otherwise
         cands_per_node     = 350 // Number of candidates to fold per node. For single candidate file set this to 0.
     }
 
