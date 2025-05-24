@@ -120,7 +120,7 @@ process filtool {
     tuple val(pointing), path("*clean_01.fil"), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm),val(tsamp), val(nsamples), val(subintlength)
     
     script:
-    def outputFile = "${cluster.trim()}_${utc_start.trim()}_${beam_name.trim()}_clean"
+    def outputFile = "${cluster.trim()}_${utc_start.trim()}_${cdm}_${beam_name.trim()}_clean"
     def source_name = "${cluster.trim()}"
 
     // Prepare the rfi_filter option
@@ -146,6 +146,8 @@ process filtool {
 
     elif [[ ${telescope} == "meerkat" ]]; then
         if [[ "\${file_extension}" == "sf" ]]; then
+            filtool --psrfits -t ${threads} --telescope ${telescope} ${zaplist} -o ${outputFile} -f ${fits_files} -s ${source_name}
+        if [[ "\${file_extension}" == "fits" ]]; then
             filtool --psrfits -t ${threads} --telescope ${telescope} ${zaplist} -o ${outputFile} -f ${fits_files} -s ${source_name}
         else 
             filtool -t ${threads} --telescope ${telescope} ${zaplist} -o "${outputFile}" -f ${fits_files} -s ${source_name}
