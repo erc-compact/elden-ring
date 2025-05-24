@@ -147,7 +147,7 @@ process filtool {
     elif [[ ${telescope} == "meerkat" ]]; then
         if [[ "\${file_extension}" == "sf" ]]; then
             filtool --psrfits -t ${threads} --telescope ${telescope} ${zaplist} -o ${outputFile} -f ${fits_files} -s ${source_name}
-        if [[ "\${file_extension}" == "fits" ]]; then
+        elif [[ "\${file_extension}" == "fits" ]]; then
             filtool --psrfits -t ${threads} --telescope ${telescope} ${zaplist} -o ${outputFile} -f ${fits_files} -s ${source_name}
         else 
             filtool -t ${threads} --telescope ${telescope} ${zaplist} -o "${outputFile}" -f ${fits_files} -s ${source_name}
