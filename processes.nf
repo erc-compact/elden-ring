@@ -211,7 +211,7 @@ process birdies {
     echo 'What are the parameters?'
 
     
-    peasoup -p -v -i ${fil_file} --fft_size ${fft_size} -m 8.5 -t 1 -n ${params.peasoup.nharmonics} --acc_start 0.0 --acc_end 0.0 --ram_limit_gb 200.0 --dm_start 0.0 --dm_end 0.0  --start_sample ${start_sample} 
+    peasoup -p -v -i ${fil_file} --cdm ${params.psrfold.cdm} --fft_size ${fft_size} -m 8.5 -t 1 -n ${params.peasoup.nharmonics} --acc_start 0.0 --acc_end 0.0 --ram_limit_gb 200.0 --dm_start 0.0 --dm_end 0.0  --start_sample ${start_sample} 
 
     #Rename the output file
     mv **/*.xml ${beam_name}_birdies.xml
@@ -245,7 +245,7 @@ process peasoup {
         birdies_string="--zapfile ${birdies_file}"
     fi
 
-    peasoup -i ${fil_file} --fft_size ${fft_size} --limit ${params.peasoup.total_cands_limit} -m ${params.peasoup.min_snr} -t ${params.peasoup.ngpus} -n ${params.peasoup.nharmonics} --acc_start ${params.peasoup.acc_start} --acc_end ${params.peasoup.acc_end} --ram_limit_gb ${params.peasoup.ram_limit_gb} --dm_file ${dm_file} \${birdies_string} --start_sample ${start_sample} 
+    peasoup -i ${fil_file} --cdm ${params.psrfold.cdm} --fft_size ${fft_size} --limit ${params.peasoup.total_cands_limit} -m ${params.peasoup.min_snr} -t ${params.peasoup.ngpus} -n ${params.peasoup.nharmonics} --acc_start ${params.peasoup.acc_start} --acc_end ${params.peasoup.acc_end} --ram_limit_gb ${params.peasoup.ram_limit_gb} --dm_file ${dm_file} \${birdies_string} --start_sample ${start_sample} 
 
     #Rename the output file
     mv **/*.xml ${beam_name}_${dm_file.baseName}_ck${segments}${segment_id}_overview.xml
