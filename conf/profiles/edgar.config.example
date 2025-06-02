@@ -106,7 +106,7 @@ params {
 apptainer {
         enabled = true
         autoMounts = true
-        runOptions = '-B /fpra -B /beegfsEDD --nv'
+        runOptions = '-B /fpra -B /beegfsEDD -B /homes --nv'
         envWhitelist = 'APPTAINER_BINDPATH, APPTAINER_LD_LIBRARY_PATH'
     }
 

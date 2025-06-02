@@ -132,7 +132,7 @@ params {
 apptainer {
     enabled = true
     autoMounts   = true
-    runOptions = '-B /hercules/ -B /homes --nv'
+    runOptions = '-B /hercules/ --nv'
     envWhitelist = 'APPTAINER_BINDPATH, APPTAINER_LD_LIBRARY_PATH'
 }
 
