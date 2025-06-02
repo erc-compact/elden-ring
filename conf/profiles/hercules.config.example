@@ -131,6 +131,7 @@ params {
 // Apptainer/Singularity configuration for Hercules
 apptainer {
     enabled = true
+    autoMounts   = true
     runOptions = '-B /hercules/ --nv'
     envWhitelist = 'APPTAINER_BINDPATH, APPTAINER_LD_LIBRARY_PATH'
 }

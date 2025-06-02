@@ -105,6 +105,7 @@ params {
 // Singularity configuration for Edgar
 apptainer {
         enabled = true
+        autoMounts   = true
         runOptions = '-B /fpra -B /beegfsEDD --nv'
         envWhitelist = 'APPTAINER_BINDPATH, APPTAINER_LD_LIBRARY_PATH'
     }
