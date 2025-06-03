@@ -118,7 +118,7 @@ params {
 apptainer {
         enabled = true
         autoMounts   = true
-        runOptions = '--env="CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}" -B /b -B /bscratch --nv'
+        runOptions = '--env="CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}" -B /b -B /bscratch -B /homes --nv'
         envWhitelist = 'APPTAINER_BINDPATH, APPTAINER_LD_LIBRARY_PATH'
     }
 
