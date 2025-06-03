@@ -67,7 +67,7 @@ workflow rfi_filter {
     readfile(orig_fits_channel).set{ rdout }
 
     if (params.generateRfiFilter.run_rfi_filter) {
-        fil_input = generateRfiFilter(rdout).map { p,f,c,bn,bi,u,ra,dec,rfi,ts,ns,si -> 
+        fil_input = generateRfiFilter(rdout).map { p,f,c,bn,bi,u,ra,dec,rfi,ts,ns,si,png,txt -> 
             return tuple(p,f,c,bn,bi,u,ra,dec,rfi,ts,ns,si)   
         }
     } else {
