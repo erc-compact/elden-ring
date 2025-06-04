@@ -527,7 +527,7 @@ process candypolice_pulsarx {
     each path(candfile)
 
     output:
-    path("*.ar"), path("*.png"), path("*.cands")
+    tuple path("*.ar"), path("*.png"), path("*.cands")
 
     script:
     """
