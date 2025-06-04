@@ -520,13 +520,14 @@ process extract_candidates {
 process candypolice_pulsarx {
     label "candypolice_pulsarx"
     container "${params.pulsarx_image}"
-    publishDir "${params.candypolice.output_dir}", pattern: "**/*.{ar,png,cands}", mode: 'copy'
+    publishDir "${params.candypolice.output_dir}", pattern: "*.{ar,png,cands}", mode: 'copy'
 
     input:
     tuple val(pointing), path(fil_file),val(cluster),val(beam_name),val(beam_id),val(utc_start),val(ra),val(dec),val(ts),val(ns),val(si)
     each path(candfile)
 
     output:
+    path("*.ar"), path("*.png"), path("*.cands")
 
     script:
     """
