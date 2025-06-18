@@ -107,9 +107,6 @@ process peasoup {
     label 'peasoup'
     container "${params.peasoup_image}"
     publishDir "${params.basedir}/${cluster}/${beam_name}/segment_${segments}/${segments}${segment_id}/SEARCH/", pattern: "*.xml", mode: 'copy'
-    scratch true
-    stageInMode 'copy'
-    stageOutMode 'move'
 
     input:
     tuple path(fil_file), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(tsamp), val(nsamples),val(rfi_filter_string_id), val(rfi_filter_string), val(segments), val(segment_id), val(fft_size), val(start_sample)
@@ -133,7 +130,6 @@ process parse_xml {
     label 'parse_xml'
     container "${params.pulsarx_image}"
     publishDir "${params.basedir}/${cluster}/${beam_name}/segment_${segments}/${segments}${segment_id}/PARSEXML/", pattern: "*{csv,meta}", mode: 'copy'
-    stageInMode 'symlink'
 
     input:
     tuple val(cluster),val(beam_name), val(beam_id), val(utc_start), val(fft_size), val(rfi_filter_string_id), val(rfi_filter_string), val(segments), val(segment_id), val(dm_file), val(fil_file_base), path(fil_file), path(xml_files), val(start_sample)
@@ -186,7 +182,7 @@ process splitcands {
 process psrfold {
     label "psrfold"
     container "${params.pulsarx_image}"
-    scratch true
+
     // maxForks 100
     publishDir "${params.basedir}/${cluster}/${beam_name}/segment_${segments}/${segments}${segment_id}/FOLDING/", pattern: "*.png", mode: 'copy'
     publishDir "${params.basedir}/${cluster}/${beam_name}/segment_${segments}/${segments}${segment_id}/FOLDING/", pattern: "*.ar", mode: 'copy'
