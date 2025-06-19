@@ -56,10 +56,28 @@ process filtool {
     }
     """
     #!/bin/bash
+    # Get the first file from the inputFile string
+    # This is used to determine the file extension
+    first_file=\$(echo ${fits_files} | awk '{print \$1}')
+
+    # Extract the file extension from the first file
+    file_extension="\$(basename "\${first_file}" | sed 's/.*\\.//')"
+    
     if [[ ${telescope} == "effelsberg" ]]; then
-        filtool -t ${threads} --telescope ${telescope} ${zaplist} -o ${outputFile} -f ${fits_files} -s ${source_name}
+        if [[ "\${file_extension}" == "fits" ]]; then
+            filtool --psrfits --flip --td ${params.filtool.td} --fd ${params.filtool.fd} -t ${threads} --telescope ${telescope} ${zaplist} -o ${outputFile} -f ${fits_files} -s ${source_name}
+        elif [[ "\${file_extension}" == "sf" ]]; then
+            filtool --psrfits --flip --td ${params.filtool.td} --fd ${params.filtool.fd} -t ${threads} --telescope ${telescope} ${zaplist} -o ${outputFile} -f ${fits_files} -s ${source_name}
+        else 
+            filtool --flip --td ${params.filtool.td} --fd ${params.filtool.fd} -t ${threads} --telescope ${telescope} ${zaplist} -o ${outputFile} -f ${fits_files} -s ${source_name}
+        fi
+
     elif [[ ${telescope} == "meerkat" ]]; then
-        filtool -t ${threads} --telescope ${telescope} ${zaplist} -o "${outputFile}" -f ${fits_files} -s ${source_name}
+        if [[ "\${file_extension}" == "sf" ]]; then
+            filtool --psrfits --td ${params.filtool.td} --fd ${params.filtool.fd} -t ${threads} --telescope ${telescope} ${zaplist} -o ${outputFile} -f ${fits_files} -s ${source_name}
+        else 
+            filtool --td ${params.filtool.td} --fd ${params.filtool.fd} -t ${threads} --telescope ${telescope} ${zaplist} -o "${outputFile}" -f ${fits_files} -s ${source_name}
+        fi
     fi
     """
 }
