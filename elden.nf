@@ -282,7 +282,10 @@ workflow generate_rfi_filter {
 workflow run_rfi_clean {
     intake()
     rfi_filter(intake.out)
-    rfi_clean(rfi_filter.out)
+    rfi_clean(rfi_filter.out).set{ rfi_cleaned }
+
+    emit:
+    rfi_cleaned
 }
 
 // ---------- Run search and fold on filtooled files -----
