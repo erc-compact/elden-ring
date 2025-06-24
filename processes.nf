@@ -338,8 +338,8 @@ process search_fold_merge {
     
     script:
     """
-    publish_dir="${params.basedir}/${cluster}/${beam_name}/segment_${segments}/${segments}${segment_id}/FOLDING"
-    mkdir -p \${publish_dir}
+    // publish_dir="${params.basedir}/${cluster}/${beam_name}/segment_${segments}/${segments}${segment_id}/FOLDING"
+    // mkdir -p \${publish_dir}
 
     fold_cands=\$(ls -v *.ar)
     pulsarx_cands_file=\$(ls -v *.cands)
@@ -364,7 +364,7 @@ process alpha_beta_gamma_test {
     """
     #!/bin/bash
     publish_dir="${params.basedir}/${cluster}/${beam_name}/segment_${segments}/${segments}${segment_id}/ABG"
-    mkdir -p \${publish_dir}
+    # mkdir -p \${publish_dir}
     python3 ${baseDir}/scripts/calculate_alpha_beta_gamma_dmffdot.py -i ${search_fold_cands_csv} -o ${cluster}_${beam_name}_ck${segments}${segment_id}_alpha_beta_gamma.csv -t ${params.alpha_beta_gamma.snr_min} -p \${publish_dir} -s ${png_source_dir} -c
     """
 }

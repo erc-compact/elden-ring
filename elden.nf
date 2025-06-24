@@ -230,8 +230,7 @@ workflow classify {
     def abg = alpha_beta_gamma_test(search_fold_merged)
     def pics = pics_classifier(search_fold_merged)
 
-    abg.flatMap{ it }
-        .join(pics.flatMap{ it }, by: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+    abg.join(pics, by: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
         .map { row -> row.join(',') } // Convert each list to a CSV line
         .collectFile(
             name: 'alpha_beta_pics_combined.csv', 
@@ -307,9 +306,8 @@ workflow run_search_fold {
 workflow fold_par {
     parfile_ch = Channel.fromPath("${params.parfold.parfile_path}")
     intake()
-    generate_rfi_filter(intake.out)
-    rfi_clean(generate_rfi_filter.out)
-    parfold(rfi_clean.out, parfile_ch)
+    run_rfi_clean()
+    parfold(run_rfi_clean.out, parfile_ch)
         .set{ parfold_out }
     
     emit:
