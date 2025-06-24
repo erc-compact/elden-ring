@@ -140,7 +140,7 @@ process peasoup {
     """
     #!/bin/bash
 
-    peasoup -i ${fil_file} --fft_size ${fft_size} --limit ${params.peasoup.total_cands_limit} -m ${params.peasoup.min_snr} -t ${params.peasoup.ngpus} -n ${params.peasoup.nharmonics} --acc_start ${params.peasoup.acc_start} --acc_end ${params.peasoup.acc_end} --ram_limit_gb ${params.peasoup.ram_limit_gb} --dm_file ${dm_file} --start_sample ${start_sample} --cdm 52.0 --acc_pulse_width 64 --acc_tol 1.11 --dm_pulse_width 64 --min_freq 0.1 --max_freq 1100.0
+    peasoup -i ${fil_file} --fft_size ${fft_size} --limit ${params.peasoup.total_cands_limit} -m ${params.peasoup.min_snr} -t ${params.peasoup.ngpus} -n ${params.peasoup.nharmonics} --acc_start ${params.peasoup.acc_start} --acc_end ${params.peasoup.acc_end} --ram_limit_gb ${params.peasoup.ram_limit_gb} --dm_file ${dm_file} --start_sample ${start_sample} --cdm ${params.psrfold.cdm} --acc_pulse_width 64 --acc_tol 1.11 --dm_pulse_width 64 --min_freq 0.1 --max_freq 1100.0
 
     #Rename the output file
     mv **/*.xml ${beam_name}_${dm_file.baseName}_ck${segments}${segment_id}_rfi_${rfi_filter_string_id}_overview.xml
