@@ -77,7 +77,7 @@ process generateDMFiles {
 process generateRfiFilter {
     label 'generate_rfi_filter'
     container "${params.rfi_mitigation_image}"
-    publishDir "${params.basedir}/${cluster}/${beam_name}/RFIFILTER/", pattern: "*.{png,txt}", mode: 'symlink'
+    publishDir "${params.basedir}/${cluster}/${beam_name}/RFIFILTER/", pattern: "*.{png,txt}", mode: 'copy'
 
     input:
     tuple val(pointing), path(fits_files), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(time_per_file), val(tsamp), val(nsamples), val(subintlength)
@@ -109,7 +109,8 @@ process generateRfiFilter {
 process filtool {
     label 'filtool'
     container "${params.pulsarx_image}"
-    publishDir "${params.basedir}/${cluster}/CLEANEDFIL/", pattern: "*.fil", mode: 'symlink'
+    // publishDir "${params.basedir}/${cluster}/CLEANEDFIL/", pattern: "*.fil", mode: 'symlink'
+    // removed publishDir to avoid symlinks, now using publishDir in the script
 
     input:
     tuple val(pointing), path(fits_files), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(rfi_filter_string), val(tsamp), val(nsamples) , val(subintlength)
@@ -130,6 +131,12 @@ process filtool {
     }
     """
     #!/bin/bash
+    workdir=\$(pwd)
+    echo "Working directory: \${workdir}"
+    publish_dir="${params.basedir}/${cluster}/${beam_name}/CLEANEDFIL"
+    mkdir -p \${publish_dir}
+    cd \${publish_dir}
+
     # Get the first file from the inputFile string
     # This is used to determine the file extension
     first_file=\$(echo ${fits_files} | awk '{print \$1}')
@@ -153,6 +160,10 @@ process filtool {
             filtool --td ${params.filtool.td} --fd ${params.filtool.fd} -t ${threads} --telescope ${telescope} ${zaplist} -o "${outputFile}" -f ${fits_files} -s ${source_name}
         fi
     fi
+
+    # create a symlink to the cleaned file in the work directory
+    cd \${workdir}
+    ln -s \${publish_dir}/${outputFile}_01.fil ${outputFile}_01.fil
     """
 }
 
