@@ -239,7 +239,8 @@ def calculate_az_el(fits_header, observation_time):
 # Calculate Statistics
 def calculate_statistics(dynamic_spectrum, time_bins_per_block):
     n_blocks = dynamic_spectrum.shape[0] // time_bins_per_block
-
+    if dynamic_spectrum.size == 0 or n_blocks == 0:
+        raise ValueError("Empty dynamic spectrum or no valid blocks to process.")
     reshaped_spectrum = dynamic_spectrum[:n_blocks * time_bins_per_block].reshape((n_blocks, time_bins_per_block, -1))
 
     mean = np.mean(reshaped_spectrum, axis=1)
@@ -748,7 +749,11 @@ def run_analysis_for_intervals(file_path, output_folder, target_resolution_ms=1.
         ]
 
         for future in futures:
-            sk, sk_variance, outliers_sk, frequent_outliers_sk, frequencies = future.result()
+            try:
+                sk, sk_variance, outliers_sk, frequent_outliers_sk, frequencies = future.result()
+            except ValueError as e:
+                print(f"Skipping interval due to error: {e}")
+                continue
             sk_list.append(sk)
             sk_variance_list.append(sk_variance)
             all_outliers_sk.append(outliers_sk)
