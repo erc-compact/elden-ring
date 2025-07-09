@@ -349,8 +349,8 @@ process search_fold_merge {
     
     script:
     """
-    // publish_dir="${params.basedir}/${cluster}/${beam_name}/segment_${segments}/${segments}${segment_id}/FOLDING"
-    // mkdir -p \${publish_dir}
+    publish_dir="${params.basedir}/${cluster}/${beam_name}/segment_${segments}/${segments}${segment_id}/FOLDING"
+    mkdir -p \${publish_dir}
 
     fold_cands=\$(ls -v *.ar)
     pulsarx_cands_file=\$(ls -v *.cands)
