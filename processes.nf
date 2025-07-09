@@ -86,7 +86,7 @@ process generateRfiFilter {
     tuple val(pointing), path(fits_files), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), env(rfi_filter_string) , val(tsamp), val(nsamples) , val(subintlength), path("*.png"), path("*.txt")
 
     script:
-    def num_intervals = Math.floor(time_per_file.toFloat() / 200) as int
+    def num_intervals = Math.floor(time_per_file.toFloat()) as int
     // def num_intervals = 2
     """
     #!/bin/bash
