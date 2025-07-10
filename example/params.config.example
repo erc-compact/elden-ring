@@ -62,6 +62,7 @@ params {
         // Each entry in the list will be executed, so [1,2] will result in a 
         // full search and a segmented search on the halves
         min_snr             = 7.0
+        birdies_min_snr     = 14.0
         acc_start           = -50
         acc_end             = 50
         ram_limit_gb        = 145
