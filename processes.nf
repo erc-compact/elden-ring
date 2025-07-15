@@ -144,21 +144,17 @@ process filtool {
     # Extract the file extension from the first file
     file_extension="\$(basename "\${first_file}" | sed 's/.*\\.//')"
     
-    if [[ ${telescope} == "effelsberg" ]]; then
-        if [[ "\${file_extension}" == "fits" ]]; then
-            filtool --psrfits --flip --td ${params.filtool.td} --fd ${params.filtool.fd} -t ${threads} --telescope ${telescope} ${zaplist} -o ${outputFile} -f \${workdir}/${fits_files} -s ${source_name}
-        elif [[ "\${file_extension}" == "sf" ]]; then
-            filtool --psrfits --td ${params.filtool.td} --fd ${params.filtool.fd} -t ${threads} --telescope ${telescope} ${zaplist} -o ${outputFile} -f \${workdir}/${fits_files} -s ${source_name}
-        else 
-            filtool --td ${params.filtool.td} --fd ${params.filtool.fd} -t ${threads} --telescope ${telescope} ${zaplist} -o ${outputFile} -f \${workdir}/${fits_files} -s ${source_name}
-        fi
+    flip_flag=""
+    if [[ ${params.filtool.flip} == true ]]; then
+        flip_flag="--flip"
+    fi
 
-    elif [[ ${telescope} == "meerkat" ]]; then
-        if [[ "\${file_extension}" == "sf" ]]; then
-            filtool --psrfits --td ${params.filtool.td} --fd ${params.filtool.fd} -t ${threads} --telescope ${telescope} ${zaplist} -o ${outputFile} -f \${workdir}/${fits_files} -s ${source_name}
-        else 
-            filtool --td ${params.filtool.td} --fd ${params.filtool.fd} -t ${threads} --telescope ${telescope} ${zaplist} -o "${outputFile}" -f \${workdir}/${fits_files} -s ${source_name}
-        fi
+    if [[ "\${file_extension}" == "fits" || "\${file_extension}" == "sf" || "\${file_extension}" == "rf" ]]; then
+        echo "Running: filtool --psrfits \${flip_flag} --td ${params.filtool.td} --fd ${params.filtool.fd} -t ${threads} --telescope ${telescope} ${zaplist} -o ${outputFile} -f \${workdir}/${fits_files} -s ${source_name}"
+        filtool --psrfits \${flip_flag} --td ${params.filtool.td} --fd ${params.filtool.fd} -t ${threads} --telescope ${telescope} ${zaplist} -o ${outputFile} -f \${workdir}/${fits_files} -s ${source_name}
+    else 
+        echo "Running: filtool \${flip_flag} --td ${params.filtool.td} --fd ${params.filtool.fd} -t ${threads} --telescope ${telescope} ${zaplist} -o ${outputFile} -f \${workdir}/${fits_files} -s ${source_name}"
+        filtool \${flip_flag} --td ${params.filtool.td} --fd ${params.filtool.fd} -t ${threads} --telescope ${telescope} ${zaplist} -o ${outputFile} -f \${workdir}/${fits_files} -s ${source_name}
     fi
 
     # create a symlink to the cleaned file in the work directory
