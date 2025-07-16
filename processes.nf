@@ -20,6 +20,72 @@ process syncFiles {
     """
 }
 
+process dada_to_fits {
+    label 'dada_to_fits'
+    container "${params.edd_pulsar_image}"
+    
+    input:
+    tuple val(pointing), path(dada_files), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm)
+
+    output:
+    tuple val(pointing), path(fits_files), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm)
+
+    script:
+    """
+    #!/bin/bash
+    work_dir=\$(pwd)
+    publish_dir="${params.basedir}/${cluster}/${beam_name}/FITS/"
+    mkdir -p \${publish_dir}
+    cd \${publish_dir}
+    filename="${cluster}_${utc_start}_${beam_name}_${cdm}.fits"
+
+    run_digifits() {
+        local uval="\$1"
+        if [[ "\$uval" == "none" ]]; then
+            digifits -v -cuda 0 -r -u -b ${params.dada.bits} -p ${params.dada.npol} -nsblk ${params.dada.nsblk} -F ${params.dada.nchan}:D -x ${params.dada.nfft} -t ${params.dada.tsamp} -do_dedisp -D ${cdm} -o \${filename} > digifits.log 2>&1
+        else
+            digifits -v -cuda 0 -U "\$uval" -r -u -b ${params.dada.bits} -p ${params.dada.npol} -nsblk ${params.dada.nsblk} -F ${params.dada.nchan}:D -x ${params.dada.nfft} -t ${params.dada.tsamp} -do_dedisp -D ${cdm} -o \${filename} >> digifits.log 2>&1
+        fi
+        return \$?
+    }
+
+    run_digifits none
+    status=\$?
+
+    if [[ \$status -ne 0 ]]; then
+        echo "Initial digifits run failed. Checking if it's due to insufficient RAM..."
+        if grep -q 'insufficient RAM: limit=' digifits.log && grep -q 'a minimum of "-U' digifits.log; then
+            recommended_u=\$(grep -Po 'require=.*?samples -> a minimum of "-U \K[0-9]+' digifits.log | head -n1)
+            if [[ -z "\$recommended_u" ]]; then
+                echo "Could not extract recommended -U value from log. Aborting."
+                cat digifits.log
+                exit 1
+            fi
+            echo "Retrying digifits with -U \$recommended_u"
+            run_digifits \$recommended_u
+            status=\$?
+            if [[ \$status -ne 0 ]]; then
+                echo "digifits failed even after retrying with -U \$recommended_u"
+                cat digifits.log
+                exit 1
+            fi
+        else
+            echo "digifits failed with an unexpected error. Aborting."
+            cat digifits.log
+            exit 1
+        fi
+    fi
+
+    echo "digifits completed successfully."
+    # rename the output file
+    output_file=\$(ls -1 *.sf | head -n 1)
+    mv \${output_file} \${filename}
+
+    cd \${work_dir}
+    ln -s \${publish_dir}/\${filename} \${filename}
+    """
+}
+
 process readfile {
     label 'readfile'
     container "${params.presto_image}"
@@ -109,18 +175,19 @@ process generateRfiFilter {
 process filtool {
     label 'filtool'
     container "${params.pulsarx_image}"
-    publishDir "${params.basedir}/${cluster}/CLEANEDFIL/", pattern: "*.fil", mode: 'symlink'
+    // publishDir "${params.basedir}/${cluster}/CLEANEDFIL/", pattern: "*.fil", mode: 'symlink'
+    // removed publishDir to avoid symlinks, now using publishDir in the script
 
     input:
-    tuple val(pointing), path(fits_files), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(rfi_filter_string), val(tsamp), val(nsamples) , val(subintlength)
+    tuple val(pointing), path(fits_files), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(rfi_filter_string), val(tsamp), val(nsamples) , val(subintlength)
     val threads
     val telescope
 
     output:
-    tuple val(pointing), path("*clean_01.fil"), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm),val(tsamp), val(nsamples), val(subintlength)
+    tuple val(pointing), path("*clean_01.fil"), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(tsamp), val(nsamples), val(subintlength)
     
     script:
-    def outputFile = "${cluster.trim()}_${utc_start.trim()}_${cdm}_${beam_name.trim()}_clean"
+    def outputFile = "${cluster.trim()}_${utc_start.trim()}_${beam_name.trim()}_clean"
     def source_name = "${cluster.trim()}"
 
     // Prepare the rfi_filter option
@@ -130,6 +197,12 @@ process filtool {
     }
     """
     #!/bin/bash
+    workdir=\$(pwd)
+    echo "Working directory: \${workdir}"
+    publish_dir="${params.basedir}/${cluster}/${beam_name}/CLEANEDFIL"
+    mkdir -p \${publish_dir}
+    cd \${publish_dir}
+
     # Get the first file from the inputFile string
     # This is used to determine the file extension
     first_file=\$(echo ${fits_files} | awk '{print \$1}')
@@ -137,22 +210,22 @@ process filtool {
     # Extract the file extension from the first file
     file_extension="\$(basename "\${first_file}" | sed 's/.*\\.//')"
     
-    if [[ ${telescope} == "effelsberg" ]]; then
-        if [[ "\${file_extension}" == "fits" ]]; then
-            filtool --psrfits --flip --td ${params.filtool.td} -t ${threads} --telescope ${telescope} ${zaplist} -o ${outputFile} -f ${fits_files} -s ${source_name}
-        else 
-            filtool --td ${params.filtool.td} -t ${threads} --telescope ${telescope} ${zaplist} -o ${outputFile} -f ${fits_files} -s ${source_name}
-        fi
-
-    elif [[ ${telescope} == "meerkat" ]]; then
-        if [[ "\${file_extension}" == "sf" ]]; then
-            filtool --psrfits --td ${params.filtool.td} -t ${threads} --telescope ${telescope} ${zaplist} -o ${outputFile} -f ${fits_files} -s ${source_name}
-        elif [[ "\${file_extension}" == "fits" ]]; then
-            filtool --psrfits --td ${params.filtool.td} -t ${threads} --telescope ${telescope} ${zaplist} -o ${outputFile} -f ${fits_files} -s ${source_name}
-        else 
-            filtool --td ${params.filtool.td} -t ${threads} --telescope ${telescope} ${zaplist} -o "${outputFile}" -f ${fits_files} -s ${source_name}
-        fi
+    flip_flag=""
+    if [[ ${params.filtool.flip} == true ]]; then
+        flip_flag="--flip"
     fi
+
+    if [[ "\${file_extension}" == "fits" || "\${file_extension}" == "sf" || "\${file_extension}" == "rf" ]]; then
+        echo "Running: filtool --psrfits \${flip_flag} --td ${params.filtool.td} --fd ${params.filtool.fd} -t ${threads} --telescope ${telescope} ${zaplist} -o ${outputFile} -f \${workdir}/${fits_files} -s ${source_name}"
+        filtool --psrfits \${flip_flag} --td ${params.filtool.td} --fd ${params.filtool.fd} -t ${threads} --telescope ${telescope} ${zaplist} -o ${outputFile} -f \${workdir}/${fits_files} -s ${source_name}
+    else 
+        echo "Running: filtool \${flip_flag} --td ${params.filtool.td} --fd ${params.filtool.fd} -t ${threads} --telescope ${telescope} ${zaplist} -o ${outputFile} -f \${workdir}/${fits_files} -s ${source_name}"
+        filtool \${flip_flag} --td ${params.filtool.td} --fd ${params.filtool.fd} -t ${threads} --telescope ${telescope} ${zaplist} -o ${outputFile} -f \${workdir}/${fits_files} -s ${source_name}
+    fi
+
+    # create a symlink to the cleaned file in the work directory
+    cd \${workdir}
+    ln -s \${publish_dir}/${outputFile}_01.fil ${outputFile}_01.fil
     """
 }
 

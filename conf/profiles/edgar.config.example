@@ -92,6 +92,7 @@ params {
     rfi_mitigation_image  = "${singularity_image_dir}/rfi-mitigation-nextflow_amd64.sif"
     presto5_image         = "${singularity_image_dir}/presto5_pddot.sif"
     pics_classifier_image = "${singularity_image_dir}/trapum_pulsarx_fold_docker_20220411.sif"
+    edd_pulsar_image      = "${singularity_image_dir}/edd_pulsar_250626.0.sif"
 
     // Number of threads for processes
     threads = 20  // Adjust as per the Edgar cluster's CPU availability

@@ -18,6 +18,7 @@ include { create_candyjar_tarball } from './processes'
 include { parfold } from './processes'
 include { candypolice_pulsarx} from './processes'
 include { extract_candidates } from './processes'
+include { dada_to_fits } from './processes'
 
 workflow intake {
     main:
@@ -48,6 +49,36 @@ workflow intake {
 
     emit:
     orig_fits_channel
+}
+
+workflow dada_intake {
+    main:
+    // Parse the CSV file to get the list of dada files and parameters
+    dada_file_channel_and_meta = Channel.fromPath("${params.dada.dada_csv}")
+        .splitCsv(header : true, sep : ',')
+        .map { row -> 
+            def pointing = row.pointing.trim()
+            def source = row.dada_files
+            def cluster = row.cluster.trim()
+            def beam_name = row.beam_name.trim()
+            def beam_id = row.beam_id.trim()
+            def utc_start = row.utc_start.trim().replace(" ", "-")
+            def ra = row.ra.trim()
+            def dec = row.dec.trim()
+            def cdms = new groovy.json.JsonSlurper().parseText(row.cdm_list)
+
+            def dada_files = source.isDirectory()
+                ? source.listFiles().findAll { it.name.startsWith(${params.dada.dada_prefix}) && it.name.endsWith('.dada') }
+                : source.text.readLines().collect { new File(it) }
+
+            cdms.collect { cdm ->
+                tuple(pointing, dada_files, cluster, beam_name, beam_id, utc_start, ra, dec, cdm)
+            }
+        }
+        .set{ dada_files_channel }.view()
+
+    emit:
+    dada_files_channel
 }
 
 workflow dm {
@@ -273,6 +304,13 @@ workflow full {
     def classify_ch  = classify(merged_ch)
     candyjar_tarball(classify_ch)
 }
+
+// -------------DADA TO FITS conversion ----------
+workflow run_digifits {
+    main:
+    dada_intake()
+    dada_to_fits(dada_intake.out)
+        .set{ digifits_out }
 
 // -------------Generate the rfi plots ----------
 workflow generate_rfi_filter {

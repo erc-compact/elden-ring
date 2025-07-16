@@ -20,6 +20,18 @@ params {
         archivePath = "/p/MFR/MEERKAT/TRAPUM/TRAPUM_ALL_OBS_BY_CLUSTER/NGC6717/NGC6717_01L-trapum"
     }
 
+    dada{
+        dada_csv = "${basedir}/dada_files.csv"
+        dada_prefix = "01:41"  // Prefix for DADA files
+        bits = 8
+        nsblk = 4096
+        nchan = 768
+        tsamp = 60e-6
+        dedispersion = true
+        nfft = 32768
+        npol = 1
+    }
+
     // Generate RFI Filter Parameters
     generateRfiFilter {
         // Define parameters for folder paths
