@@ -90,13 +90,32 @@ process dada_to_fits {
         fi
     fi
 
-    mv *.sf "${filename}"
+    # file check and renaming logic
+
+    output_found=false
+    for f in *.sf; do
+        if [[ -f "\$f" && "\$f" != "${filename}" ]]; then
+            echo "Renaming output file from \$f to ${filename}"
+            mv "\$f" "${filename}"
+            output_found=true
+            break
+        elif [[ -f "\$f" ]]; then
+            output_found=true
+            break
+        fi
+    done
+
+    if ! \$output_found; then
+        echo "ERROR: No .sf output file found in:"
+        ls -la
+        exit 1
+    fi
 
     echo "digifits completed successfully."
 
     # Move the output file to the publish directory
     mv "${filename}" ${publish_dir}/${filename}
-    
+
     ln -s ${publish_dir}/${filename} ${filename}
     """
 }
