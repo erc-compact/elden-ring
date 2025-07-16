@@ -69,12 +69,8 @@ process dada_to_fits {
         if grep -q 'insufficient RAM: limit=' digifits.log && \
            grep -q 'a minimum of "-U' digifits.log
         then
-            # FIXED PARSING: Extract number after "-U
-            recommended_u=\$(grep -oP 'a minimum of "-U \K\d+' digifits.log)
-            if [[ -z "\$recommended_u" ]]; then
-                # Fallback: try without quotes
-                recommended_u=\$(grep -oP 'a minimum of -U \K\d+' digifits.log)
-            fi
+            # FIXED: Properly escaped regex for Groovy
+            recommended_u=\$(grep 'a minimum of' digifits.log | sed -E 's/.*-U ?"?([0-9]+).*/\\1/' | head -1)
             
             if [[ -n "\$recommended_u" && "\$recommended_u" =~ ^[0-9]+\$ ]]; then
                 echo "Retrying with -U \$recommended_u"
