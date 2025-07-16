@@ -56,7 +56,7 @@ workflow dada_intake {
     // Parse the CSV file to get the list of dada files and parameters
     dada_file_channel_and_meta = Channel.fromPath("${params.dada.dada_csv}")
         .splitCsv(header : true, sep : ',')
-        .map { row -> 
+        .flatMap { row -> 
         def pointing = row.pointing.trim()
         def source = row.dada_files.trim()
         def cluster = row.cluster.trim()
