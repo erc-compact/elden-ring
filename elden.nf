@@ -68,9 +68,9 @@ workflow dada_intake {
         def cdms = row.cdm_list.trim().tokenize().collect { it as Double }
 
         def source_file = new File(source)
-        // def dada_files = source_file.isDirectory()
-        //     ? source_file.listFiles().findAll { it.name.endsWith('.dada') && it.name.startsWith(params.dada.dada_prefix) }*.toString().join(' ')
-        //     : source.toString().trim()
+        def dada_files = source_file.isDirectory()
+            ? source_file.listFiles().findAll { it.name.endsWith('.dada') && it.name.startsWith(params.dada.dada_prefix) }*.toString().join(' ')
+            : source.toString().trim()
 
         cdms.collect { cdm ->
             tuple(pointing, source, cluster, beam_name, beam_id, utc_start, ra, dec, cdm)
