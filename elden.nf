@@ -77,7 +77,7 @@ workflow dada_intake {
         }
 
     dada_file_channel_and_meta.view()
-    
+
     emit:
     dada_files_channel
 }
@@ -312,7 +312,7 @@ workflow run_digifits {
     dada_intake()
     dada_to_fits(dada_intake.out)
         .set{ digifits_out }
-
+}
 
 // -------------Generate the rfi plots ----------
 workflow generate_rfi_filter {
