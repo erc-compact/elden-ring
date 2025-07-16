@@ -45,7 +45,7 @@ workflow intake {
     ? syncFiles(fits_file_channel_and_meta)
     : fits_file_channel_and_meta
     
-    orig_fits_channel.view()
+    orig_fits_channel
 
     emit:
     orig_fits_channel
@@ -72,7 +72,7 @@ workflow dada_intake {
         }
     }
 
-    dada_file_channel_and_meta.view()
+    dada_file_channel_and_meta
 
     emit:
     dada_file_channel_and_meta
