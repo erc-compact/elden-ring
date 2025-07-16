@@ -75,8 +75,9 @@ workflow dada_intake {
                 tuple(pointing, dada_files, cluster, beam_name, beam_id, utc_start, ra, dec, cdm)
             }
         }
-        .set{ dada_files_channel }.view()
 
+    dada_file_channel_and_meta.view()
+    
     emit:
     dada_files_channel
 }
@@ -311,7 +312,7 @@ workflow run_digifits {
     dada_intake()
     dada_to_fits(dada_intake.out)
         .set{ digifits_out }
-}
+
 
 // -------------Generate the rfi plots ----------
 workflow generate_rfi_filter {
