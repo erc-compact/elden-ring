@@ -28,61 +28,73 @@ process dada_to_fits {
     tuple val(pointing), val(dada_files), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm)
 
     output:
-    tuple val(pointing), path(fits_files), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm)
+    tuple val(pointing), path(filename), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm)
 
     script:
+    filename = "${cluster}_${utc_start}_${beam_name}_${cdm}.sf"
+    publish_dir = "${params.basedir}/${cluster}/${beam_name}/FITS/"
     """
     #!/bin/bash
+    set -euo pipefail
     work_dir=\$(pwd)
-    publish_dir="${params.basedir}/${cluster}/${beam_name}/FITS/"
-    mkdir -p \${publish_dir}
-    cd \${publish_dir}
-    filename="${cluster}_${utc_start}_${beam_name}_${cdm}.fits"
+    echo "Working directory: \${work_dir}"
+    mkdir -p ${publish_dir}
+    cd ${publish_dir}
 
+    # Base digifits command
+    base_cmd=(
+        digifits -v -cuda 0 -r -u
+        -b "${params.dada.bits}"
+        -p "${params.dada.npol}"
+        -nsblk "${params.dada.nsblk}"
+        -F "${params.dada.nchan}:D"
+        -x "${params.dada.nfft}"
+        -t "${params.dada.tsamp}"
+        -do_dedisp -D "${cdm}"
+        -o "${filename}"
+    )
+    
+    # Run digifits with retry logic
     run_digifits() {
-        local uval="\$1"
-        if [[ "\$uval" == 0 ]]; then
-            digifits -v -cuda 0 -r -u -b ${params.dada.bits} -p ${params.dada.npol} -nsblk ${params.dada.nsblk} -F ${params.dada.nchan}:D -x ${params.dada.nfft} -t ${params.dada.tsamp} -do_dedisp -D ${cdm} -o \${filename} ${dada_files} > digifits.log 2>&1
-        else
-            digifits -v -cuda 0 -U "\$uval" -r -u -b ${params.dada.bits} -p ${params.dada.npol} -nsblk ${params.dada.nsblk} -F ${params.dada.nchan}:D -x ${params.dada.nfft} -t ${params.dada.tsamp} -do_dedisp -D ${cdm} -o \${filename} ${dada_files} > digifits.log 2>&1
-        fi
-        return \$?
+        local uval=\$1
+        local extra_args=()
+        [[ \$uval -ne 0 ]] && extra_args+=(-U "\$uval")
+        
+        echo "Running: \${base_cmd[@]} \${extra_args[@]} ${dada_files}"
+        "\${base_cmd[@]}" "\${extra_args[@]}" ${dada_files} > digifits.log 2>&1
     }
 
-    run_digifits 0
-    status=\$?
-
-    if [[ \$status -ne 0 ]]; then
-        echo "Initial digifits run failed. Checking if it's due to insufficient RAM..."
-        if grep -q 'insufficient RAM: limit=' digifits.log && grep -q 'a minimum of "-U' digifits.log; then
-            recommended_u=\$(grep -Po 'require=.*?samples -> a minimum of "-U \K[0-9]+' digifits.log | head -n1)
-            if [[ -z "\$recommended_u" ]]; then
-                echo "Could not extract recommended -U value from log. Aborting."
-                cat digifits.log
-                exit 1
-            fi
-            echo "Retrying digifits with -U \$recommended_u"
-            run_digifits \$recommended_u
-            status=\$?
-            if [[ \$status -ne 0 ]]; then
-                echo "digifits failed even after retrying with -U \$recommended_u"
+    # First try with default settings
+    if ! run_digifits 0; then
+        if grep -q 'insufficient RAM: limit=' digifits.log && \
+           grep -q 'a minimum of "-U' digifits.log
+        then
+            recommended_u=\$(awk '/a minimum of "-U/ {print \$NF}' digifits.log | tr -d '"')
+            if [[ "\$recommended_u" =~ ^[0-9]+\$ ]]; then
+                echo "Retrying with -U \$recommended_u"
+                run_digifits "\$recommended_u" || {
+                    echo "digifits failed after retry"
+                    cat digifits.log
+                    exit 1
+                }
+            else
+                echo "ERROR: Failed to parse recommended U-value"
                 cat digifits.log
                 exit 1
             fi
         else
-            echo "digifits failed with an unexpected error. Aborting."
+            echo "digifits failed with unexpected error"
             cat digifits.log
             exit 1
         fi
     fi
 
+    mv *.sf "${filename}"
+
     echo "digifits completed successfully."
-    # rename the output file
-    output_file=\$(ls -1 *.sf | head -n 1)
-    mv \${output_file} \${filename}
 
     cd \${work_dir}
-    ln -s \${publish_dir}/\${filename} \${filename}
+    ln -s ${publish_dir}/${filename} ${filename}
     """
 }
 
