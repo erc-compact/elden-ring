@@ -65,9 +65,11 @@ workflow dada_intake {
         def utc_start = row.utc_start.trim().replace(" ", "-")
         def ra = row.ra.trim()
         def dec = row.dec.trim()
+        def cdm_list = row.cdm_list.trim()
 
         // Parse cdm_list safely
-        def cdms = new groovy.json.JsonSlurper().parseText(row.cdm_list)
+        def cdms = new groovy.json.JsonSlurper().parseText(cdm_list)
+        def cdm_parsed = cdms instanceof List ? cdms : [cdms]
 
         def source_file = new File(source)
         def dada_files = source_file.isDirectory()
