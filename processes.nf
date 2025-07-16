@@ -31,15 +31,13 @@ process dada_to_fits {
     tuple val(pointing), path(filename), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm)
 
     script:
-    filename = "${cluster}_${utc_start}_${beam_name}_${cdm}.sf"
+    filename = "${cluster}_${utc_start}_${beam_name}_cdm_${cdm}.sf"
     publish_dir = "${params.basedir}/${cluster}/${beam_name}/FITS/"
     """
     #!/bin/bash
     set -euo pipefail
     work_dir=\$(pwd)
-    echo "Working directory: \${work_dir}"
     mkdir -p ${publish_dir}
-    cd ${publish_dir}
 
     # Base digifits command
     base_cmd=(
@@ -96,7 +94,9 @@ process dada_to_fits {
 
     echo "digifits completed successfully."
 
-    cd \${work_dir}
+    # Move the output file to the publish directory
+    mv "${filename}" ${publish_dir}/${filename}
+    
     ln -s ${publish_dir}/${filename} ${filename}
     """
 }
