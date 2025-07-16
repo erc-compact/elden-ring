@@ -65,7 +65,7 @@ workflow dada_intake {
         def utc_start = row.utc_start.trim().replace(" ", "-")
         def ra = row.ra.trim()
         def dec = row.dec.trim()
-        def cdms = row.cdm_list.trim().split("\\s+").findAll { it }.collect { it as Double }
+        def cdms = row.cdm_list.trim().tokenize().collect { it as Double }
 
         def source_file = new File(source)
         def dada_files = source_file.isDirectory()
