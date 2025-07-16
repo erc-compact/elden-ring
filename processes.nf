@@ -44,7 +44,7 @@ process dada_to_fits {
         if [[ "\$uval" == "none" ]]; then
             digifits -v -cuda 0 -r -u -b ${params.dada.bits} -p ${params.dada.npol} -nsblk ${params.dada.nsblk} -F ${params.dada.nchan}:D -x ${params.dada.nfft} -t ${params.dada.tsamp} -do_dedisp -D ${cdm} -o \${filename} ${dada_files} > digifits.log 2>&1
         else
-            digifits -v -cuda 0 -U "\$uval" -r -u -b ${params.dada.bits} -p ${params.dada.npol} -nsblk ${params.dada.nsblk} -F ${params.dada.nchan}:D -x ${params.dada.nfft} -t ${params.dada.tsamp} -do_dedisp -D ${cdm} -o \${filename} ${dada_files} >> digifits.log 2>&1
+            digifits -v -cuda 0 -U "\$uval" -r -u -b ${params.dada.bits} -p ${params.dada.npol} -nsblk ${params.dada.nsblk} -F ${params.dada.nchan}:D -x ${params.dada.nfft} -t ${params.dada.tsamp} -do_dedisp -D ${cdm} -o \${filename} ${dada_files} > digifits.log 2>&1
         fi
         return \$?
     }
