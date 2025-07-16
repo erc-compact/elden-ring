@@ -69,8 +69,14 @@ process dada_to_fits {
         if grep -q 'insufficient RAM: limit=' digifits.log && \
            grep -q 'a minimum of "-U' digifits.log
         then
-            recommended_u=\$(awk '/a minimum of "-U/ {print \$NF}' digifits.log | tr -d '"')
-            if [[ "\$recommended_u" =~ ^[0-9]+\$ ]]; then
+            # FIXED PARSING: Extract number after "-U
+            recommended_u=\$(grep -oP 'a minimum of "-U \K\d+' digifits.log)
+            if [[ -z "\$recommended_u" ]]; then
+                # Fallback: try without quotes
+                recommended_u=\$(grep -oP 'a minimum of -U \K\d+' digifits.log)
+            fi
+            
+            if [[ -n "\$recommended_u" && "\$recommended_u" =~ ^[0-9]+\$ ]]; then
                 echo "Retrying with -U \$recommended_u"
                 run_digifits "\$recommended_u" || {
                     echo "digifits failed after retry"
@@ -79,7 +85,8 @@ process dada_to_fits {
                 }
             else
                 echo "ERROR: Failed to parse recommended U-value"
-                cat digifits.log
+                echo "Tried to parse from:"
+                grep 'a minimum of' digifits.log
                 exit 1
             fi
         else
