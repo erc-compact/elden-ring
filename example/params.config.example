@@ -22,8 +22,6 @@ params {
 
     dada{
         dada_csv = "${basedir}/dada_files.csv"
-        files_list = true // Use the files_list parameter to input files.txt 
-        dada_prefix = "01:41"  // Prefix for DADA files
         bits = 8
         nsblk = 4096
         nchan = 768
