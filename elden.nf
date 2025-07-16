@@ -66,8 +66,8 @@ workflow dada_intake {
             def ra = row.ra.trim()
             def dec = row.dec.trim()
             def cdms = new groovy.json.JsonSlurper().parseText(row.cdm_list)
-
-            def dada_files = source.isDirectory()
+            def source_file = new File(source)
+            def dada_files = source_file.isDirectory()
                 ? source.listFiles().findAll { it.name.startsWith(${params.dada.dada_prefix}) && it.name.endsWith('.dada') }
                 : source.text.readLines().collect { new File(it) }
 
