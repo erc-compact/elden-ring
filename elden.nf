@@ -58,7 +58,7 @@ workflow dada_intake {
         .splitCsv(header : true, sep : ',')
         .map { row -> 
         def pointing = row.pointing.trim()
-        def source = row.dada_files
+        def source = row.dada_files.trim()
         def cluster = row.cluster.trim()
         def beam_name = row.beam_name.trim()
         def beam_id = row.beam_id.trim()
@@ -68,17 +68,14 @@ workflow dada_intake {
 
         // Parse cdm_list safely
         def cdms = new groovy.json.JsonSlurper().parseText(row.cdm_list)
-        cdms = cdms instanceof List ? cdms : [cdms]
 
         def source_file = new File(source)
         def dada_files = source_file.isDirectory()
-            ? source_file.listFiles().findAll { it.name.startsWith(params.dada.dada_prefix) && it.name.endsWith('.dada') }
-            : source_file.text.readLines().collect { new File(it) }
-
-        def dada_files_path = file(dada_files)  // Important!
+        ? source_file.listFiles().findAll { it.name.endsWith('.dada') }*.toString()
+        : source_file.text.readLines()
 
         cdms.collect { cdm ->
-            tuple(pointing, dada_files_path, cluster, beam_name, beam_id, utc_start, ra, dec, cdm.toString())
+            tuple(pointing, dada_files, cluster, beam_name, beam_id, utc_start, ra, dec, cdm.toString())
         }
     }
 
