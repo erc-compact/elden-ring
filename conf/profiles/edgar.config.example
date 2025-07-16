@@ -1,6 +1,13 @@
 process {
     executor = 'condor'
 
+    // DADA Process Configuration
+    withLabel: 'dada_to_fits' {
+        cpus           = 1
+        memory        = '200 GB'
+        clusterOptions = 'request_gpus = 1'
+    }
+    
     // Filtool Process Configuration
     withLabel: 'filtool' {
         cpus           = 20  // Use the maximum available CPUs on Edgar or however many are needed

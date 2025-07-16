@@ -311,6 +311,7 @@ workflow run_digifits {
     dada_intake()
     dada_to_fits(dada_intake.out)
         .set{ digifits_out }
+}
 
 // -------------Generate the rfi plots ----------
 workflow generate_rfi_filter {
