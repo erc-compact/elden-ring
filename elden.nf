@@ -57,24 +57,30 @@ workflow dada_intake {
     dada_file_channel_and_meta = Channel.fromPath("${params.dada.dada_csv}")
         .splitCsv(header : true, sep : ',')
         .map { row -> 
-            def pointing = row.pointing.trim()
-            def source = row.dada_files
-            def cluster = row.cluster.trim()
-            def beam_name = row.beam_name.trim()
-            def beam_id = row.beam_id.trim()
-            def utc_start = row.utc_start.trim().replace(" ", "-")
-            def ra = row.ra.trim()
-            def dec = row.dec.trim()
-            def cdms = new groovy.json.JsonSlurper().parseText(row.cdm_list)
-            def source_file = new File(source)
-            def dada_files = source_file.isDirectory()
-                ? source.listFiles().findAll { it.name.startsWith(${params.dada.dada_prefix}) && it.name.endsWith('.dada') }
-                : source_file.text.readLines().collect { new File(it) }
+        def pointing = row.pointing.trim()
+        def source = row.dada_files
+        def cluster = row.cluster.trim()
+        def beam_name = row.beam_name.trim()
+        def beam_id = row.beam_id.trim()
+        def utc_start = row.utc_start.trim().replace(" ", "-")
+        def ra = row.ra.trim()
+        def dec = row.dec.trim()
 
-            cdms.collect { cdm ->
-                tuple(pointing, dada_files, cluster, beam_name, beam_id, utc_start, ra, dec, cdm)
-            }
+        // Parse cdm_list safely
+        def cdms = new groovy.json.JsonSlurper().parseText(row.cdm_list)
+        cdms = cdms instanceof List ? cdms : [cdms]
+
+        def source_file = new File(source)
+        def dada_files = source_file.isDirectory()
+            ? source_file.listFiles().findAll { it.name.startsWith(params.dada.dada_prefix) && it.name.endsWith('.dada') }
+            : source_file.text.readLines().collect { new File(it) }
+
+        def dada_files_path = file(dada_files)  // Important!
+
+        cdms.collect { cdm ->
+            tuple(pointing, dada_files_path, cluster, beam_name, beam_id, utc_start, ra, dec, cdm.toString())
         }
+    }
 
     dada_file_channel_and_meta.view()
 
