@@ -79,7 +79,7 @@ workflow dada_intake {
     dada_file_channel_and_meta.view()
 
     emit:
-    dada_files_channel
+    dada_file_channel_and_meta
 }
 
 workflow dm {
