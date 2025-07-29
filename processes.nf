@@ -97,7 +97,7 @@ process generateRfiFilter {
     zap_commands=\$(grep -Eo '[0-9.]+ *- *[0-9.]+' combined_frequent_outliers.txt | \\
     awk -F '-' '{gsub(/ /,""); print "zap "\$1" "\$2}' | tr '\\n' ' ')
 
-    rfi_filter_string="kadaneF 8 4 kadaneT 8 4 zdot \${zap_commands}"
+    rfi_filter_string="${params.generateRfiFilter.default_filter} \${zap_commands}"
     echo "\${rfi_filter_string}" > rfi_filter_string.txt
 
     mv combined_sk_heatmap_and_histogram.png ${beam_name}_rfi.png
