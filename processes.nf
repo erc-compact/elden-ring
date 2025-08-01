@@ -148,8 +148,11 @@ process generateDMFiles {
     container "${params.presto_image}"
     publishDir "${params.basedir}/DMFILES/", pattern: "*.dm", mode: 'copy'
 
+    input:
+    tuple val(pointing), path(fil_file), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(tsamp), val(nsamples), val(segments), val(segment_id), val(fft_size), val(start_sample), path(birdies_file)
+
     output:
-    path("*.dm")
+    tuple val(pointing), path(fil_file), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(tsamp), val(nsamples), val(segments), val(segment_id), val(fft_size), val(start_sample), path(birdies_file), path("*.dm")
 
     script:
     """
@@ -157,8 +160,8 @@ process generateDMFiles {
     import numpy as np
 
     # Generate the DM file
-    dm_start = ${params.ddplan.dm_start}
-    dm_end = ${params.ddplan.dm_end}
+    dm_start = ${cdm} + ${params.ddplan.dm_start}
+    dm_end = ${cdm} + ${params.ddplan.dm_end}
     dm_step = ${params.ddplan.dm_step}
     dm_sample = ${params.ddplan.dm_sample}
 
@@ -169,7 +172,7 @@ process generateDMFiles {
     for i in range(0, len(dm_values), dm_sample):
         chunk = dm_values[i:i + dm_sample]
         end_index = min(i + dm_sample, len(dm_values))
-        filename = f'dm_{dm_values[i]}_{dm_values[end_index - 1]}.dm'
+        filename = f'cdm_${cdm}_dm_{dm_values[i]}_{dm_values[end_index - 1]}.dm'
         np.savetxt(filename, chunk, fmt='%f')
     """
 }
@@ -186,8 +189,7 @@ process generateRfiFilter {
     tuple val(pointing), path(fits_files), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), env(rfi_filter_string) , val(tsamp), val(nsamples) , val(subintlength), path("*.png"), path("*.txt")
 
     script:
-    def num_intervals = Math.floor(time_per_file.toFloat() / 200) as int
-    // def num_intervals = 2
+    def num_intervals = Math.floor(time_per_file.toFloat()) as int
     """
     #!/bin/bash
     export MPLCONFIGDIR=/tmp
@@ -197,7 +199,7 @@ process generateRfiFilter {
     zap_commands=\$(grep -Eo '[0-9.]+ *- *[0-9.]+' combined_frequent_outliers.txt | \\
     awk -F '-' '{gsub(/ /,""); print "zap "\$1" "\$2}' | tr '\\n' ' ')
 
-    rfi_filter_string="kadaneF 8 4 kadaneT 8 4 zdot \${zap_commands}"
+    rfi_filter_string="${params.generateRfiFilter.default_flag} \${zap_commands}"
     echo "\${rfi_filter_string}" > rfi_filter_string.txt
 
     mv combined_sk_heatmap_and_histogram.png ${beam_name}_rfi.png
@@ -213,15 +215,15 @@ process filtool {
     // removed publishDir to avoid symlinks, now using publishDir in the script
 
     input:
-    tuple val(pointing), path(fits_files), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(rfi_filter_string), val(tsamp), val(nsamples) , val(subintlength)
+    tuple val(pointing), path(fits_files), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(rfi_filter_string), val(tsamp), val(nsamples) , val(subintlength)
     val threads
     val telescope
 
     output:
-    tuple val(pointing), path("*clean_01.fil"), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(tsamp), val(nsamples), val(subintlength)
+    tuple val(pointing), path("*clean_01.fil"), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(tsamp), val(nsamples), val(subintlength)
     
     script:
-    def outputFile = "${cluster.trim()}_${utc_start.trim()}_${beam_name.trim()}_clean"
+    def outputFile = "${cluster.trim()}_${utc_start.trim()}_${beam_name.trim()}_cdm_${cdm}_clean"
     def source_name = "${cluster.trim()}"
 
     // Prepare the rfi_filter option
@@ -250,8 +252,8 @@ process filtool {
     fi
 
     if [[ "\${file_extension}" == "fits" || "\${file_extension}" == "sf" || "\${file_extension}" == "rf" ]]; then
-        echo "Running: filtool --psrfits \${flip_flag} --td ${params.filtool.td} --fd ${params.filtool.fd} -t ${threads} --telescope ${telescope} ${zaplist} -o ${outputFile} -f \${workdir}/${fits_files} -s ${source_name}"
-        filtool --psrfits \${flip_flag} --td ${params.filtool.td} --fd ${params.filtool.fd} -t ${threads} --telescope ${telescope} ${zaplist} -o ${outputFile} -f \${workdir}/${fits_files} -s ${source_name}
+        echo "Running: filtool --psrfits --scloffs \${flip_flag} --td ${params.filtool.td} --fd ${params.filtool.fd} -t ${threads} --telescope ${telescope} ${zaplist} -o ${outputFile} -f \${workdir}/${fits_files} -s ${source_name}"
+        filtool --psrfits --scloffs \${flip_flag} --td ${params.filtool.td} --fd ${params.filtool.fd} -t ${threads} --telescope ${telescope} ${zaplist} -o ${outputFile} -f \${workdir}/${fits_files} -s ${source_name}
     else 
         echo "Running: filtool \${flip_flag} --td ${params.filtool.td} --fd ${params.filtool.fd} -t ${threads} --telescope ${telescope} ${zaplist} -o ${outputFile} -f \${workdir}/${fits_files} -s ${source_name}"
         filtool \${flip_flag} --td ${params.filtool.td} --fd ${params.filtool.fd} -t ${threads} --telescope ${telescope} ${zaplist} -o ${outputFile} -f \${workdir}/${fits_files} -s ${source_name}
@@ -263,6 +265,38 @@ process filtool {
     """
 }
 
+process merge_filterbanks {
+    label 'merge_filterbanks'
+    container "${params.filtools_sig_image}"
+    // publishDir "${params.basedir}/${cluster}/${beam_name}/MERGED/", pattern: "*.fil", mode: 'copy'
+
+    input:
+    tuple val(pointing), path(cluster), val(utc), val(ra), val(dec), val(cdm), val(group_label), path(fil_files)
+
+    output"
+    tuple val(pointing), path("*stacked.fil"), val(cluster), env(beam_name), val(group_label), val(utc), val(ra), val(dec), val(cdm)
+
+    script:
+    def outputFile = "${cluster}.${utc}_cfbf${group_label}_stacked.fil"
+    def filelist = fil_files.collect { it.getName() }.join(' ')
+    def publishDir = "${params.basedir}/${cluster}/${beam_name}/MERGED"
+    """
+    #!/bin/bash
+    workdir=\$(pwd)
+
+    beam_name="cfbf${group_label}"
+
+    mkdir -p ${publishDir}
+    cd ${publishDir}
+    echo "Merging files for cdm = ${cdm}, group_label = ${group_label}"
+    python ${baseDir}/scripts/freq_stack.py -o ${outputFile} $filelist
+
+    echo "Merged file created: ${outputFile}"
+    cd \${workdir}
+    ln -s ${publishDir}/${outputFile} ${outputFile}
+    """
+
+}
 process segmented_params {
     label 'segmented_params'
     container "${params.presto_image}"
@@ -292,7 +326,7 @@ process segmented_params {
     fft_size=\$((2**\$rounded_log2))
 
     # Generate params.csv 
-    output_file="${beam_name}_segments_${segments}_params.csv"
+    output_file="${beam_name}_cdm_${cdm}_segments_${segments}_params.csv"
     echo "i,fft_size,start_sample,nsamples_per_segment" > \${output_file}
     start_sample=0
     for ((i=0; i<=${segments}-1; i++ )); do
@@ -320,10 +354,9 @@ process birdies {
     echo 'What are the parameters?'
 
     
-    peasoup -p -v -i ${fil_file} --cdm ${cdm} --fft_size ${fft_size} -m 8.5 -t 1 -n ${params.peasoup.nharmonics} --acc_start 0.0 --acc_end 0.0 --ram_limit_gb 200.0 --dm_start 0.0 --dm_end 0.0  --start_sample ${start_sample} 
+    peasoup -p -v -i ${fil_file} --cdm ${cdm} --fft_size ${fft_size} -m ${params.peasoup.birdies_min_snr} -t 1 -n ${params.peasoup.nharmonics} --acc_start 0.0 --acc_end 0.0 --ram_limit_gb 200.0 --dm_start 0.0 --dm_end 0.0  --start_sample ${start_sample} 
 
-    #Rename the output file
-    mv **/*.xml ${beam_name}_birdies.xml
+    mv **/*.xml ${beam_name}_cdm_${cdm}_birdies.xml
 
     python3 ${projectDir}/scripts/birdies_parser.py --xml_file  *birdies.xml
     """
@@ -336,8 +369,7 @@ process peasoup {
     cache 'lenient'
     
     input:
-    tuple val(pointing), path(fil_file), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(tsamp), val(nsamples), val(segments), val(segment_id), val(fft_size), val(start_sample), path(birdies_file)
-    each path(dm_file)
+    tuple val(pointing), path(fil_file), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(tsamp), val(nsamples), val(segments), val(segment_id), val(fft_size), val(start_sample), path(birdies_file), path(dm_file)
 
     output:
     tuple val(pointing), val(cluster),val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(fft_size), val(segments), val(segment_id), path(dm_file), path(fil_file, followLinks: false), path("*.xml"), path(birdies_file), val(start_sample), val(nsamples)
@@ -357,7 +389,7 @@ process peasoup {
     peasoup -i ${fil_file} --cdm ${cdm} --fft_size ${fft_size} --limit ${params.peasoup.total_cands_limit} -m ${params.peasoup.min_snr} -t ${params.peasoup.ngpus} -n ${params.peasoup.nharmonics} --acc_start ${params.peasoup.acc_start} --acc_end ${params.peasoup.acc_end} --ram_limit_gb ${params.peasoup.ram_limit_gb} --dm_file ${dm_file} \${birdies_string} --start_sample ${start_sample} 
 
     #Rename the output file
-    mv **/*.xml ${beam_name}_${dm_file.baseName}_ck${segments}${segment_id}_overview.xml
+    mv **/*.xml ${beam_name}_cdm_${cdm}_${dm_file.baseName}_ck${segments}${segment_id}_overview.xml
     """
 }
 

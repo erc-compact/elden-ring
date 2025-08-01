@@ -34,6 +34,7 @@ params {
     // Generate RFI Filter Parameters
     generateRfiFilter {
         // Define parameters for folder paths
+        default_flag = "kadaneF 8 4 kadaneT 8 4" // Default RFI filter to apply
         run_rfi_filter       = true // Set to false to use default RFI filters
         target_resolution_ms = 1.0   // Time sample to calculate mean, skew, kurtosis in milliseconds
     }
@@ -71,6 +72,7 @@ params {
         // filterbanks into. 1=full_search, 2=split_in_half, etc.
         // Each entry in the list will be executed, so [1,2] will result in a 
         // full search and a segmented search on the halves
+        birdies_min_snr     = 11.0 // Minimum SNR for birdies
         min_snr             = 7.0
         acc_start           = -50
         acc_end             = 50

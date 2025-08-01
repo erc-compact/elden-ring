@@ -78,15 +78,6 @@ workflow dada_intake {
     dada_file_channel_and_meta
 }
 
-workflow dm {
-    main:
-    generateDMFiles()
-        .flatMap {it}
-        .set{ dm_file }
-    emit:
-    dm_file
-}
-
 // generate_rfi_filter 
 workflow rfi_filter {
     take:
@@ -96,8 +87,8 @@ workflow rfi_filter {
     readfile(orig_fits_channel).set{ rdout }
 
     if (params.generateRfiFilter.run_rfi_filter) {
-        fil_input = generateRfiFilter(rdout).map { p,f,c,bn,bi,u,ra,dec,cdm,rfi,ts,ns,si -> 
-            return tuple(p,f,c,bn,bi,u,ra,dec, cdm,rfi,ts,ns,si)   
+        fil_input = generateRfiFilter(rdout).map { p,f,c,bn,bi,u,ra,dec,cdm,rfi,ts,ns,si,png,txt -> 
+            return tuple(p,f,c,bn,bi,u,ra,dec,cdm,rfi,ts,ns,si)   
         }
     } else {
         fil_input = rdout.map { p,f,c,bn,bi,u,ra,dec,cdm,tpf,ts,ns,si -> 
@@ -122,11 +113,40 @@ workflow rfi_clean {
     new_fil = params.filtool.run_filtool
     ? filtool(fil_input, params.threads, params.telescope)
     : fil_input.map{ p,f,c,bn,bi,u,ra,dec,cdm,rfi,ts,ns,si -> 
-        tuple(p,f,c,bn,bi,u,ra,dec,cdm,ts,ns,si)
+        tuple(p,f,c,bn,bi,u,ra,dec,cdm)
     }
 
     emit:
     new_fil
+}
+
+workflow stack_by_cdm {
+    take:
+    new_fil
+
+    main:
+    new_fil
+        .groupTuple(by: [0 ,2, 5, 6, 7, 8]) // group by pointing, cluster, utc, ra, dec, cdm
+        .map {  group -> 
+            def (p, c, u, ra, dec, cdm, fil_list) = group
+            def fil_by_123 = fil_list.findAll { it[4] in {'1', '2', '3'} }.collect { it[1] }
+            def fil_by_4567 = fil_list.findAll { it[4] in {'4', '5', '6', '7'} }.collect { it[1] }
+            def fil_all = fil_list.collect { it[1] }
+
+            [
+                tuple(p,c,u,ra,dec,cdm,'0000123', fil_by_123),
+                tuple(p,c,u,ra,dec,cdm,'0004567', fil_by_4567),
+                tuple(p,c,u,ra,dec,cdm,'1234567', fil_all)
+            ]
+        }
+        .flatten()
+        .set{ stacked_group }
+
+    merge_filterbanks(stacked_group)
+        .set{ stacked_fil }
+
+    emit:
+    stacked_fil
 }
 
 // segmentation: break into segments → format for peasoup
@@ -136,7 +156,7 @@ workflow segmentation {
 
     main:
     split_params = new_fil
-        .flatMap { p,fp,c,bn,bi,u,ra,dec,cdm,ts,ns,si -> 
+        .flatMap { p,fp,c,bn,bi,u,ra,dec,cdm -> 
             params.peasoup.segments.collect { segments -> 
                 tuple(p,fp,c,bn,bi,u,ra,dec,cdm,segments)
             }
@@ -159,18 +179,39 @@ workflow segmentation {
     emit:
     peasoup_input
 }
-            
+
+workflow dm {
+    take:
+    bird_out
+
+    main:
+    generateDMFiles(bird_out)
+        .flatMap {it}
+        .set{ dm_file }
+    emit:
+    dm_file
+}
+
 // search: birdies → search → grouping
 workflow search {
     take:
     segmentation
-    dm_file
 
     main:
     birdies(segmentation)
         .set{ bird_out }
+    
+    dm(bird_out)
+        .flatMap { p,fi,c,bn,bi,u,ra,dec,cdm,ts,ns,seg,seg_id,fft,start,bird,dml ->
+            dml.collect { dm_file ->
+                [
+                    p, fi, c, bn, bi, u, ra, dec, cdm, ts, ns, seg, seg_id, fft, start, bird, dm_file
+                ]
+            }
+        }
+        .set{ peasoup_input }
 
-    peasoup(bird_out, dm_file)
+    peasoup(peasoup_input)
         .map { p,c,bn,bi,u,ra,dec,cdm,fft_size,seg,seg_id,dm_file,fil_file,xml_path,birds,ss,ns ->
             def fil_base = fil_file.getBaseName()
             tuple(p,c,bn,bi,u,ra,dec,cdm,fft_size,seg,seg_id,dm_file,fil_base,fil_file,xml_path,ss)
@@ -289,11 +330,16 @@ workflow candyjar_tarball {
 // ----------------Main workflow ------------------
 workflow full {
     main:
-    def dm_ch        = dm()
     def intake_ch    = intake()
     def rfi_ch       = rfi_filter(intake_ch)
     def cleaned_ch   = rfi_clean(rfi_ch)
-    def seg_ch       = segmentation(cleaned_ch)
+    if (params.stack_by_cdm) {
+        def stacked_ch = stack_by_cdm(cleaned_ch)
+        def seg_ch     = segmentation(stacked_ch)
+    } else {
+        def seg_ch     = segmentation(cleaned_ch)
+    }
+    def dm_ch        = dm()
     def search_ch    = search(seg_ch, dm_ch)
     def xml_ch       = xml_parse(search_ch)
     def fold_ch      = fold(xml_ch)
