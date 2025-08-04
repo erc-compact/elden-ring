@@ -143,40 +143,6 @@ process readfile {
     """
 }
 
-process generateDMFiles {
-    label "generateDMFiles"
-    container "${params.presto_image}"
-    publishDir "${params.basedir}/DMFILES/", pattern: "*.dm", mode: 'copy'
-
-    input:
-    tuple val(pointing), path(fil_file), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(tsamp), val(nsamples), val(segments), val(segment_id), val(fft_size), val(start_sample), path(birdies_file)
-
-    output:
-    tuple val(pointing), path(fil_file), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(tsamp), val(nsamples), val(segments), val(segment_id), val(fft_size), val(start_sample), path(birdies_file), path("*.dm")
-
-    script:
-    """
-    #!/usr/bin/env python3
-    import numpy as np
-
-    # Generate the DM file
-    dm_start = ${cdm} + ${params.ddplan.dm_start}
-    dm_end = ${cdm} + ${params.ddplan.dm_end}
-    dm_step = ${params.ddplan.dm_step}
-    dm_sample = ${params.ddplan.dm_sample}
-
-    # Create DM values with a step of dm_step
-    dm_values = np.round(np.arange(dm_start, dm_end, dm_step), 3)
-
-    # Split DM values into multiple files, each containing dm_sample number of lines
-    for i in range(0, len(dm_values), dm_sample):
-        chunk = dm_values[i:i + dm_sample]
-        end_index = min(i + dm_sample, len(dm_values))
-        filename = f'cdm_${cdm}_dm_{dm_values[i]}_{dm_values[end_index - 1]}.dm'
-        np.savetxt(filename, chunk, fmt='%f')
-    """
-}
-
 process generateRfiFilter {
     label 'generate_rfi_filter'
     container "${params.rfi_mitigation_image}"
@@ -359,6 +325,41 @@ process birdies {
     mv **/*.xml ${beam_name}_cdm_${cdm}_birdies.xml
 
     python3 ${projectDir}/scripts/birdies_parser.py --xml_file  *birdies.xml
+    """
+}
+
+
+process generateDMFiles {
+    label "generateDMFiles"
+    container "${params.presto_image}"
+    publishDir "${params.basedir}/DMFILES/", pattern: "*.dm", mode: 'copy'
+
+    input:
+    tuple val(pointing), path(fil_file), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(tsamp), val(nsamples), val(segments), val(segment_id), val(fft_size), val(start_sample), path(birdies_file)
+
+    output:
+    tuple val(pointing), path(fil_file), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(tsamp), val(nsamples), val(segments), val(segment_id), val(fft_size), val(start_sample), path(birdies_file), path("*.dm")
+
+    script:
+    """
+    #!/usr/bin/env python3
+    import numpy as np
+
+    # Generate the DM file
+    dm_start = ${cdm} + ${params.ddplan.dm_start}
+    dm_end = ${cdm} + ${params.ddplan.dm_end}
+    dm_step = ${params.ddplan.dm_step}
+    dm_sample = ${params.ddplan.dm_sample}
+
+    # Create DM values with a step of dm_step
+    dm_values = np.round(np.arange(dm_start, dm_end, dm_step), 3)
+
+    # Split DM values into multiple files, each containing dm_sample number of lines
+    for i in range(0, len(dm_values), dm_sample):
+        chunk = dm_values[i:i + dm_sample]
+        end_index = min(i + dm_sample, len(dm_values))
+        filename = f'cdm_${cdm}_dm_{dm_values[i]}_{dm_values[end_index - 1]}.dm'
+        np.savetxt(filename, chunk, fmt='%f')
     """
 }
 
