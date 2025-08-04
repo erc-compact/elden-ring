@@ -129,8 +129,8 @@ workflow stack_by_cdm {
         .groupTuple(by: [0 ,2, 5, 6, 7, 8]) // group by pointing, cluster, utc, ra, dec, cdm
         .map {  group -> 
             def (p, c, u, ra, dec, cdm, fil_list) = group
-            def fil_by_123 = fil_list.findAll { it[4] in {'1', '2', '3'} }.collect { it[1] }
-            def fil_by_4567 = fil_list.findAll { it[4] in {'4', '5', '6', '7'} }.collect { it[1] }
+            def fil_by_123 = fil_list.findAll { it[4] in ['1', '2', '3'] }.collect { it[1] }
+            def fil_by_4567 = fil_list.findAll { it[4] in ['4', '5', '6', '7'] }.collect { it[1] }
             def fil_all = fil_list.collect { it[1] }
 
             [
