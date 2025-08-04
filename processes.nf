@@ -245,7 +245,7 @@ process merge_filterbanks {
     script:
     def beam_name="cfbf${group_label}"
     def outputFile = "${cluster}.${utc}_cfbf${group_label}_stacked.fil"
-    def filelist = fil_files.collect { it.getName() }.join(' ')
+    def filelist = fil_files.collect { it }.join(' ')
     def publishDir = "${params.basedir}/${cluster}/${beam_name}/MERGED"
     """
     #!/bin/bash
