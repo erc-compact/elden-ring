@@ -341,8 +341,7 @@ workflow full {
     } else {
         def seg_ch     = segmentation(cleaned_ch)
     }
-    def dm_ch        = dm()
-    def search_ch    = search(seg_ch, dm_ch)
+    def search_ch    = search(seg_ch)
     def xml_ch       = xml_parse(search_ch)
     def fold_ch      = fold(xml_ch)
     def merged_ch    = fold_merge(fold_ch)
