@@ -253,7 +253,8 @@ process merge_filterbanks {
     mkdir -p ${publishDir}
     cd ${publishDir}
     echo "Merging files for cdm = ${cdm}, group_label = ${group_label}"
-    python ${baseDir}/scripts/freq_stack.py -o ${outputFile} $filelist
+    echo "python ${baseDir}/scripts/freq_stack.py -o ${outputFile} $filelist"
+    python ${baseDir}/scripts/freq_stack.py -o ${outputFile} ${filelist}
 
     echo "Merged file created: ${outputFile}"
     cd \${workdir}
