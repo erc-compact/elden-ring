@@ -143,13 +143,13 @@ workflow stack_by_cdm {
             def fil_by_4567 = [4, 5, 6, 7].findAll { beam_id_to_file.containsKey(it) }.collect { beam_id_to_file[it] }
             def fil_all = fil_paths
 
-            [
+            return [
                 tuple(p, cluster, utc, ra, dec, cdm, '0000123', fil_by_123),
                 tuple(p, cluster, utc, ra, dec, cdm, '0004567', fil_by_4567),
                 tuple(p, cluster, utc, ra, dec, cdm, '1234567', fil_all)
             ]
         }
-        .flatten()
+        .flatMap {it}
         .view()
         .set { stacked_group }
     merge_filterbanks(stacked_group)
