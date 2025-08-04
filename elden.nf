@@ -127,24 +127,34 @@ workflow stack_by_cdm {
 
     main:
     new_fil
-        .groupTuple(by: [0 ,2, 5, 6, 7, 8]) // group by pointing, cluster, utc, ra, dec, cdm
-        .map {  group -> 
-            def (p, c, u, ra, dec, cdm, fil_list) = group
-            def fil_by_123 = fil_list.findAll { it[4] in ['1', '2', '3'] }.collect { it[1] }
-            def fil_by_4567 = fil_list.findAll { it[4] in ['4', '5', '6', '7'] }.collect { it[1] }
-            def fil_all = fil_list.collect { it[1] }
+        .groupTuple(by: [0, 2, 5, 6, 7, 8]) // group by pointing, cluster, utc, ra, dec, cdm
+        .map { group ->
+            // Unpack group values
+            def (p, fil_paths, cluster, beam_names, beam_ids, utc, ra, dec, cdm, ts_list, ns_list, si_list) = group
+
+            // Map beam_id -> file_path
+            def beam_id_to_file = [:]
+            for (int i = 0; i < beam_ids.size(); i++) {
+                beam_id_to_file[beam_ids[i] as int] = fil_paths[i]
+            }
+
+            // Create subsets for 1-2-3 and 4-5-6-7
+            def fil_by_123 = [1, 2, 3].findAll { beam_id_to_file.containsKey(it) }.collect { beam_id_to_file[it] }
+            def fil_by_4567 = [4, 5, 6, 7].findAll { beam_id_to_file.containsKey(it) }.collect { beam_id_to_file[it] }
+            def fil_all = fil_paths
 
             [
-                tuple(p,c,u,ra,dec,cdm,'0000123', fil_by_123),
-                tuple(p,c,u,ra,dec,cdm,'0004567', fil_by_4567),
-                tuple(p,c,u,ra,dec,cdm,'1234567', fil_all)
+                tuple(p, cluster, utc, ra, dec, cdm, '0000123', fil_by_123),
+                tuple(p, cluster, utc, ra, dec, cdm, '0004567', fil_by_4567),
+                tuple(p, cluster, utc, ra, dec, cdm, '1234567', fil_all)
             ]
         }
+        .view()
         .flatten()
-        .set{ stacked_group }
+        .set { stacked_group }
 
     merge_filterbanks(stacked_group)
-        .set{ stacked_fil }
+        .set { stacked_fil }
 
     emit:
     stacked_fil
