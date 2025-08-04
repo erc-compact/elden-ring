@@ -243,15 +243,13 @@ process merge_filterbanks {
     tuple val(pointing), path("*stacked.fil"), val(cluster), env(beam_name), val(group_label), val(utc), val(ra), val(dec), val(cdm)
 
     script:
+    def beam_name="cfbf${group_label}"
     def outputFile = "${cluster}.${utc}_cfbf${group_label}_stacked.fil"
     def filelist = fil_files.collect { it.getName() }.join(' ')
     def publishDir = "${params.basedir}/${cluster}/${beam_name}/MERGED"
     """
     #!/bin/bash
     workdir=\$(pwd)
-
-    beam_name="cfbf${group_label}"
-
     mkdir -p ${publishDir}
     cd ${publishDir}
     echo "Merging files for cdm = ${cdm}, group_label = ${group_label}"
