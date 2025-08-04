@@ -149,6 +149,7 @@ workflow stack_by_cdm {
                 tuple(p, cluster, utc, ra, dec, cdm, '1234567', fil_all)
             ]
         }
+        .flatten()
         .view()
         .set { stacked_group }
     merge_filterbanks(stacked_group)
