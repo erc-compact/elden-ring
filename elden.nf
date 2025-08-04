@@ -335,11 +335,12 @@ workflow full {
     def intake_ch    = intake()
     def rfi_ch       = rfi_filter(intake_ch)
     def cleaned_ch   = rfi_clean(rfi_ch)
+    def seg_ch
     if (params.stack_by_cdm) {
         def stacked_ch = stack_by_cdm(cleaned_ch)
-        def seg_ch     = segmentation(stacked_ch)
+        seg_ch         = segmentation(stacked_ch)
     } else {
-        def seg_ch     = segmentation(cleaned_ch)
+        seg_ch         = segmentation(cleaned_ch)
     }
     def search_ch    = search(seg_ch)
     def xml_ch       = xml_parse(search_ch)
