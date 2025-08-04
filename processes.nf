@@ -239,7 +239,7 @@ process merge_filterbanks {
     input:
     tuple val(pointing), path(cluster), val(utc), val(ra), val(dec), val(cdm), val(group_label), path(fil_files)
 
-    output"
+    output:
     tuple val(pointing), path("*stacked.fil"), val(cluster), env(beam_name), val(group_label), val(utc), val(ra), val(dec), val(cdm)
 
     script:
