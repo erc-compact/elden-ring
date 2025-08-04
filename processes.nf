@@ -237,7 +237,7 @@ process merge_filterbanks {
     // publishDir "${params.basedir}/${cluster}/${beam_name}/MERGED/", pattern: "*.fil", mode: 'copy'
 
     input:
-    tuple val(pointing), path(cluster), val(utc), val(ra), val(dec), val(cdm), val(group_label), path(fil_files)
+    tuple val(pointing), val(cluster), val(utc), val(ra), val(dec), val(cdm), val(group_label), path(fil_files)
 
     output:
     tuple val(pointing), path("*stacked.fil"), val(cluster), env(beam_name), val(group_label), val(utc), val(ra), val(dec), val(cdm)
