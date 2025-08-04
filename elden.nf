@@ -19,6 +19,7 @@ include { parfold } from './processes'
 include { candypolice_pulsarx} from './processes'
 include { extract_candidates } from './processes'
 include { dada_to_fits } from './processes'
+include { merge_filterbanks } from './processes'
 
 workflow intake {
     main:
