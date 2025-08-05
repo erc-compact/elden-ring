@@ -220,7 +220,7 @@ workflow search {
             }
         }
         .set{ peasoup_input }
-        peasoup_input.view()
+        .peasoup_input.view()
 
     peasoup(peasoup_input)
         .map { p,c,bn,bi,u,ra,dec,cdm,fft_size,seg,seg_id,dm_file,fil_file,xml_path,birds,ss,ns ->
