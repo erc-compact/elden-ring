@@ -56,8 +56,7 @@ def freq_stack(infiles, outfile, block_size=1024):
             "nsamples": total,
         }
     )
-    if os.path.exists(outfile):
-        os.remove(outfile)
+
     writer = new_hdr.prep_outfile(outfile)
 
     # 7) Determine flipping needs and calculate FINAL offsets
@@ -132,3 +131,4 @@ if __name__ == "__main__":
     args = p.parse_args()
 
     freq_stack(args.infiles, args.output, args.block_size)
+

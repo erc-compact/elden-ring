@@ -122,41 +122,46 @@ workflow rfi_clean {
 }
 
 workflow stack_by_cdm {
-    take:
-    new_fil
+  take:
+  new_fil
 
-    main:
-    new_fil
-        .groupTuple(by: [0, 2, 5, 6, 7, 8]) // group by pointing, cluster, utc, ra, dec, cdm
-        .map { group ->
-            // Unpack group values
-            def (p, fil_paths, cluster, beam_names, beam_ids, utc, ra, dec, cdm, ts_list, ns_list, si_list) = group
+  main:
+  new_fil
+    .groupTuple(by: [0, 2, 5, 6, 7, 8])  // group by pointing, cluster, utc, ra, dec, cdm
+    .map { group ->
+      // Unpack group values
+      def (p, fil_paths, cluster, beam_names, beam_ids, utc, ra, dec, cdm, ts_list, ns_list, si_list) = group
 
-            // Map beam_id -> file_path
-            def beam_id_to_file = [:]
-            for (int i = 0; i < beam_ids.size(); i++) {
-                beam_id_to_file[beam_ids[i] as int] = fil_paths[i]
-            }
+      // Create beam_id -> file_path map
+      def beamIdToFile = [:]
+      beam_ids.eachWithIndex { bid, idx -> 
+        beamIdToFile[bid as int] = fil_paths[idx] 
+      }
 
-            // Create subsets for 1-2-3 and 4-5-6-7
-            def fil_by_123 = [1, 2, 3].findAll { beam_id_to_file.containsKey(it) }.collect { beam_id_to_file[it] }
-            def fil_by_4567 = [4, 5, 6, 7].findAll { beam_id_to_file.containsKey(it) }.collect { beam_id_to_file[it] }
-            def fil_all = fil_paths
-
-            return [
-                tuple(p, cluster, utc, ra, dec, cdm, '0000123', fil_by_123),
-                tuple(p, cluster, utc, ra, dec, cdm, '0004567', fil_by_4567),
-                tuple(p, cluster, utc, ra, dec, cdm, '1234567', fil_all)
-            ]
+      // Generate stacks dynamically
+      def results = []
+      params.stacks.each { stackName, beamList ->
+        // Get files for beams present in current group
+        def stackFiles = beamList.findResults { beamId -> 
+          beamIdToFile[beamId]  // returns null for missing beams
         }
-        .flatMap {it}
-        .view()
-        .set { stacked_group }
-    merge_filterbanks(stacked_group)
-        .set { stacked_fil }
+        // Only include non-empty stacks
+        if (stackFiles) {
+          results << tuple(p, cluster, utc, ra, dec, cdm, stackName, stackFiles)
+        }
+      }
+      
+      return results
+    }
+    .view()
+    .flatMap { it }  // flatten list of lists
+    .set { stacked_group }
+  
+  merge_filterbanks(stacked_group)
+    .set { stacked_fil }
 
-    emit:
-    stacked_fil
+  emit:
+  stacked_fil
 }
 
 // segmentation: break into segments → format for peasoup
@@ -195,9 +200,8 @@ workflow dm {
     bird_out
 
     main:
-    generateDMFiles(bird_out)
-        .flatMap {it}
-        .set{ dm_file }
+    generateDMFiles(bird_out).set{ dm_file }
+
     emit:
     dm_file
 }
@@ -213,13 +217,11 @@ workflow search {
     
     dm(bird_out)
         .flatMap { p,fi,c,bn,bi,u,ra,dec,cdm,ts,ns,seg,seg_id,fft,start,bird,dml ->
-            dml.collect { dm_file ->
-                [
-                    p, fi, c, bn, bi, u, ra, dec, cdm, ts, ns, seg, seg_id, fft, start, bird, dm_file
-                ]
+            def dm_files = dml instanceof List ? dml : [dml]
+            dm_files.collect { dm_file -> 
+              tuple(p, fi, c, bn, bi, u, ra, dec, cdm, ts, ns, seg, seg_id, fft, start, bird, dm_file)
             }
         }
-        .view()
         .set{ peasoup_input }
 
     peasoup(peasoup_input)
@@ -311,8 +313,7 @@ workflow classify {
     def abg = alpha_beta_gamma_test(search_fold_merged)
     def pics = pics_classifier(search_fold_merged)
 
-    abg.flatMap{ it }
-        .join(pics.flatMap{ it }, by: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+    abg.join(pics, by: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
         .map { row -> row.join(',') } // Convert each list to a CSV line
         .collectFile(
             name: 'alpha_beta_pics_combined.csv', 

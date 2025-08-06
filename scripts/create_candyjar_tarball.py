@@ -68,12 +68,20 @@ class TarballCreator:
                     logger.debug("Added main CSV: %s", output_csv)
                 # Add metafiles into the 'metafiles' folder.
                 for metafile in meta_files:
-                    tar.add(
-                        metafile,
-                        arcname=os.path.join("metafiles", os.path.basename(metafile)),
-                    )
-                    if logger:
-                        logger.debug("Added metafile: %s", metafile)
+                    arcname = os.path.join("metafiles", os.path.basename(metafile))
+                    if os.path.isfile(metafile):
+                        tar.add(metafile, arcname=arcname)
+                        if logger:
+                            logger.debug("Added metafile: %s", metafile)
+                    else:
+                        # Create an empty temp file and add it
+                        with open(metafile, "w") as f:
+                            pass  # creates a blank file
+                        tar.add(metafile, arcname=arcname)
+                        if logger:
+                            logger.warning(
+                                "Metafile not found. Created blank: %s", metafile
+                            )
                 # Add PNG images into the 'plots' folder.
                 for png in png_files:
                     # check if the file exists
@@ -550,7 +558,6 @@ def process_pointing_group(args_tuple):
 
 
 def create_single_tarball(processor, meta_files, png_files, args, logger):
-
     # Comment this out if you want the tarball with all the candidates
     # main_tarball = os.path.join(args.output_path, args.output_file)
     # additional_files = [processor.alpha_csv, processor.pics_csv]

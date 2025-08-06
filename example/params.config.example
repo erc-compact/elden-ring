@@ -5,6 +5,7 @@ params {
     template_dir    = "${projectDir}/templates"
     pics_model_dir  = "${projectDir}/ML_Models"
     stack_by_cdm    = true // stack eff bands into 1+2+3, 4+5+6+7, and 1+2+3+4+5+6+7 currently only in the full pipeline.
+    stacks          = ['0000123': [1,2,3], '0004567':[4,5,6,7], '1234567':[1,2,3,4,5,6,7]] // 'key':[beam numbers], the key will be used as beam name. 
 
     // Input files
     files_list      = "${projectDir}/inputfile.txt"
