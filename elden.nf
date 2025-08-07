@@ -20,6 +20,7 @@ include { candypolice_pulsarx} from './processes'
 include { extract_candidates } from './processes'
 include { dada_to_fits } from './processes'
 include { merge_filterbanks } from './processes'
+include {split_filterbank} from './processes.nf'
 
 workflow intake {
     main:
@@ -345,13 +346,22 @@ workflow full {
     def intake_ch    = intake()
     def rfi_ch       = rfi_filter(intake_ch)
     def cleaned_ch   = rfi_clean(rfi_ch)
+    def cut_ch
+
+    if (params.split_fil) {
+        cut_ch    = split_filterbank(cleaned_ch)
+    } else {
+        cut_ch       = cleaned_ch
+        }
+
     def seg_ch
     if (params.stack_by_cdm) {
-        def stacked_ch = stack_by_cdm(cleaned_ch)
-        seg_ch         = segmentation(stacked_ch)
+        def stacked_ch = stack_by_cdm(cut_ch)
+        seg_ch         = segmentation(cut_ch)
     } else {
-        seg_ch         = segmentation(cleaned_ch)
+        seg_ch         = segmentation(cut_ch)
     }
+
     def search_ch    = search(seg_ch)
     def xml_ch       = xml_parse(search_ch)
     def fold_ch      = fold(xml_ch)
@@ -359,6 +369,37 @@ workflow full {
     def classify_ch  = classify(merged_ch)
     candyjar_tarball(classify_ch)
 }
+
+// ----------------DADA-SF-FIL-STACK-SEARCH-FOLD------------ 
+
+workflow run_dada_search {
+    main:
+    dada_intake()
+    def sf = dada_to_fits(dada_intake.out)
+    def rfi_ch = rfi_filter(sf)
+    def cleaned_ch   = rfi_clean(rfi_ch)
+
+    def cut_ch
+    if (params.split_fil) {
+        cut_ch    = split_filterbank(cleaned_ch)
+    } else {
+        cut_ch       = cleaned_ch
+        }
+
+    def seg_ch
+    if (params.stack_by_cdm) {
+        def stacked_ch = stack_by_cdm(cut_ch)
+        seg_ch         = segmentation(cut_ch)
+    } else {
+        seg_ch         = segmentation(cut_ch)
+    }
+    def search_ch    = search(seg_ch)
+    def xml_ch       = xml_parse(search_ch)
+    def fold_ch      = fold(xml_ch)
+    def merged_ch    = fold_merge(fold_ch)
+    def classify_ch  = classify(merged_ch)
+    candyjar_tarball(classify_ch)
+  }
 
 // -------------DADA TO FITS conversion ----------
 workflow run_digifits {
@@ -368,6 +409,25 @@ workflow run_digifits {
         .set{ digifits_out }
 }
 
+// -------------DADA->SF->FIL->STACK--------------
+workflow run_dada_clean_stack {
+    main:
+    dada_intake()
+    def sf = dada_to_fits(dada_intake.out)
+    def rfi_ch = rfi_filter(sf)
+    def cleaned_ch   = rfi_clean(rfi_ch)
+    def cut_ch
+    if (params.split_fil) {
+        cut_ch    = split_filterbank(cleaned_ch)
+    } else {
+        cut_ch       = cleaned_ch
+    }
+
+    if (params.stack_by_cdm) {
+        def stack = stack_by_cdm(cut_ch)
+      }
+}
+ 
 // -------------Generate the rfi plots ----------
 workflow generate_rfi_filter {
     intake()
@@ -402,8 +462,8 @@ workflow run_search_fold {
 workflow fold_par {
     parfile_ch = Channel.fromPath("${params.parfold.parfile_path}")
     intake()
-    generate_rfi_filter(intake.out)
-    rfi_clean(generate_rfi_filter.out)
+    rfi_filter(intake.out)
+    rfi_clean(rfi_filter.out)
     parfold(rfi_clean.out, parfile_ch)
         .set{ parfold_out }
     

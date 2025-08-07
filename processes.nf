@@ -28,7 +28,7 @@ process dada_to_fits {
     tuple val(pointing), val(dada_files), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm)
 
     output:
-    tuple val(pointing), path(filename), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm)
+    tuple val(pointing), path("*.sf"), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(filename)
 
     script:
     filename = "${cluster}_${utc_start}_${beam_name}_cdm_${cdm}.sf"
@@ -230,6 +230,35 @@ process filtool {
     ln -s \${publish_dir}/${outputFile}_01.fil ${outputFile}_01.fil
     """
 }
+
+process split_filterbank {
+    label 'split_filterbank'
+    container "${params.filtools_sig_image}"
+
+    input:
+    tuple val(pointing), path(fil_file), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(tsamp), val(nsamples), val(subintlength)
+
+    output:
+    tuple val(pointing), path("*cut.fil"), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(tsamp), val(nsamples), val(subintlength)
+
+    script:
+    """
+    #!/bin/bash
+    outputFile="${cluster.trim()}_${utc_start.trim()}_${beam_name.trim()}_cdm_${cdm}_clean"
+    publish_dir="${params.basedir}/${cluster}/${beam_name}/CLEANEDFIL"
+    if [[ ${params.split_fil} == true ]]; then
+      if [[ ${beam_id} == 1 ]]; then
+        echo "Splitting band 1"
+        python ${baseDir}/scripts/cut_filterbank.py -i ${fil_file} -c ${params.split_freq} -l \${outputFile}_low.fil -u \${outputFile}_cut.fil
+        cp \${outputFile}_cut.fil \${publish_dir}/
+      else
+        echo "File good. Skipping"
+        mv ${fil_file} \${outputFile}_cut.fil 
+      fi
+    fi
+    """
+  }
+
 
 process merge_filterbanks {
     label 'merge_filterbanks'
@@ -563,7 +592,7 @@ process parfold {
     publishDir "${params.parfold.output_path}/", pattern: "*.cands", mode: 'copy'
     
     input:
-    tuple val(pointing), path(fil_file), val(cluster),val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(tsamp), val(nsamples), val(subintlength)
+    tuple val(pointing), path(fil_file), val(cluster),val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm)
     each path(parfile_channel)
 
     output:
@@ -571,10 +600,12 @@ process parfold {
     
     script:
     def Outname = "${beam_name}_${parfile_channel.getName().replace(".par", "")}"
+    def n = params.parfold.nsub
+    def nsubFlag = n ? "-n ${n}" : ""
     """
     #!/bin/bash
 
-    psrfold_fil --plotx --nosearch -v -t ${params.parfold.threads} --parfile ${parfile_channel} -n ${params.parfold.nsub} -b ${params.parfold.nbins} --nbinplan ${params.parfold.binplan} --template ${params.template_dir}/Effelsberg_${beam_id}.template --clfd ${params.parfold.clfd} -L ${subintlength} -f ${fil_file} -o ${Outname}
+    psrfold_fil --plotx --nosearch -v -t ${params.parfold.threads} --parfile ${parfile_channel} ${nsubFlag} -b ${params.parfold.nbins} --nbinplan ${params.parfold.binplan} --template ${params.template_dir}/Effelsberg_${beam_id}.template --clfd ${params.parfold.clfd} -L ${params.parfold.subintlength} -f ${fil_file} -o ${Outname}
     """
 }
 
