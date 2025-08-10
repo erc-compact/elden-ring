@@ -28,7 +28,7 @@ process dada_to_fits {
     tuple val(pointing), val(dada_files), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm)
 
     output:
-    tuple val(pointing), path("*.sf"), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(filename)
+    tuple val(pointing), path(filename), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm)
 
     script:
     filename = "${cluster}_${utc_start}_${beam_name}_cdm_${cdm}.sf"
@@ -164,19 +164,13 @@ process generateRfiFilter {
 
     zap_commands=\$(grep -Eo '[0-9.]+ *- *[0-9.]+' combined_frequent_outliers.txt | \\
     awk -F '-' '{gsub(/ /,""); print "zap "\$1" "\$2}' | tr '\\n' ' ')
-    if (( ${cdm} <= 60 )); then
-      echo "not using zdot for cdm = ${cdm}"
-      default_flag="${params.generateRfiFilter.default_flag} zdot"
-    else
-      echo "cdm = ${cdm}; using zdot"
-      default_flag=${params.generateRfiFilter.default_flag}
-    fi
-    rfi_filter_string="\${default_flag} \${zap_commands}"
-    echo "\${rfi_filter_string}" > rfi_filter_string.txt
 
-    mv combined_sk_heatmap_and_histogram.png ${beam_name}_rfi.png
-    mv combined_frequent_outliers.txt combined_frequent_outliers_${beam_name}.txt
-    mv block_bad_channel_percentages.txt block_bad_channel_percentages_${beam_name}.txt
+    rfi_filter_string="${params.generateRfiFilter.default_flag} \${zap_commands}"
+    echo "\${rfi_filter_string}" > rfi_filter_string_cdm_${cdm}.txt
+
+    mv combined_sk_heatmap_and_histogram.png ${beam_name}_cdm_${cdm}_rfi.png
+    mv combined_frequent_outliers.txt combined_frequent_outliers_${beam_name}_${cdm}.txt
+    mv block_bad_channel_percentages.txt block_bad_channel_percentages_${beam_name}_${cdm}.txt
     """
 }
 
@@ -237,35 +231,6 @@ process filtool {
     """
 }
 
-process split_filterbank {
-    label 'split_filterbank'
-    container "${params.filtools_sig_image}"
-
-    input:
-    tuple val(pointing), path(fil_file), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(tsamp), val(nsamples), val(subintlength)
-
-    output:
-    tuple val(pointing), path("*cut.fil"), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(tsamp), val(nsamples), val(subintlength)
-
-    script:
-    """
-    #!/bin/bash
-    outputFile="${cluster.trim()}_${utc_start.trim()}_${beam_name.trim()}_cdm_${cdm}_clean"
-    publish_dir="${params.basedir}/${cluster}/${beam_name}/CLEANEDFIL"
-    if [[ ${params.split_fil} == true ]]; then
-      if [[ ${beam_id} == 1 ]]; then
-        echo "Splitting band 1"
-        python ${baseDir}/scripts/cut_filterbank.py -i ${fil_file} -c ${params.split_freq} -l \${outputFile}_low.fil -u \${outputFile}_cut.fil
-        cp \${outputFile}_cut.fil \${publish_dir}/
-      else
-        echo "File good. Skipping"
-        mv ${fil_file} \${outputFile}_cut.fil 
-      fi
-    fi
-    """
-  }
-
-
 process merge_filterbanks {
     label 'merge_filterbanks'
     container "${params.filtools_sig_image}"
@@ -278,22 +243,22 @@ process merge_filterbanks {
     tuple val(pointing), path("*stacked.fil"), val(cluster), env(beam_name), val(group_label), val(utc), val(ra), val(dec), val(cdm)
 
     script:
-    filelist = fil_files.collect { it }.join(' ')
+    def beam_name="cfbf${group_label}"
+    def outputFile = "${cluster}.${utc}_cfbf${group_label}_cdm_${cdm}_stacked.fil"
+    def filelist = fil_files.collect { it }.join(' ')
+    def publishDir = "${params.basedir}/${cluster}/${beam_name}/MERGED"
     """
     #!/bin/bash
     workdir=\$(pwd)
-    beam_name="cfbf${group_label}"
-    outputFile="${cluster}.${utc}_cfbf${group_label}_stacked.fil"
-    publish_dir="${params.basedir}/${cluster}/\${beam_name}/MERGED"
-    mkdir -p \${publish_dir}
-    cd \${publish_dir}
+    mkdir -p ${publishDir}
+    cd ${publishDir}
     echo "Merging files for cdm = ${cdm}, group_label = ${group_label}"
-    echo "python ${baseDir}/scripts/freq_stack.py -o \${outputFile} $filelist"
-    python ${baseDir}/scripts/freq_stack.py -o \${outputFile} ${filelist}
+    echo "python ${baseDir}/scripts/freq_stack.py -o ${outputFile} $filelist"
+    python ${baseDir}/scripts/freq_stack.py -o ${outputFile} ${filelist}
 
-    echo "Merged file created: \${outputFile}"
+    echo "Merged file created: ${outputFile}"
     cd \${workdir}
-    ln -s \${publish_dir}/\${outputFile} \${outputFile}
+    ln -s ${publishDir}/${outputFile} ${outputFile}
     """
 
 }
@@ -345,7 +310,7 @@ process birdies {
     tuple val(pointing), path(fil_file), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(tsamp), val(nsamples), val(segments), val(segment_id), val(fft_size), val(start_sample)
 
     output:
-    tuple val(pointing), path(fil_file), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(tsamp), val(nsamples), val(segments), val(segment_id), val(fft_size), val(start_sample), path("birdies.txt")
+    tuple val(pointing), path(fil_file), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(tsamp), val(nsamples), val(segments), val(segment_id), val(fft_size), val(start_sample), path("*birdies.txt"), path("*birdies.xml")
 
     script:
     """
@@ -359,6 +324,8 @@ process birdies {
     mv **/*.xml ${beam_name}_cdm_${cdm}_birdies.xml
 
     python3 ${projectDir}/scripts/birdies_parser.py --xml_file  *birdies.xml
+
+    mv birdies.txt ${beam_name}_cdm_${cdm}_birdies.txt
     """
 }
 
@@ -369,7 +336,7 @@ process generateDMFiles {
     publishDir "${params.basedir}/DMFILES/", pattern: "*.dm", mode: 'copy'
 
     input:
-    tuple val(pointing), path(fil_file), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(tsamp), val(nsamples), val(segments), val(segment_id), val(fft_size), val(start_sample), path(birdies_file)
+    tuple val(pointing), path(fil_file), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(tsamp), val(nsamples), val(segments), val(segment_id), val(fft_size), val(start_sample), path(birdies_file), path(birdies_xml)
 
     output:
     tuple val(pointing), path(fil_file), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(tsamp), val(nsamples), val(segments), val(segment_id), val(fft_size), val(start_sample), path(birdies_file), path("*.dm")
@@ -598,7 +565,7 @@ process parfold {
     publishDir "${params.parfold.output_path}/", pattern: "*.cands", mode: 'copy'
     
     input:
-    tuple val(pointing), path(fil_file), val(cluster),val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm)
+    tuple val(pointing), path(fil_file), val(cluster),val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(tsamp), val(nsamples), val(subintlength)
     each path(parfile_channel)
 
     output:
@@ -606,12 +573,10 @@ process parfold {
     
     script:
     def Outname = "${beam_name}_${parfile_channel.getName().replace(".par", "")}"
-    def n = params.parfold.nsub
-    def nsubFlag = n ? "-n ${n}" : ""
     """
     #!/bin/bash
 
-    psrfold_fil --plotx --nosearch -v -t ${params.parfold.threads} --parfile ${parfile_channel} ${nsubFlag} -b ${params.parfold.nbins} --nbinplan ${params.parfold.binplan} --template ${params.template_dir}/Effelsberg_${beam_id}.template --clfd ${params.parfold.clfd} -L ${params.parfold.subintlength} -f ${fil_file} -o ${Outname}
+    psrfold_fil --plotx --nosearch -v -t ${params.parfold.threads} --parfile ${parfile_channel} -n ${params.parfold.nsub} -b ${params.parfold.nbins} --nbinplan ${params.parfold.binplan} --template ${params.template_dir}/Effelsberg_${beam_id}.template --clfd ${params.parfold.clfd} -L ${subintlength} -f ${fil_file} -o ${Outname}
     """
 }
 
