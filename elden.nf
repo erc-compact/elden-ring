@@ -131,7 +131,7 @@ workflow stack_by_cdm {
     .groupTuple(by: [0, 2, 5, 6, 7, 8])  // group by pointing, cluster, utc, ra, dec, cdm
     .map { group ->
       // Unpack group values
-      def (p, fil_paths, cluster, beam_names, beam_ids, utc, ra, dec, cdm, ts_list, ns_list, si_list) = group
+      def (p, fil_paths, cluster, beam_names, beam_ids, utc, ra, dec, cdm) = group
 
       // Create beam_id -> file_path map
       def beamIdToFile = [:]
@@ -347,17 +347,15 @@ workflow full {
     def rfi_ch       = rfi_filter(intake_ch)
     def cleaned_ch   = rfi_clean(rfi_ch)
     def cut_ch
-
     if (params.split_fil) {
         cut_ch    = split_filterbank(cleaned_ch)
     } else {
         cut_ch       = cleaned_ch
         }
-
     def seg_ch
     if (params.stack_by_cdm) {
         def stacked_ch = stack_by_cdm(cut_ch)
-        seg_ch         = segmentation(cut_ch)
+        seg_ch         = segmentation(stacked_ch)
     } else {
         seg_ch         = segmentation(cut_ch)
     }
