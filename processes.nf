@@ -164,9 +164,15 @@ process generateRfiFilter {
 
     zap_commands=\$(grep -Eo '[0-9.]+ *- *[0-9.]+' combined_frequent_outliers.txt | \\
     awk -F '-' '{gsub(/ /,""); print "zap "\$1" "\$2}' | tr '\\n' ' ')
-
-    rfi_filter_string="${params.generateRfiFilter.default_flag} \${zap_commands}"
-    echo "\${rfi_filter_string}" > rfi_filter_string_cdm_${cdm}.txt
+    if (( ${cdm} <= 60 )); then
+      echo "not using zdot for cdm = ${cdm}"
+      default_flag="${params.generateRfiFilter.default_flag} zdot"
+    else
+      echo "cdm = ${cdm}; using zdot"
+      default_flag=${params.generateRfiFilter.default_flag}
+    fi
+    rfi_filter_string="\${default_flag} \${zap_commands}"
+    echo "\${rfi_filter_string}" > rfi_filter_string.txt
 
     mv combined_sk_heatmap_and_histogram.png ${beam_name}_cdm_${cdm}_rfi.png
     mv combined_frequent_outliers.txt combined_frequent_outliers_${beam_name}_${cdm}.txt
@@ -230,6 +236,35 @@ process filtool {
     ln -s \${publish_dir}/${outputFile}_01.fil ${outputFile}_01.fil
     """
 }
+
+process split_filterbank {
+    label 'split_filterbank'
+    container "${params.filtools_sig_image}"
+
+    input:
+    tuple val(pointing), path(fil_file), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(tsamp), val(nsamples), val(subintlength)
+
+    output:
+    tuple val(pointing), path("*cut.fil"), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(tsamp), val(nsamples), val(subintlength)
+
+    script:
+    """
+    #!/bin/bash
+    outputFile="${cluster.trim()}_${utc_start.trim()}_${beam_name.trim()}_cdm_${cdm}_clean"
+    publish_dir="${params.basedir}/${cluster}/${beam_name}/CLEANEDFIL"
+    if [[ ${params.split_fil} == true ]]; then
+      if [[ ${beam_id} == 1 ]]; then
+        echo "Splitting band 1"
+        python ${baseDir}/scripts/cut_filterbank.py -i ${fil_file} -c ${params.split_freq} -l \${outputFile}_low.fil -u \${outputFile}_cut.fil
+        cp \${outputFile}_cut.fil \${publish_dir}/
+      else
+        echo "File good. Skipping"
+        mv ${fil_file} \${outputFile}_cut.fil 
+      fi
+    fi
+    """
+  }
+
 
 process merge_filterbanks {
     label 'merge_filterbanks'
