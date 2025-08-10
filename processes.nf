@@ -166,13 +166,13 @@ process generateRfiFilter {
     awk -F '-' '{gsub(/ /,""); print "zap "\$1" "\$2}' | tr '\\n' ' ')
     if (( ${cdm} <= 60 )); then
       echo "not using zdot for cdm = ${cdm}"
-      default_flag="${params.generateRfiFilter.default_flag} zdot"
+      default_flag="${params.generateRfiFilter.default_flag}"
     else
       echo "cdm = ${cdm}; using zdot"
-      default_flag=${params.generateRfiFilter.default_flag}
+      default_flag="${params.generateRfiFilter.default_flag} zdot"
     fi
     rfi_filter_string="\${default_flag} \${zap_commands}"
-    echo "\${rfi_filter_string}" > rfi_filter_string.txt
+    echo "\${rfi_filter_string}" > rfi_filter_string_cdm_${cdm}.txt
 
     mv combined_sk_heatmap_and_histogram.png ${beam_name}_cdm_${cdm}_rfi.png
     mv combined_frequent_outliers.txt combined_frequent_outliers_${beam_name}_${cdm}.txt
