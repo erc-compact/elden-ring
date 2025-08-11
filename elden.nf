@@ -159,6 +159,7 @@ workflow stack_by_cdm {
     .set { stacked_group }
   
   merge_filterbanks(stacked_group)
+    .view()
     .set { stacked_fil }
 
   emit:
