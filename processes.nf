@@ -275,7 +275,7 @@ process merge_filterbanks {
     tuple val(pointing), val(cluster), val(utc), val(ra), val(dec), val(cdm), val(group_label), val(fil_files)
 
     output:
-    tuple val(pointing), path("*stacked.fil"), val(cluster), env(beam_name), val(group_label), val(utc), val(ra), val(dec), val(cdm)
+    tuple val(pointing), path("*stacked.fil"), val(cluster), val(beam_name), val(group_label), val(utc), val(ra), val(dec), val(cdm)
 
     script:
     def beam_name="cfbf${group_label}"
@@ -295,8 +295,8 @@ process merge_filterbanks {
     cd \${workdir}
     ln -s ${publishDir}/${outputFile} ${outputFile}
     """
-
 }
+
 process segmented_params {
     label 'segmented_params'
     container "${params.presto_image}"
