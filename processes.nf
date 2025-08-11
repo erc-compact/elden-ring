@@ -284,7 +284,7 @@ process merge_filterbanks {
     def publishDir = "${params.basedir}/${cluster}/${beam_name}/MERGED"
     """
     #!/bin/bash
-    export beam_name="cfbf${group_label}"
+    beam_name="cfbf${group_label}"
     workdir=\$(pwd)
     mkdir -p ${publishDir}
     cd ${publishDir}
