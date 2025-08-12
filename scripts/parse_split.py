@@ -35,6 +35,7 @@ def setup_logging(verbose=False):
 
 def read_candidate_files(
     files,
+    cdm,
     chunk_id,
     ouput_dir,
     pulsarx_threads=20,
@@ -210,7 +211,9 @@ def read_candidate_files(
 
     logging.info(f"Dumping the candidates to unfiltered_df_for_folding.csv")
     df_candidates.to_csv(
-        f"{ouput_dir}/unfiltered_for_folding.csv", index=False, float_format="%.18f"
+        f"{ouput_dir}/unfiltered_for_folding_cdm_{cdm}.csv",
+        index=False,
+        float_format="%.18f",
     )
 
     # If a config file is provided, filter the dataframe accordingly
@@ -235,7 +238,9 @@ def read_candidate_files(
     # Dump the candidates selected for folding to a CSV
     logging.info(f"Dumping the selected candidates to filtered_df_for_folding.csv")
     df_candidates.to_csv(
-        f"{ouput_dir}/filtered_candidates_file.csv", index=False, float_format="%.18f"
+        f"{ouput_dir}/filtered_candidates_file_cdm_{cdm}.csv",
+        index=False,
+        float_format="%.18f",
     )
 
     return df_candidates, obs_meta_data
@@ -383,7 +388,7 @@ def apply_folding_configuration(df: pd.DataFrame, config_file: str) -> pd.DataFr
 #     return cand_file_path
 
 
-def generate_pulsarX_cand_file(df, meta, cands_dir, beam_name, cands_per_node=96):
+def generate_pulsarX_cand_file(df, meta, cdm, cands_dir, beam_name, cands_per_node=96):
     ## get the meta data from the XML file
     chunk_id = meta["chunk_id"]
     source_name_prefix = meta["source_name"]
@@ -394,7 +399,9 @@ def generate_pulsarX_cand_file(df, meta, cands_dir, beam_name, cands_per_node=96
     cand_freq = 1 / cand_period
     cand_snrs = df["snr"].values
 
-    cand_file_name = f"{source_name_prefix}_{beam_name}_ck{chunk_id}_allCands.txt"
+    cand_file_name = (
+        f"{source_name_prefix}_{beam_name}_cdm_{cdm}_ck{chunk_id}_allCands.txt"
+    )
     os.makedirs(cands_dir, exist_ok=True)
     cand_file_path = os.path.join(cands_dir, cand_file_name)
     number_of_candidates = len(cand_freq)
@@ -410,6 +417,7 @@ def generate_pulsarX_cand_file(df, meta, cands_dir, beam_name, cands_per_node=96
         cand_file_path,
         number_of_candidates,
         cands_per_node,
+        cdm,
         cands_dir,
         chunk_id,
         beam_name,
@@ -423,6 +431,7 @@ def split_cand_file(
     cand_file_path,
     number_of_candidates,
     cands_per_node,
+    cdm,
     cands_dir,
     chunk_id,
     beam_name,
@@ -440,7 +449,9 @@ def split_cand_file(
         num_files = number_of_candidates // cands_per_node + 1
 
     for i in range(num_files):
-        cand_file = f"{source_name_prefix}_{beam_name}_ck{chunk_id}_{i + 1}.candfile"
+        cand_file = (
+            f"{source_name_prefix}_{beam_name}_cdm_{cdm}_ck{chunk_id}_{i + 1}.candfile"
+        )
         cand_file_path = os.path.join(cands_dir, cand_file)
         cand_files.append(cand_file_path)
         start_idx = i * cands_per_node
@@ -892,6 +903,7 @@ def main():
 
     cands, meta = read_candidate_files(
         args.input_file,
+        args.cdm,
         args.chunk_id,
         args.output_path,
         args.pulsarx_threads,
@@ -923,7 +935,12 @@ def main():
             else:
                 subint_length = args.subint_length
             generate_pulsarX_cand_file(
-                cands, meta, args.output_path, args.beam_name, args.cands_per_node
+                cands,
+                meta,
+                args.cdm,
+                args.output_path,
+                args.beam_name,
+                args.cands_per_node,
             )
 
             meta["subint_length"] = subint_length
