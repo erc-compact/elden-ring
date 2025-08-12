@@ -484,7 +484,7 @@ process psrfold {
     for file in *.ar *.png; do
         candfile_no=\$(basename \${file} | cut -d'_' -f2)
         # candidate number is the last number in the file name in the format 0000n.ar
-        cand_no=\$(basename \${file} | cut -d'_' -f6 | cut -d'.' -f1)
+        cand_no=\$(basename \${file} | cut -d'_' -f8 | cut -d'.' -f1)
         new_cand_no=\$(( (10#\${candfile_no} -1) * ${params.psrfold.cands_per_node} + 10#\${cand_no} ))
         new_cand_fmt=\$(printf "%05d" \${new_cand_no})
         name=\$(basename \${file})
