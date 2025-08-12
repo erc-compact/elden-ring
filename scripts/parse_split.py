@@ -960,7 +960,7 @@ def main():
             meta["rfi_filter"] = args.rfi_filter
 
             # Create meta file
-            meta_file = f"{args.output_path}/{meta['source_name']}_{args.beam_name}_ck{args.chunk_id}.meta"
+            meta_file = f"{args.output_path}/{meta['source_name']}_{args.beam_name}_cdm_{args.cdm}_ck{args.chunk_id}.meta"
 
             # dump the meta data to a file
             with open(meta_file, "w") as f:
