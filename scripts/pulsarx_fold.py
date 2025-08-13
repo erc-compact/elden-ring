@@ -122,7 +122,7 @@ def fold_with_pulsarx(meta_dict, output_dir, cand_file):
     cand_file_name = os.path.basename(cand_file)
     logging.info(f"folding {cand_file_name}")
     # output_rootname = os.path.join(output_dir, f"{cand_file_name.split('_')[0]}_{cand_file_name.split('_')[-1].split('.')[0]}_ck{chunk_id}")
-    output_rootname = f"{cand_file_name.split('_')[0]}_{cand_file_name.split('_')[1]}_{cand_file_name.split('_')[-1].split('.')[0]}_cdm_{coherent_dm}_ck{chunk_id}"
+    output_rootname = f"{cand_file_name.split('_')[0]}_{cand_file_name.split('_')[-1].split('.')[0]}_cdm_{coherent_dm}_ck{chunk_id}"
     # output_rootname = output_dir
     logging.info(f"Output path: {output_rootname}")
     # os.makedirs(output_rootname, exist_ok=True)
