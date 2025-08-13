@@ -277,15 +277,15 @@ workflow fold {
 
     main:
     psrfold(splitcands_ch)
-        .groupTuple(by: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
-        .map { p,c,bn,bi,u,ra,dec,fft_size,seg,seg_id,fil_base,fil,f_csv,candfile,metatext,pngs,ar,cands ->
+        .groupTuple(by: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10,11])
+        .map { p,c,bn,bi,u,ra,dec,cdm,fft_size,seg,seg_id,fil_base,fil,f_csv,candfile,metatext,pngs,ar,cands ->
             def f_csv_sort = f_csv instanceof List ? f_csv.sort() : [f_csv]
             def first_f_csv = (f_csv_sort instanceof List) ? f_csv_sort[0] : f_csv_sort
             ar = ar instanceof List ? ar : [ar]
             cands = cands instanceof List ? cands : [cands]
             ar = ar.flatten()
             cands = cands.flatten()
-            tuple(p,c,bn,bi,u,ra,dec,fft_size,seg,seg_id,fil_base,first_f_csv,ar,cands)
+            tuple(p,c,bn,bi,u,ra,dec,cdm,fft_size,seg,seg_id,fil_base,first_f_csv,ar,cands)
         }
         .set{ fold_grouped }
 
@@ -315,13 +315,13 @@ workflow classify {
     def abg = alpha_beta_gamma_test(search_fold_merged)
     def pics = pics_classifier(search_fold_merged)
 
-    abg.join(pics, by: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+    abg.join(pics, by: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10,11])
         .map { row -> row.join(',') } // Convert each list to a CSV line
         .collectFile(
             name: 'alpha_beta_pics_combined.csv', 
             newLine: true, 
             storeDir: params.basedir
-        )  
+        )
         .set{ abg_pics_combined_csv }
 
     emit:
