@@ -117,7 +117,9 @@ def main():
         
     # create a master candidate file
     if args.pulsarx_cand_files:
-        master_basename = f"{'.'.join(args.pulsarx_cand_files[0].split('/')[-1].split('.')[:2])}_master.cands"
+        cand_file_name = os.path.basename(args.pulsarx_cand_files[0])
+        parts = cand_file_name.split('_')
+        master_basename = f"{parts[0]}_{'_'.join(parts[2:])[:-6]}_master.cands"
         master_df = pd.DataFrame()
         current_id = 1
         for pulsarx_cand_file in args.pulsarx_cand_files:
