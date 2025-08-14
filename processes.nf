@@ -583,7 +583,7 @@ process create_candyjar_tarball {
     script:
     """
     #!/bin/bash
-    header="pointing,target,beam,beam_id,utc_start,ra,dec,segments,segment_id,fold_cands_filepath,alpha_beta_file,pics_file"
+    header="pointing,target,beam,beam_id,utc_start,ra,dec,cdm,segments,segment_id,fold_cands_filepath,alpha_beta_file,pics_file"
 
     # Extract basename without extension and append "_header.csv"
     candidate_results_file_with_header="\$(basename ${candidate_results_file} .csv)_header.csv"
