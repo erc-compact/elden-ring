@@ -154,12 +154,10 @@ workflow stack_by_cdm {
       
       return results
     }
-    .view()
     .flatMap { it }  // flatten list of lists
     .set { stacked_group }
   
   merge_filterbanks(stacked_group)
-    .view()
     .set { stacked_fil }
 
   emit:
