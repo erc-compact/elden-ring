@@ -237,6 +237,7 @@ class CandidateProcessor:
                 merged["maxdm_ymw16"] = row["maxdm_ymw16"]
                 merged["metafile_path"] = row["metafile_path"]
                 merged["segment_id"] = row["segment_id"]
+                merged["cdm"] = row["cdm"]
 
                 total_rows += merged.shape[0]
                 merged_results.extend(merged.values.tolist())
@@ -334,6 +335,7 @@ class CandidateProcessor:
             "sn_fold",
             "maxdm_ymw16",
             "dist_ymw16",
+            "cdm",
             "pics_trapum_ter5",
             "pics_palfa",
             "pics_palfa_meerkat_l_sband_best_fscore",
@@ -486,16 +488,17 @@ def process_pointing_group(args_tuple):
 
     # Create main tarball.
     tarball_name = f"{output_prefix}_set_{idx}.tar.gz"
-    # additional_files = [subset_alpha_csv, subset_pics_csv]
+    tarball_path = os.path.join(output_path, tarball_name)
+    additional_files = [subset_alpha_csv, subset_pics_csv]
     # Comment this out if you want the tarball with all the candidates
-    # TarballCreator.create_tarball(
-    #     output_csv=subset_candidates_csv,
-    #     meta_files=subset_meta_files,
-    #     png_files=subset_png_files,
-    #     tarball_name=tarball_name,
-    #     additional_files=additional_files,
-    #     logger=None
-    # )
+    TarballCreator.create_tarball(
+        output_csv=subset_candidates_csv,
+        meta_files=subset_meta_files,
+        png_files=subset_png_files,
+        tarball_name=tarball_path,
+        additional_files=additional_files,
+        logger=None,
+    )
 
     # Create separate alpha tarball.
     alpha_png_files = (
@@ -559,17 +562,17 @@ def process_pointing_group(args_tuple):
 
 def create_single_tarball(processor, meta_files, png_files, args, logger):
     # Comment this out if you want the tarball with all the candidates
-    # main_tarball = os.path.join(args.output_path, args.output_file)
-    # additional_files = [processor.alpha_csv, processor.pics_csv]
-    # TarballCreator.create_tarball(
-    #     output_csv=processor.candidates_csv,
-    #     meta_files=meta_files,
-    #     png_files=png_files,
-    #     tarball_name=main_tarball,
-    #     additional_files=additional_files,
-    #     logger=logger
-    # )
-    # logger.info("Created single tarball with all candidates: %s", args.output_file)
+    main_tarball = os.path.join(args.output_path, args.output_file)
+    additional_files = [processor.alpha_csv, processor.pics_csv]
+    TarballCreator.create_tarball(
+        output_csv=processor.candidates_csv,
+        meta_files=meta_files,
+        png_files=png_files,
+        tarball_name=main_tarball,
+        additional_files=additional_files,
+        logger=logger,
+    )
+    logger.info("Created single tarball with all candidates: %s", args.output_file)
 
     # Create separate alpha tarball.
     alpha_df = pd.read_csv(processor.alpha_csv)

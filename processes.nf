@@ -146,7 +146,7 @@ process readfile {
 process generateRfiFilter {
     label 'generate_rfi_filter'
     container "${params.rfi_mitigation_image}"
-    publishDir "${params.basedir}/${cluster}/${beam_name}/RFIFILTER/", pattern: "*.{png,txt}", mode: 'symlink'
+    publishDir "${params.basedir}/${cluster}/${beam_name}/RFIFILTER/", pattern: "*.{png,txt}", mode: 'copy'
 
     input:
     tuple val(pointing), path(fits_files), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(time_per_file), val(tsamp), val(nsamples), val(subintlength)
