@@ -91,6 +91,7 @@ params {
     // Parse XML Parameters
     parse_xml {
         script              = "${projectDir}/scripts/parse_split.py"    // Path to the parsexml.py script
+        filter_cands      = true  // Whether to filter candidates using a config file
         config_file         = "${projectDir}/templates/pulsarx_fold_config_eff.json"  // Path to the config file for filtering the candidates. 
     }
 
