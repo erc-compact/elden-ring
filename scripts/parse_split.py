@@ -350,6 +350,8 @@ def apply_folding_configuration(df: pd.DataFrame, config_file: str) -> pd.DataFr
         sel = df
         for cond in conditions:
             sel = sel[cond]
+        # Sort filtered rows by SNR in descending order
+        sel = sel.sort_values(by="snr", ascending=False)
 
         logging.info(f"Filter {filter_def} selected {len(sel)} candidates.")
         # Limit to the desired number of candidates
@@ -363,10 +365,10 @@ def apply_folding_configuration(df: pd.DataFrame, config_file: str) -> pd.DataFr
         filtered_dfs.append(sel)
 
     if filtered_dfs:
-        # Concatenate and drop duplicate candidates (assuming cand_id_in_file is unique)
+        # Concatenate and drop duplicate candidates (using both file and cand_id_in_file for uniqueness)
         df_filtered = pd.concat(filtered_dfs)
         logging.info(f"Total candidates after Concatenation: {len(df_filtered)}")
-        df_filtered = df_filtered.drop_duplicates(subset="cand_id_in_file")
+        df_filtered = df_filtered.drop_duplicates(subset=["file", "cand_id_in_file"])
         df_filtered = df_filtered.sort_values(by="cand_id_in_file")
         logging.info(f"Total candidates after dropping duplicates: {len(df_filtered)}")
         return df_filtered
