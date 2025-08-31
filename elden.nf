@@ -441,7 +441,7 @@ workflow run_rfi_clean {
 // ---------- Run search and fold on filtooled files -----
 // run_search assumes rfi_cleaned files inside the files_lists
 workflow run_search_fold {
-    def cleaned_ch   = intake().out.map{ p,f,c,bn,bi,u,ra,dec,cdm,fname -> 
+    def cleaned_ch   = intake().map{ p,f,c,bn,bi,u,ra,dec,cdm,fname -> 
         tuple(p,f,c,bn,bi,u,ra,dec,cdm)
     }
     def cut_ch
