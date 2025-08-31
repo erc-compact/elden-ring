@@ -441,18 +441,29 @@ workflow run_rfi_clean {
 // ---------- Run search and fold on filtooled files -----
 // run_search assumes rfi_cleaned files inside the files_lists
 workflow run_search_fold {
-    intake()
-    dm()
-    readfile(intake.out).map{ p,f,c,bn,bi,u,ra,dec,tpf,ts,ns,si ->
-        tuple(p,f,c,bn,bi,u,ra,dec,ts,ns,si)
-    }.set{rdout}
-    segmentation(rdout)
-    search(segmentation.out,dm.out)
-    xml_parse(search.out)
-    fold(xml_parse.out)
-    fold_merge(fold.out)
-    classify(fold_merge.out)
-    candyjar_tarball(classify.out)
+    def cleaned_ch   = intake().out.map{ p,f,c,bn,bi,u,ra,dec,cdm,fname -> 
+        tuple(p,f,c,bn,bi,u,ra,dec,cdm)
+    }
+    def cut_ch
+    if (params.split_fil) {
+        cut_ch    = split_filterbank(cleaned_ch)
+    } else {
+        cut_ch       = cleaned_ch
+        }
+    def seg_ch
+    if (params.stack_by_cdm) {
+        def stacked_ch = stack_by_cdm(cut_ch)
+        seg_ch         = segmentation(stacked_ch)
+    } else {
+        seg_ch         = segmentation(cut_ch)
+    }
+
+    def search_ch    = search(seg_ch)
+    def xml_ch       = xml_parse(search_ch)
+    def fold_ch      = fold(xml_ch)
+    def merged_ch    = fold_merge(fold_ch)
+    def classify_ch  = classify(merged_ch)
+    candyjar_tarball(classify_ch)
 }
 
 //------------- parfold workflow ---------------
