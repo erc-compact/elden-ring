@@ -33,7 +33,7 @@ def extract_frequencies(xml_file):
 
     return freq_bin_pairs
 
-def write_birdies_to_file(frequencies):
+def write_birdies_to_file(frequencies, default_birdies_file="None"):
     """
     Write the frequencies and their corresponding 1/fft_size values to a file.
 
@@ -42,15 +42,24 @@ def write_birdies_to_file(frequencies):
         output_file (str): The file to write the frequencies to.
     """
     with open("birdies.txt", 'w') as f:
+        # add default birdies from default_birdies.txt
+        try:
+            with open(default_birdies_file, 'r') as df:
+                for line in df:
+                    f.write(line)
+        except FileNotFoundError:
+            pass  # If the default file doesn't exist, just skip it
+        
         for freq, spacing in frequencies:
             f.write(f"{freq:.6f} {spacing:.6f}\n")
 
 def main(args):
     frequencies = extract_frequencies(args.xml_file)
-    write_birdies_to_file(frequencies)
+    write_birdies_to_file(frequencies, args.default_birdies_file)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Extract periods from an XML file, calculate frequencies, and save them in a specific format.")
     parser.add_argument('--xml_file', type=str, help='Path to the XML file.')
+    parser.add_argument('--default_birdies_file', type=str, default="None", help='Path to the default birdies file.')
     args = parser.parse_args()
     main(args)

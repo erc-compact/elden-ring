@@ -79,6 +79,7 @@ params {
         // Each entry in the list will be executed, so [1,2] will result in a 
         // full search and a segmented search on the halves
         birdies_min_snr     = 11.0 // Minimum SNR for birdies
+        default_birdies     = "${projectDir}/include/default_birdies.txt" // Path to the default birdies file
         min_snr             = 7.0
         acc_start           = -50
         acc_end             = 50

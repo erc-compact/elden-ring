@@ -359,7 +359,7 @@ process birdies {
 
     mv **/*.xml ${beam_name}_cdm_${cdm}_birdies.xml
 
-    python3 ${projectDir}/scripts/birdies_parser.py --xml_file  *birdies.xml
+    python3 ${projectDir}/scripts/birdies_parser.py --default_birdies_file ${params.peasoup.default_birdies} --xml_file  *birdies.xml
 
     mv birdies.txt ${beam_name}_cdm_${cdm}_birdies.txt
     """
