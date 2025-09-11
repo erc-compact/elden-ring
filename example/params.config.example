@@ -116,6 +116,7 @@ params {
         create_candyjar_tarball = true
         output_dir_alpha_pics_results = "NGC6656"
         threshold = 0.1
+        snr_threshold = 6.0
     }
 
     parfold {

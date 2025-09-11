@@ -7,7 +7,7 @@ If no splitting is requested (npointings=0), a separate tarball for candidates
 with alpha < 1.0 will also be created.
 
 Usage:
-    python pipeline.py -i input.csv -o output.tar.gz -d /path/to/output/ -m /path/to/metafiles/ [--threshold 0.1] [--npointings N] [--verbose]
+    python pipeline.py -i input.csv -o output.tar.gz -d /path/to/output/ -m /path/to/metafiles/ [--snr_threshold 6.0] [--threshold 0.1] [--npointings N] [--verbose]
 
 Examples:
     - Create one tarball with all candidates and an extra tarball for alpha < 1.0:
@@ -122,6 +122,7 @@ class CandidateProcessor:
         output_tarball_path: str,
         metafile_source_path: str,
         threshold: float,
+        snr_threshold: float,
         logger: logging.Logger,
     ):
         self.input_file = input_file
@@ -129,6 +130,7 @@ class CandidateProcessor:
         self.output_tarball_path = output_tarball_path
         self.metafile_source_path = metafile_source_path
         self.threshold = threshold
+        self.snr_threshold = snr_threshold
         self.logger = logger
 
         # Intermediate CSV filenames.
@@ -372,7 +374,9 @@ class CandidateProcessor:
             | (final_df["pics_palfa"] >= self.threshold)
             | (final_df["pics_palfa_meerkat_l_sband_best_fscore"] >= self.threshold)
             | (final_df["pics_meerkat_l_sband_combined_best_recall"] >= self.threshold)
+            & (final_df["sn_fold"] >= self.snr_threshold)
         )
+            
         pics_df = final_df.loc[condition]
         pics_df.to_csv(self.pics_csv, index=False)
         self.logger.info(
@@ -421,6 +425,13 @@ def parse_arguments() -> argparse.Namespace:
         default=0.1,
         help="Threshold for pics score filtering (default: 0.1)",
     )
+    parser.add_argument(
+        "--snr_threshold",
+        type=float,
+        default=0.0,
+        help="SNR threshold for filtering candidates (default: 0.0)",
+    )
+    
     parser.add_argument(
         "--npointings",
         type=int,
@@ -648,6 +659,7 @@ def main():
         output_tarball_path=args.output_path,
         metafile_source_path=args.metafile_source_path,
         threshold=args.threshold,
+        snr_threshold=args.snr_threshold,
         logger=logger,
     )
 

@@ -598,7 +598,7 @@ process create_candyjar_tarball {
     echo "\$header" > "\$candidate_results_file_with_header"
     cat "${candidate_results_file}" >> "\$candidate_results_file_with_header"
 
-    python ${baseDir}/scripts/create_candyjar_tarball.py -i \$candidate_results_file_with_header -o ${output_tarball_name} --verbose --npointings 0 -m ${params.metafile_source_path} -d ${params.basedir} --threshold ${params.alpha_beta_gamma.threshold}
+    python ${baseDir}/scripts/create_candyjar_tarball.py -i \$candidate_results_file_with_header -o ${output_tarball_name} --verbose --npointings 0 -m ${params.metafile_source_path} -d ${params.basedir} --threshold ${params.alpha_beta_gamma.threshold} --snr_threshold ${params.alpha_beta_gamma.snr_threshold} 
     """
 }
 
