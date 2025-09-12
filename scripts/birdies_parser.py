@@ -47,6 +47,7 @@ def write_birdies_to_file(frequencies, default_birdies_file="None"):
             with open(default_birdies_file, 'r') as df:
                 for line in df:
                     f.write(line)
+                f.write("\n")
         except FileNotFoundError:
             pass  # If the default file doesn't exist, just skip it
         
