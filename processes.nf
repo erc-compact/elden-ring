@@ -32,7 +32,7 @@ process dada_to_fits {
 
     script:
     filename = "${cluster}_${utc_start}_${beam_name}_cdm_${cdm}.sf"
-    publish_dir = "${params.basedir}/${cluster}/${beam_name}/FITS/"
+    publish_dir = "${params.basedir}/${params.runID}/${beam_name}/FITS/"
     """
     #!/bin/bash
     set -euo pipefail
@@ -146,7 +146,7 @@ process readfile {
 process generateRfiFilter {
     label 'generate_rfi_filter'
     container "${params.rfi_mitigation_image}"
-    publishDir "${params.basedir}/${cluster}/${beam_name}/RFIFILTER/", pattern: "*.{png,txt}", mode: 'copy'
+    publishDir "${params.basedir}/${params.runID}/${beam_name}/RFIFILTER/", pattern: "*.{png,txt}", mode: 'copy'
 
     input:
     tuple val(pointing), path(fits_files), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(time_per_file), val(tsamp), val(nsamples), val(subintlength)
@@ -207,7 +207,7 @@ process filtool {
     #!/bin/bash
     workdir=\$(pwd)
     echo "Working directory: \${workdir}"
-    publish_dir="${params.basedir}/${cluster}/${beam_name}/CLEANEDFIL"
+    publish_dir="${params.basedir}/${params.runID}/${beam_name}/CLEANEDFIL"
     mkdir -p \${publish_dir}
     cd \${publish_dir}
 
@@ -251,7 +251,7 @@ process split_filterbank {
     """
     #!/bin/bash
     outputFile="${cluster.trim()}_${utc_start.trim()}_${beam_name.trim()}_cdm_${cdm}_clean"
-    publish_dir="${params.basedir}/${cluster}/${beam_name}/CLEANEDFIL"
+    publish_dir="${params.basedir}/${params.runID}/${beam_name}/CLEANEDFIL"
     if [[ ${params.split_fil} == true ]]; then
       if [[ ${beam_id} == 1 ]]; then
         echo "Splitting band 1"
@@ -281,7 +281,7 @@ process merge_filterbanks {
     def beam_name="cfbf${group_label}"
     def outputFile = "${cluster}.${utc}_cfbf${group_label}_cdm_${cdm}_stacked.fil"
     def filelist = fil_files.collect { it }.join(' ')
-    def publishDir = "${params.basedir}/${cluster}/${beam_name}/MERGED"
+    def publishDir = "${params.basedir}/${params.runID}/${beam_name}/MERGED"
     """
     #!/bin/bash
     beam_name="cfbf${group_label}"
@@ -301,7 +301,7 @@ process merge_filterbanks {
 process segmented_params {
     label 'segmented_params'
     container "${params.presto_image}"
-    publishDir "${params.basedir}/${cluster}/${beam_name}/segment_${segments}/SEGPARAMS/", pattern: "*.csv", mode: 'copy'
+    publishDir "${params.basedir}/${params.runID}/${beam_name}/segment_${segments}/SEGPARAMS/", pattern: "*.csv", mode: 'copy'
 
     input:
     tuple val(pointing), path(fil_file), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec),val(cdm), val(segments)
@@ -340,7 +340,7 @@ process segmented_params {
 process birdies {
     label 'birdies'
     container "${params.peasoup_image}"
-    publishDir "${params.basedir}/${cluster}/${beam_name}/segment_${segments}/${segments}${segment_id}/BIRDIES/", pattern: "*.{xml,txt}", mode: 'copy'
+    publishDir "${params.basedir}/${params.runID}/${beam_name}/segment_${segments}/${segments}${segment_id}/BIRDIES/", pattern: "*.{xml,txt}", mode: 'copy'
 
     input:
     tuple val(pointing), path(fil_file), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(tsamp), val(nsamples), val(segments), val(segment_id), val(fft_size), val(start_sample)
@@ -369,7 +369,7 @@ process birdies {
 process generateDMFiles {
     label "generateDMFiles"
     container "${params.presto_image}"
-    publishDir "${params.basedir}/DMFILES/", pattern: "*.dm", mode: 'copy'
+    publishDir "${params.basedir}/${params.runID}/DMFILES/", pattern: "*.dm", mode: 'copy'
 
     input:
     tuple val(pointing), path(fil_file), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(tsamp), val(nsamples), val(segments), val(segment_id), val(fft_size), val(start_sample), path(birdies_file), path(birdies_xml)
@@ -403,7 +403,7 @@ process generateDMFiles {
 process peasoup {
     label 'peasoup'
     container "${params.peasoup_image}"
-    publishDir "${params.basedir}/${cluster}/${beam_name}/segment_${segments}/${segments}${segment_id}/SEARCH/", pattern: "*.xml", mode: 'copy'
+    publishDir "${params.basedir}/${params.runID}/${beam_name}/segment_${segments}/${segments}${segment_id}/SEARCH/", pattern: "*.xml", mode: 'copy'
     cache 'lenient'
     
     input:
@@ -433,8 +433,8 @@ process peasoup {
 
 process parse_xml {
     label 'parse_xml'
-    container "${params.pulsarx_image}"
-    publishDir "${params.basedir}/${cluster}/${beam_name}/segment_${segments}/${segments}${segment_id}/PARSEXML/", pattern: "*.{csv,meta,txt,candfile}", mode: 'copy'
+    container "${params.rusty_candypicker}"
+    publishDir "${params.basedir}/${params.runID}/${beam_name}/segment_${segments}/${segments}${segment_id}/PARSEXML/", pattern: "*.{csv,meta,txt,candfile}", mode: 'copy'
 
     input:
     tuple val(pointing), val(cluster),val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(fft_size), val(segments), val(segment_id), val(dm_file), val(fil_file_base), path(fil_file), path(xml_files), val(start_sample)
@@ -444,9 +444,26 @@ process parse_xml {
     
     script:
     def subintlengthstring = params.psrfold.subintlength && params.psrfold.subintlength != "None" ? "-sub ${params.psrfold.subintlength}" : ""
-    """ 
+    """
     #!/bin/bash
     echo "running parse xml"
+    if [[${params.parse_xml.pick_candies} == true ]]; then
+        echo "Picking candies"
+        candy_picker_rs -p ${params.parse_xml.candy_picker_period_threshold}
+        picked_xml_files=\$(ls *overview_picked.xml)
+        mv pivots.csv pivots_${beam_name}_cdm_${cdm}_ck${segments}${segment_id}.csv
+        PICKED_XML_DIR="${params.basedir}/${params.runID}/${beam_name}/segment_${segments}/${segments}${segment_id}/PARSEXML/XML"
+        mkdir -p \${PICKED_XML_DIR}
+        cp \${picked_xml_files} \${PICKED_XML_DIR}/
+        cp *pivots*.csv \${PICKED_XML_DIR}/
+    else
+        echo "Not picking candies"
+        picked_xml_files=\$(ls *overview.xml)
+        PICKED_XML_DIR="${params.basedir}/${params.runID}/${beam_name}/segment_${segments}/${segments}${segment_id}/PARSEXML/XML"
+        mkdir -p \${PICKED_XML_DIR}
+        cp \${picked_xml_files} \${PICKED_XML_DIR}/
+    fi
+
     if [ "${params.parse_xml.filter_cands}" = true ]; then
         echo "Filtering candidates using config file: ${params.parse_xml.config_file}"
         config_flag="--config_file ${params.parse_xml.config_file}"
@@ -455,7 +472,7 @@ process parse_xml {
         config_flag=""
     fi
     
-    python3 ${params.parse_xml.script} -i ${xml_files} --chunk_id ${segments}${segment_id} --fold_technique ${params.psrfold.fold_technique} --nbins_default ${params.psrfold.nbins} --binplan "${params.psrfold.binplan}" ${subintlengthstring} -nsub ${params.psrfold.nsub} -clfd ${params.psrfold.clfd} -b ${beam_name} -b_id ${beam_id} -utc ${utc_start} -threads ${params.psrfold.threads}  --template_dir ${params.psrfold.template_dir} --telescope ${params.telescope} \${config_flag} --cdm ${cdm} --cands_per_node ${params.psrfold.cands_per_node}
+    python3 ${params.parse_xml.script} -i \${picked_xml_files} --chunk_id ${segments}${segment_id} --fold_technique ${params.psrfold.fold_technique} --nbins_default ${params.psrfold.nbins} --binplan "${params.psrfold.binplan}" ${subintlengthstring} -nsub ${params.psrfold.nsub} -clfd ${params.psrfold.clfd} -b ${beam_name} -b_id ${beam_id} -utc ${utc_start} -threads ${params.psrfold.threads}  --template_dir ${params.psrfold.template_dir} --telescope ${params.telescope} \${config_flag} --cdm ${cdm} --cands_per_node ${params.psrfold.cands_per_node}
 
     mv filtered_candidates_file* filtered_candidates_file_${beam_name}_cdm_${cdm}_ck${segments}${segment_id}.csv
     mv unfiltered_for_folding* unfiltered_for_folding_${beam_name}_cdm_${cdm}_ck${segments}${segment_id}.csv
@@ -467,7 +484,7 @@ process psrfold {
     label "psrfold"
     container "${params.pulsarx_image}"
     // maxForks 100
-    publishDir "${params.basedir}/${cluster}/${beam_name}/segment_${segments}/${segments}${segment_id}/FOLDING/", pattern: "*.{png,ar,cands}", mode: 'copy'
+    publishDir "${params.basedir}/${params.runID}/${beam_name}/segment_${segments}/${segments}${segment_id}/FOLDING/", pattern: "*.{png,ar,cands}", mode: 'copy'
     
     input:
     tuple val(pointing), val(cluster),val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(fft_size), val(segments), val(segment_id), val(fil_base_name), path(fil_file), val(start_sample), path(filtered_candidate_csv), path(candfile), path(metafile)
@@ -517,7 +534,7 @@ process psrfold {
 process search_fold_merge {
     label "search_fold_merge"
     container "${params.pulsarx_image}"
-    publishDir "${params.basedir}/${cluster}/${beam_name}/segment_${segments}/${segments}${segment_id}/FOLDING/", pattern: "*{.csv,master.cands}", mode: 'copy'
+    publishDir "${params.basedir}/${params.runID}/${beam_name}/segment_${segments}/${segments}${segment_id}/FOLDING/", pattern: "*{.csv,master.cands}", mode: 'copy'
 
     input:
     tuple val(pointing), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(fft_size), val(segments), val(segment_id), val(fil_base_name), path(filtered_candidate_csv), path(ars), path(cands)
@@ -527,7 +544,7 @@ process search_fold_merge {
     
     script:
     """
-    publish_dir="${params.basedir}/${cluster}/${beam_name}/segment_${segments}/${segments}${segment_id}/FOLDING"
+    publish_dir="${params.basedir}/${params.runID}/${beam_name}/segment_${segments}/${segments}${segment_id}/FOLDING"
     mkdir -p \${publish_dir}
 
     fold_cands=\$(ls -v *.ar)
@@ -540,8 +557,8 @@ process search_fold_merge {
 process alpha_beta_gamma_test {
     label "alpha_beta_gamma_test"
     container "${params.pulsarx_image}"
-    publishDir "${params.basedir}/${cluster}/${beam_name}/segment_${segments}/${segments}${segment_id}/ZERODM/", pattern: "DM0*.png", mode: 'copy'
-    publishDir "${params.basedir}/${cluster}/${beam_name}/segment_${segments}/${segments}${segment_id}/ABG", pattern: "*alpha_beta_gamma.csv", mode: 'copy'
+    publishDir "${params.basedir}/${params.runID}/${beam_name}/segment_${segments}/${segments}${segment_id}/ZERODM/", pattern: "DM0*.png", mode: 'copy'
+    publishDir "${params.basedir}/${params.runID}/${beam_name}/segment_${segments}/${segments}${segment_id}/ABG", pattern: "*alpha_beta_gamma.csv", mode: 'copy'
 
     input:
     tuple val(pointing), val(cluster),val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(fft_size), val(segments), val(segment_id), val(fil_base_name), path(filtered_candidate_csv), val(png_source_dir), path(ars), path(master_cands), path(search_fold_cands_csv)
@@ -552,7 +569,7 @@ process alpha_beta_gamma_test {
     script:
     """
     #!/bin/bash
-    publish_dir="${params.basedir}/${cluster}/${beam_name}/segment_${segments}/${segments}${segment_id}/ABG"
+    publish_dir="${params.basedir}/${params.runID}/${beam_name}/segment_${segments}/${segments}${segment_id}/ABG"
     mkdir -p \${publish_dir}
     python3 ${baseDir}/scripts/calculate_alpha_beta_gamma_dmffdot.py -i ${search_fold_cands_csv} -o ${cluster}_${beam_name}_cdm_${cdm}_ck${segments}${segment_id}_alpha_beta_gamma.csv -t ${params.alpha_beta_gamma.snr_min} -p \${publish_dir} -s ${png_source_dir} -c
     """
@@ -561,7 +578,7 @@ process alpha_beta_gamma_test {
 process pics_classifier {
     label "pics_classifier"
     container "${params.pics_classifier_image}"
-    publishDir "${params.basedir}/${cluster}/${beam_name}/segment_${segments}/${segments}${segment_id}/CLASSIFICATION/", pattern: "*scored.csv", mode: 'copy'
+    publishDir "${params.basedir}/${params.runID}/${beam_name}/segment_${segments}/${segments}${segment_id}/CLASSIFICATION/", pattern: "*scored.csv", mode: 'copy'
 
     input:
     tuple val(pointing), val(cluster),val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(fft_size), val(segments), val(segment_id), val(fil_base_name), path(filtered_candidate_csv), val(png_source_dir), path(ars), path(master_cands), path(search_fold_cands_csv)
@@ -580,7 +597,7 @@ process pics_classifier {
 process create_candyjar_tarball {
     executor 'local'
     container "${params.pulsarx_image}"
-    //publishDir "${params.publish_dir_prefix}/${target}/CANDIDATE_TARBALLS", pattern: "*.tar.gz", mode: 'copy'
+    // publishDir "${params.basedir}/${params.runID}/CANDIDATE_TARBALLS, pattern: "*.tar.gz", mode: 'move'
 
     input:
     tuple path(candidate_results_file), val(output_tarball_name)
@@ -598,7 +615,10 @@ process create_candyjar_tarball {
     echo "\$header" > "\$candidate_results_file_with_header"
     cat "${candidate_results_file}" >> "\$candidate_results_file_with_header"
 
-    python ${baseDir}/scripts/create_candyjar_tarball.py -i \$candidate_results_file_with_header -o ${output_tarball_name} --verbose --npointings 0 -m ${params.metafile_source_path} -d ${params.basedir} --threshold ${params.alpha_beta_gamma.threshold} --snr_threshold ${params.alpha_beta_gamma.snr_threshold} 
+    publish_dir="${params.basedir}/${params.runID}/CANDIDATE_TARBALLS"
+    mkdir -p \${publish_dir}
+
+    python ${baseDir}/scripts/create_candyjar_tarball.py -i \$candidate_results_file_with_header -o ${output_tarball_name} --verbose --npointings 0 -m ${params.metafile_source_path} -d \${publish_dir} --threshold ${params.alpha_beta_gamma.threshold} --snr_threshold ${params.alpha_beta_gamma.snr_threshold} 
     """
 }
 

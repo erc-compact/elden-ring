@@ -101,6 +101,7 @@ params {
     pics_classifier_image = "${singularity_image_dir}/trapum_pulsarx_fold_docker_20220411.sif"
     edd_pulsar_image      = "${singularity_image_dir}/edd_pulsar_250626.0.sif"
     filtools_sig_image    = "${singularity_image_dir}/filtools-image_sig.sif"
+    rusty_candypicker     = "${singularity_image_dir}/rusty_candypicker_latest.sif"
 
     // Number of threads for processes
     threads = 20  // Adjust as per the Edgar cluster's CPU availability

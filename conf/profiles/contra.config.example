@@ -111,6 +111,7 @@ params {
     presto5_image         = "${singularity_image_dir}/presto5_pddot.sif"
     pics_classifier_image = "${singularity_image_dir}/trapum_pulsarx_fold_docker_20220411.sif"
     filtools_sig_image    = "${singularity_image_dir}/filtools-image_sig.sif"
+    rusty_candypicker     = "${singularity_image_dir}/rusty_candypicker_latest.sif"
     threads               = 20
 }
 

@@ -2,6 +2,7 @@ params {
     cache           = 'lenient'
     // Base directories
     basedir         = "/b/PROCESSING_FAZAL/"
+    runID          = "UBB_NGC6401_02_PERIODICITY"
     template_dir    = "${projectDir}/templates"
     pics_model_dir  = "${projectDir}/ML_Models"
     split_fil = true
@@ -92,6 +93,8 @@ params {
     // Parse XML Parameters
     parse_xml {
         script              = "${projectDir}/scripts/parse_split.py"    // Path to the parsexml.py script
+        pick_candies        = true  // Whether to pick candidates using candy_picker_rs
+        candy_picker_period_threshold = 1e-7 // Period threshold for candy picker in seconds
         filter_cands      = true  // Whether to filter candidates using a config file
         config_file         = "${projectDir}/templates/pulsarx_fold_config_eff.json"  // Path to the config file for filtering the candidates. 
     }
