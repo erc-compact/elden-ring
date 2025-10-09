@@ -113,6 +113,7 @@ def main():
     parser.add_argument("-x", "--filtered_search_csv", required=True, help="Search CSV candidates selected from XML for folding")
     parser.add_argument("-o", "--output_file", help="Output file name", default="search_fold_cands.csv")
     parser.add_argument("-p", "--publish_dir", help="PNG directory", required=True)
+    parser.add_argument("--cands_per_node", type=int, help="Number of candidates per node used in pulsarx folding")
 
     args = parser.parse_args()
         
@@ -127,6 +128,15 @@ def main():
             df = pd.read_csv(pulsarx_cand_file, skiprows=11, sep=r'\s+')
             df["#id"] = range(current_id, current_id + len(df))
             current_id += len(df)
+            #add candidate name column where name = basename(pulsarx_cand_file)_(parts[1]*cands_per_node + index)
+            # eg: if pulsarx_cand_file = NGC6401_9_cdm_587.0_ck10_60852.9539340063_cfbf1234567.cands, and cands_per_node = 96, then the candidate names will be: NGC6401_9_cdm_587.0_ck10_60852.9539340063_cfbf1234567_00769, NGC6401_9_cdm_587.0_ck10_60852.9539340063_cfbf1234567_00770, ..., NGC6401_9_cdm_587.0_ck10_60852.9539340063_cfbf1234567_00864
+            
+            basename = os.path.basename(pulsarx_cand_file).split('.cands')
+            parts = basename[0].split('_')
+            if args.cands_per_node:
+                df['candidate_name'] = [f"{basename[0]}_{int(parts[1]-1)*args.cands_per_node + i + 1:05d}.png" for i in range(len(df))]
+            # add file name column
+            df['filename'] = os.path.basename(pulsarx_cand_file)
             master_df = pd.concat([master_df, df], ignore_index=True)
         master_df.to_csv(f"{master_basename}", index=False)
     else:
