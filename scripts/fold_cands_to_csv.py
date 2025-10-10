@@ -134,7 +134,7 @@ def main():
             basename = os.path.basename(pulsarx_cand_file).split('.cands')
             parts = basename[0].split('_')
             if args.cands_per_node:
-                df['candidate_name'] = [f"{basename[0]}_{int(parts[1]-1)*args.cands_per_node + i + 1:05d}.png" for i in range(len(df))]
+                df['candidate_name'] = [f"{basename[0]}_{(int(parts[1])-1)*args.cands_per_node + i + 1:05d}.png" for i in range(len(df))]
             # add file name column
             df['filename'] = os.path.basename(pulsarx_cand_file)
             master_df = pd.concat([master_df, df], ignore_index=True)
