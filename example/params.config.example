@@ -112,6 +112,7 @@ params {
         threads            = 50        // Number of threads to use for folding // use 48 for hercules
         template_dir       = "${projectDir}/templates"  // Path to the template directory
         cands_per_node     = 350 // Number of candidates to fold per node. For single candidate file set this to 0.
+        cluster_folded     = true // Whether to cluster the folded candidates using csv_candypicker
     }
 
     alpha_beta_gamma {

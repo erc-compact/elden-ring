@@ -447,9 +447,9 @@ process parse_xml {
     """
     #!/bin/bash
     echo "running parse xml"
-    if [[${params.parse_xml.pick_candies} == true ]]; then
+    if [[ ${params.parse_xml.pick_candies} == true ]]; then
         echo "Picking candies"
-        candy_picker_rs -p ${params.parse_xml.candy_picker_period_threshold}
+        candy_picker_rs -p ${params.parse_xml.candy_picker_period_threshold} *xml
         picked_xml_files=\$(ls *overview_picked.xml)
         mv pivots.csv pivots_${beam_name}_cdm_${cdm}_ck${segments}${segment_id}.csv
         PICKED_XML_DIR="${params.basedir}/${params.runID}/${beam_name}/segment_${segments}/${segments}${segment_id}/PARSEXML/XML"
@@ -533,14 +533,14 @@ process psrfold {
 
 process search_fold_merge {
     label "search_fold_merge"
-    container "${params.pulsarx_image}"
+    container "${params.rusty_candypicker}"
     publishDir "${params.basedir}/${params.runID}/${beam_name}/segment_${segments}/${segments}${segment_id}/FOLDING/", pattern: "*{.csv,master.cands}", mode: 'copy'
 
     input:
     tuple val(pointing), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(fft_size), val(segments), val(segment_id), val(fil_base_name), path(filtered_candidate_csv), path(ars), path(cands)
 
     output:
-    tuple val(pointing), val(cluster),val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(fft_size), val(segments), val(segment_id), val(fil_base_name), path(filtered_candidate_csv), env(publish_dir), path(ars), path("*master.cands"), path("search_fold_cands*.csv")
+    tuple val(pointing), val(cluster),val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(fft_size), val(segments), val(segment_id), val(fil_base_name), path(filtered_candidate_csv), env(publish_dir), path(ars), path("*master.cands"), path("search_fold_cands*picked.csv")
     
     script:
     """
@@ -551,6 +551,17 @@ process search_fold_merge {
     pulsarx_cands_file=\$(ls -v *.cands)
     
     python3 ${baseDir}/scripts/fold_cands_to_csv.py -f \${fold_cands} -c \${pulsarx_cands_file} -x ${filtered_candidate_csv} -o search_fold_cands_${beam_name}_cdm_${cdm}_ck${segments}${segment_id}.csv --cands_per_node ${params.psrfold.cands_per_node} -p \${publish_dir} 
+
+    echo "Number of candidates before candy picking:"
+    cat search_fold_cands_${beam_name}_cdm_${cdm}_ck${segments}${segment_id}.csv | wc -l
+
+    if [[ ${params.psrfold.cluster_folded} == true ]]; then
+        echo "Picking candies"
+        csv_candypicker --ptol ${params.parse_xml.candy_picker_period_threshold} --tobs 0 -i search_fold_cands*.csv -o search_fold_cands_${beam_name}_cdm_${cdm}_ck${segments}${segment_id}_picked.csv 
+    else
+        echo "Not picking candies"
+        cp search_fold_cands_${beam_name}_cdm_${cdm}_ck${segments}${segment_id}.csv search_fold_cands_${beam_name}_cdm_${cdm}_ck${segments}${segment_id}_picked.csv
+    fi
     """
 }
 
