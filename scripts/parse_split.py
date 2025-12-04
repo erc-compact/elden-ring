@@ -215,6 +215,10 @@ def read_candidate_files(
         index=False,
         float_format="%.18f",
     )
+    
+    # Remove candidates with dm == 0.0
+    df_candidates = df_candidates[df_candidates["dm"] != 0.0]
+    logging.info(f"Removed candidates with dm=0.0. Remaining candidates: {len(df_candidates)}")
 
     # If a config file is provided, filter the dataframe accordingly
     if config_file:

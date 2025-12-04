@@ -66,6 +66,7 @@ params {
 
     // Dispersion Measure (DM) Plan
     ddplan {
+        use_zero_dm = true // Whether to include DM=0 in the plan. 
         dm_start  = 85
         dm_end    = 95
         dm_step   = 0.1
@@ -81,6 +82,7 @@ params {
         // full search and a segmented search on the halves
         birdies_min_snr     = 11.0 // Minimum SNR for birdies
         default_birdies     = "${projectDir}/include/default_birdies.txt" // Path to the default birdies file
+        birdies_max_freq    = 8500.0 // Maximum frequency for birdies in Hz
         min_snr             = 7.0
         acc_start           = -50
         acc_end             = 50
