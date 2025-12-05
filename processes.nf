@@ -355,7 +355,7 @@ process birdies {
     echo 'What are the parameters?'
 
     
-    peasoup -p -v -i ${fil_file} --cdm ${cdm} --fft_size ${fft_size} -m ${params.peasoup.birdies_min_snr} -t 1 -n ${birdies.peasoup.birdies_harmonics} --acc_start 0.0 --acc_end 0.0 --ram_limit_gb ${params.peasoup.birdies_ram_limit_gb} --dm_start 0.0 --dm_end 0.0  --start_sample ${start_sample} --max_freq ${params.peasoup.birdies_max_freq}
+    peasoup -p -v -i ${fil_file} --cdm ${cdm} --fft_size ${fft_size} -m ${params.peasoup.birdies_min_snr} -t 1 -n ${params.peasoup.birdies_harmonics} --acc_start 0.0 --acc_end 0.0 --ram_limit_gb ${params.peasoup.birdies_ram_limit_gb} --dm_start 0.0 --dm_end 0.0  --start_sample ${start_sample} --max_freq ${params.peasoup.birdies_max_freq}
 
     mv **/*.xml ${beam_name}_cdm_${cdm}_birdies.xml
 
