@@ -391,12 +391,11 @@ process generateDMFiles {
     # Create DM values with a step of dm_step
     dm_values = np.round(np.arange(dm_start, dm_end, dm_step), 3)
 
-    if [[ ${params.ddplan.use_zero_dm} == true ]]; then
+    if ${params.ddplan.use_zero_dm} == true:
         dm_values = np.concatenate(([0.0], dm_values))
         dm_values = np.unique(dm_values)      # remove any possible duplicates
         dm_values.sort()
-    fi
-    
+
     # Split DM values into multiple files, each containing dm_sample number of lines
     for i in range(0, len(dm_values), dm_sample):
         chunk = dm_values[i:i + dm_sample]
