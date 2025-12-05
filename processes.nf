@@ -391,7 +391,7 @@ process generateDMFiles {
     # Create DM values with a step of dm_step
     dm_values = np.round(np.arange(dm_start, dm_end, dm_step), 3)
 
-    if ${params.ddplan.use_zero_dm ? 'True' : 'False'}:
+    
         dm_values = np.concatenate(([0.0], dm_values))
         dm_values = np.unique(dm_values)      # remove any possible duplicates
         dm_values.sort()
@@ -400,6 +400,12 @@ process generateDMFiles {
     for i in range(0, len(dm_values), dm_sample):
         chunk = dm_values[i:i + dm_sample]
         end_index = min(i + dm_sample, len(dm_values))
+
+        if ${params.ddplan.use_zero_dm ? 'True' : 'False'}:
+            chunk = np.concatenate(([0.0], chunk))
+            chunk = np.unique(chunk)   # remove duplicates (in case 0.0 already present)
+            chunk.sort()
+            
         filename = f'cdm_${cdm}_dm_{dm_values[i]}_{dm_values[end_index - 1]}.dm'
         np.savetxt(filename, chunk, fmt='%f')
     """
