@@ -452,40 +452,69 @@ process parse_xml {
     def subintlengthstring = params.psrfold.subintlength && params.psrfold.subintlength != "None" ? "-sub ${params.psrfold.subintlength}" : ""
     """
     #!/bin/bash
+    set -euo pipefail
+    shopt -s nullglob
+
     echo "running parse xml"
+
+    # prefer overview XMLs; fallback to any *.xml
+    xmls=( *overview.xml )
+    if (( ${#xmls[@]} == 0 )); then
+        xmls=( *xml )
+    fi
+    if (( ${#xmls[@]} == 0 )); then
+        echo "[ERROR] No XML files found (tried *overview.xml then *xml)" >&2
+        exit 1
+    fi
+
     if [[ ${params.parse_xml.pick_candies} == true ]]; then
         echo "Picking candies"
 
+        # Building optional flags as an array so word-splitting is correct
+        birdie_flag=()
         if [[ ${params.parse_xml.candy_picker_remove_birdies} == true ]]; then
-            birdie_flag="--birdies ${params.parse_xml.candy_picker_birdies_file} --birdie-harmonics ${params.parse_xml.birdies_harmonics}"
+            birdie_flag+=( --birdies "${params.parse_xml.candy_picker_birdies_file}" )
+            birdie_flag+=( --birdie-harmonics "${params.parse_xml.birdies_harmonics}" )
             if [[ ${params.parse_xml.scale_birdie_width} == true ]]; then
-                birdie_flag+=" --scale-birdie-width"
+                birdie_flag+=( --scale-birdie-width )
             fi
-        else
-            birdie_flag=""
         fi
 
-        candy_picker_rs -p ${params.parse_xml.candy_picker_period_threshold} \${birdie_flag} *xml
-        picked_xml_files=\$(ls *overview_picked.xml)
-        mv pivots.csv pivots_${beam_name}_cdm_${cdm}_ck${segments}${segment_id}.csv
+        # Run the picker (period threshold is required; other flags optional)
+        candy_picker_rs -p "${params.parse_xml.candy_picker_period_threshold}" "${birdie_flag[@]}" "${xmls[@]}"
+
+        # Collect outputs; if none produced, fail loudly so downstream doesn’t break silently
+        picked_xml_files=( *overview_picked.xml )
+        if (( ${#picked_xml_files[@]} == 0 )); then
+            echo "[ERROR] No *_overview_picked.xml produced by candy_picker_rs" >&2
+            exit 1
+        fi
+
+        # rename pivots if present
+        if [[ -f pivots.csv ]]; then
+            mv pivots.csv "pivots_${beam_name}_cdm_${cdm}_ck${segments}${segment_id}.csv"
+        fi
+
         PICKED_XML_DIR="${params.basedir}/${params.runID}/${beam_name}/segment_${segments}/${segments}${segment_id}/PARSEXML/XML"
-        mkdir -p \${PICKED_XML_DIR}
-        cp \${picked_xml_files} \${PICKED_XML_DIR}/
-        cp *pivots*.csv \${PICKED_XML_DIR}/
+        mkdir -p "${PICKED_XML_DIR}"
+        cp "${picked_xml_files[@]}" "${PICKED_XML_DIR}/"
+        cp -f *pivots*.csv "${PICKED_XML_DIR}/" 2>/dev/null || true
+
     else
         echo "Not picking candies"
-        picked_xml_files=\$(ls *overview.xml)
+        picked_xml_files=( *overview.xml )
         PICKED_XML_DIR="${params.basedir}/${params.runID}/${beam_name}/segment_${segments}/${segments}${segment_id}/PARSEXML/XML"
-        mkdir -p \${PICKED_XML_DIR}
-        cp \${picked_xml_files} \${PICKED_XML_DIR}/
+        mkdir -p "${PICKED_XML_DIR}"
+        cp "${picked_xml_files[@]}" "${PICKED_XML_DIR}/"
     fi
 
-    if [ "${params.parse_xml.filter_cands}" = true ]; then
+    # Optional candidate filtering flag
+    if [[ "${params.parse_xml.filter_cands}" == true ]]; then
         echo "Filtering candidates using config file: ${params.parse_xml.config_file}"
-        config_flag="--config_file ${params.parse_xml.config_file}"
+        config_flag=( --config_file "${params.parse_xml.config_file}" )
     else
         echo "Not filtering candidates"
-        config_flag=""
+        config_flag=()
     fi
     
     python3 ${params.parse_xml.script} -i \${picked_xml_files} --chunk_id ${segments}${segment_id} --fold_technique ${params.psrfold.fold_technique} --nbins_default ${params.psrfold.nbins} --binplan "${params.psrfold.binplan}" ${subintlengthstring} -nsub ${params.psrfold.nsub} -clfd ${params.psrfold.clfd} -b ${beam_name} -b_id ${beam_id} -utc ${utc_start} -threads ${params.psrfold.threads}  --template_dir ${params.psrfold.template_dir} --telescope ${params.telescope} \${config_flag} --cdm ${cdm} --cands_per_node ${params.psrfold.cands_per_node}
