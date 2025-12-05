@@ -455,10 +455,10 @@ process parse_xml {
     echo "running parse xml"
     if [[ ${params.parse_xml.pick_candies} == true ]]; then
         echo "Picking candies"
-        
+
         if [[ ${params.parse_xml.candy_picker_remove_birdies} == true ]]; then
             birdie_flag="--birdies ${params.parse_xml.candy_picker_birdies_file} --birdie-harmonics ${params.parse_xml.birdies_harmonics}"
-            if [[ $ {params.parse_xml.scale_birdie_width} == true ]]; then
+            if [[ ${params.parse_xml.scale_birdie_width} == true ]]; then
                 birdie_flag+=" --scale-birdie-width"
             fi
         else
