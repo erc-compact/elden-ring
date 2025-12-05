@@ -99,6 +99,10 @@ params {
         script              = "${projectDir}/scripts/parse_split.py"    // Path to the parsexml.py script
         pick_candies        = true  // Whether to pick candidates using candy_picker_rs
         candy_picker_period_threshold = 1e-7 // Period threshold for candy picker in seconds
+        candy_picker_remove_birdies = true // true if you want to provide a birdie file 'freq width' to remove birdies from xml file.
+        candy_picker_birdies_file = "${projectDir}/include/default_birdies.txt" // Path to the birdies file for candy picker
+        birdies_harmonics = 16 // Max harmonic multiple to reject for each birdie (k=1..N) [default: 16]
+        scale-birdie-width = true // Whether to scale birdie width with frequency
         filter_cands      = true  // Whether to filter candidates using a config file
         config_file         = "${projectDir}/templates/pulsarx_fold_config_eff.json"  // Path to the config file for filtering the candidates. 
     }
