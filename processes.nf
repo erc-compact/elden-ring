@@ -459,10 +459,10 @@ process parse_xml {
 
     # prefer overview XMLs; fallback to any *.xml
     xmls=( *overview.xml )
-    if (( ${#xmls[@]} == 0 )); then
+    if (( \${#xmls[@]} == 0 )); then
         xmls=( *xml )
     fi
-    if (( ${#xmls[@]} == 0 )); then
+    if (( \${#xmls[@]} == 0 )); then
         echo "[ERROR] No XML files found (tried *overview.xml then *xml)" >&2
         exit 1
     fi
@@ -481,11 +481,11 @@ process parse_xml {
         fi
 
         # Run the picker (period threshold is required; other flags optional)
-        candy_picker_rs -p "${params.parse_xml.candy_picker_period_threshold}" "${birdie_flag[@]}" "${xmls[@]}"
+        candy_picker_rs -p "${params.parse_xml.candy_picker_period_threshold}" "\${birdie_flag[@]}" "\${xmls[@]}"
 
         # Collect outputs; if none produced, fail loudly so downstream doesn’t break silently
         picked_xml_files=( *overview_picked.xml )
-        if (( ${#picked_xml_files[@]} == 0 )); then
+        if (( \${#picked_xml_files[@]} == 0 )); then
             echo "[ERROR] No *_overview_picked.xml produced by candy_picker_rs" >&2
             exit 1
         fi
@@ -496,16 +496,16 @@ process parse_xml {
         fi
 
         PICKED_XML_DIR="${params.basedir}/${params.runID}/${beam_name}/segment_${segments}/${segments}${segment_id}/PARSEXML/XML"
-        mkdir -p "${PICKED_XML_DIR}"
-        cp "${picked_xml_files[@]}" "${PICKED_XML_DIR}/"
-        cp -f *pivots*.csv "${PICKED_XML_DIR}/" 2>/dev/null || true
+        mkdir -p "\${PICKED_XML_DIR}"
+        cp "\${picked_xml_files[@]}" "\${PICKED_XML_DIR}/"
+        cp -f *pivots*.csv "\${PICKED_XML_DIR}/" 2>/dev/null || true
 
     else
         echo "Not picking candies"
         picked_xml_files=( *overview.xml )
         PICKED_XML_DIR="${params.basedir}/${params.runID}/${beam_name}/segment_${segments}/${segments}${segment_id}/PARSEXML/XML"
-        mkdir -p "${PICKED_XML_DIR}"
-        cp "${picked_xml_files[@]}" "${PICKED_XML_DIR}/"
+        mkdir -p "\${PICKED_XML_DIR}"
+        cp "\${picked_xml_files[@]}" "\${PICKED_XML_DIR}/"
     fi
 
     # Optional candidate filtering flag
