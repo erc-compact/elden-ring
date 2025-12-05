@@ -83,6 +83,7 @@ params {
         birdies_min_snr     = 11.0 // Minimum SNR for birdies
         default_birdies     = "${projectDir}/include/default_birdies.txt" // Path to the default birdies file
         birdies_max_freq    = 8500.0 // Maximum frequency for birdies in Hz
+        birdies_ram_limit_gb = 90.0 // RAM limit for birdies search in GB
         min_snr             = 7.0
         acc_start           = -50
         acc_end             = 50
