@@ -391,7 +391,7 @@ process generateDMFiles {
     # Create DM values with a step of dm_step
     dm_values = np.round(np.arange(dm_start, dm_end, dm_step), 3)
 
-    if ${params.ddplan.use_zero_dm}:
+    if ${params.ddplan.use_zero_dm ? 'True' : 'False'}:
         dm_values = np.concatenate(([0.0], dm_values))
         dm_values = np.unique(dm_values)      # remove any possible duplicates
         dm_values.sort()
