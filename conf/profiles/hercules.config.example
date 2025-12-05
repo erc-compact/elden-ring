@@ -23,7 +23,7 @@ process {
     // Birdies Process Configuration
     withLabel: 'birdies' {
         cpus           = 1
-        memory         = '200 GB'
+        memory         = '100 GB'
         time           = { 4.hour * task.attempt }
         queue          = { (task.time <= 4.hour) ? "short.q" : "gpu.q" }
         clusterOptions = '--gres=gpu:1'
