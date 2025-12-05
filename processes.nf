@@ -465,7 +465,7 @@ process parse_xml {
             birdie_flag=""
         fi
 
-        candy_picker_rs -p ${params.parse_xml.candy_picker_period_threshold} ${birdie_flag} *xml
+        candy_picker_rs -p ${params.parse_xml.candy_picker_period_threshold} \${birdie_flag} *xml
         picked_xml_files=\$(ls *overview_picked.xml)
         mv pivots.csv pivots_${beam_name}_cdm_${cdm}_ck${segments}${segment_id}.csv
         PICKED_XML_DIR="${params.basedir}/${params.runID}/${beam_name}/segment_${segments}/${segments}${segment_id}/PARSEXML/XML"
