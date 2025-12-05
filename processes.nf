@@ -517,7 +517,7 @@ process parse_xml {
         config_flag=()
     fi
     
-    python3 ${params.parse_xml.script} -i \${picked_xml_files} --chunk_id ${segments}${segment_id} --fold_technique ${params.psrfold.fold_technique} --nbins_default ${params.psrfold.nbins} --binplan "${params.psrfold.binplan}" ${subintlengthstring} -nsub ${params.psrfold.nsub} -clfd ${params.psrfold.clfd} -b ${beam_name} -b_id ${beam_id} -utc ${utc_start} -threads ${params.psrfold.threads}  --template_dir ${params.psrfold.template_dir} --telescope ${params.telescope} \${config_flag} --cdm ${cdm} --cands_per_node ${params.psrfold.cands_per_node}
+    python3 ${params.parse_xml.script} -i \${picked_xml_files} --chunk_id ${segments}${segment_id} --fold_technique ${params.psrfold.fold_technique} --nbins_default ${params.psrfold.nbins} --binplan "${params.psrfold.binplan}" ${subintlengthstring} -nsub ${params.psrfold.nsub} -clfd ${params.psrfold.clfd} -b ${beam_name} -b_id ${beam_id} -utc ${utc_start} -threads ${params.psrfold.threads}  --template_dir ${params.psrfold.template_dir} --telescope ${params.telescope} \${config_flag[@]} --cdm ${cdm} --cands_per_node ${params.psrfold.cands_per_node}
 
     mv filtered_candidates_file* filtered_candidates_file_${beam_name}_cdm_${cdm}_ck${segments}${segment_id}.csv
     mv unfiltered_for_folding* unfiltered_for_folding_${beam_name}_cdm_${cdm}_ck${segments}${segment_id}.csv
