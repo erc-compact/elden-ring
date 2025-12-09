@@ -171,7 +171,7 @@ class CandidateProcessor:
         # df["utc_start"] = df["pointing"].apply(
         #     lambda x: datetime.strptime(x, "%Y-%m-%d-%H:%M:%S").strftime("%Y-%m-%dT%H:%M:%S")
         # )
-        df = df[df["sn_fold"] > self.snr_threshold]
+        df = df[df["S/N_new"] > self.snr_threshold]
 
         df["metafile_path"] = df["utc_start"].apply(lambda x: f"metafiles/{x}.meta")
         self.logger.debug("Preprocessing done. Rows: %d", len(df))
