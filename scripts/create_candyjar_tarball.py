@@ -171,7 +171,6 @@ class CandidateProcessor:
         # df["utc_start"] = df["pointing"].apply(
         #     lambda x: datetime.strptime(x, "%Y-%m-%d-%H:%M:%S").strftime("%Y-%m-%dT%H:%M:%S")
         # )
-        df = df[df["S/N_new"] > self.snr_threshold]
 
         df["metafile_path"] = df["utc_start"].apply(lambda x: f"metafiles/{x}.meta")
         self.logger.debug("Preprocessing done. Rows: %d", len(df))
@@ -358,6 +357,15 @@ class CandidateProcessor:
         ]
 
         self.logger.info("Final DataFrame ready with %d rows.", final_df.shape[0])
+        
+        final_df = final_df[final_df["sn_fold"] > self.snr_threshold]
+        
+        self.logger.info(
+            "Filtered DataFrame to %d rows with SNR threshold: %f",
+            final_df.shape[0],
+            self.snr_threshold,
+        )
+        
         return final_df, png_files, meta_files
 
     def filter_and_save(self, final_df: pd.DataFrame) -> None:
