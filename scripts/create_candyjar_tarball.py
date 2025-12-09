@@ -171,6 +171,7 @@ class CandidateProcessor:
         # df["utc_start"] = df["pointing"].apply(
         #     lambda x: datetime.strptime(x, "%Y-%m-%d-%H:%M:%S").strftime("%Y-%m-%dT%H:%M:%S")
         # )
+        df = df[df["sn_fold"] > self.snr_threshold]
 
         df["metafile_path"] = df["utc_start"].apply(lambda x: f"metafiles/{x}.meta")
         self.logger.debug("Preprocessing done. Rows: %d", len(df))
@@ -376,7 +377,7 @@ class CandidateProcessor:
             | (final_df["pics_meerkat_l_sband_combined_best_recall"] >= self.threshold)
             & (final_df["sn_fold"] >= self.snr_threshold)
         )
-            
+
         pics_df = final_df.loc[condition]
         pics_df.to_csv(self.pics_csv, index=False)
         self.logger.info(
@@ -431,7 +432,7 @@ def parse_arguments() -> argparse.Namespace:
         default=0.0,
         help="SNR threshold for filtering candidates (default: 0.0)",
     )
-    
+
     parser.add_argument(
         "--npointings",
         type=int,
