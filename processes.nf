@@ -482,7 +482,7 @@ process parse_xml {
 
         dm_flag=()
         if [[ ${params.parse_xml.candy_picker_dm_tolerance} -gt 0 ]]; then
-            dm_flag+=( --dm-tolerance "${params.parse_xml.candy_picker_dm_tolerance}" )
+            dm_flag+=( -d "${params.parse_xml.candy_picker_dm_tolerance}" )
         fi
 
         # Run the picker (period threshold is required; other flags optional)
