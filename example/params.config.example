@@ -103,6 +103,7 @@ params {
         candy_picker_birdies_file = "${projectDir}/include/default_birdies.txt" // Path to the birdies file for candy picker
         birdies_harmonics = 16 // Max harmonic multiple to reject for each birdie (k=1..N) [default: 16]
         scale_birdie_width = true // Whether to scale birdie width with frequency
+        candy_picker_dm_tolerance = 0 // DM tolerance for candy picker (set to 0 to ignore DM)
         filter_cands      = true  // Whether to filter candidates using a config file
         config_file         = "${projectDir}/templates/pulsarx_fold_config_eff.json"  // Path to the config file for filtering the candidates. 
     }
@@ -121,6 +122,7 @@ params {
         template_dir       = "${projectDir}/templates"  // Path to the template directory
         cands_per_node     = 350 // Number of candidates to fold per node. For single candidate file set this to 0.
         cluster_folded     = true // Whether to cluster the folded candidates using csv_candypicker
+        dm_tolerance       = 0 // DM tolerance for csv_candypicker (set to 0 to ignore DM)
     }
 
     alpha_beta_gamma {
