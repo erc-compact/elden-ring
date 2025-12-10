@@ -486,7 +486,7 @@ process parse_xml {
         fi
 
         # Run the picker (period threshold is required; other flags optional)
-        candy_picker_rs -p "${params.parse_xml.candy_picker_period_threshold}" "\${birdie_flag[@]}" "\$dm_flag[@]" "\${xmls[@]}"
+        candy_picker_rs -p "${params.parse_xml.candy_picker_period_threshold}" "\${birdie_flag[@]}" "\${dm_flag[@]}" "\${xmls[@]}"
 
         # Collect outputs; if none produced, fail loudly so downstream doesn’t break silently
         picked_xml_files=( *overview_picked.xml )
@@ -611,7 +611,7 @@ process search_fold_merge {
             dm_flag+=( --dmtol "${params.psrfold.dm_tolerance}" )
         fi
         echo "Picking candies"
-        csv_candypicker --ptol ${params.parse_xml.candy_picker_period_threshold} "\${dm_flag[@]" --tobs 0 -i search_fold_cands*.csv -o search_fold_cands_${beam_name}_cdm_${cdm}_ck${segments}${segment_id}_picked.csv 
+        csv_candypicker --ptol ${params.parse_xml.candy_picker_period_threshold} "\${dm_flag[@]}" --tobs 0 -i search_fold_cands*.csv -o search_fold_cands_${beam_name}_cdm_${cdm}_ck${segments}${segment_id}_picked.csv 
     else
         echo "Not picking candies"
         cp search_fold_cands_${beam_name}_cdm_${cdm}_ck${segments}${segment_id}.csv search_fold_cands_${beam_name}_cdm_${cdm}_ck${segments}${segment_id}_picked.csv
