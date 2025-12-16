@@ -164,7 +164,7 @@ process generateRfiFilter {
 
     zap_commands=\$(grep -Eo '[0-9.]+ *- *[0-9.]+' combined_frequent_outliers.txt | \\
     awk -F '-' '{gsub(/ /,""); print "zap "\$1" "\$2}' | tr '\\n' ' ')
-    if (( ${cdm} <= 60 )); then
+    if awk 'BEGIN{exit !((${cdm} <= 60))}'; then
       echo "not using zdot for cdm = ${cdm}"
       default_flag="${params.generateRfiFilter.default_flag}"
     else
