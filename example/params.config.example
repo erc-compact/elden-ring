@@ -12,7 +12,7 @@ params {
 
     // Input files
     files_list      = "${projectDir}/inputfile.txt"
-    metafile_source_path = "${projectDir}/include/"
+    metafile_source_path = "${basedir}/meta/"
 
     // Telescope configuration
     telescope       = "effelsberg"  // Options: 'meerkat', 'effelsberg', etc.
@@ -152,5 +152,21 @@ params {
         nbins = 32
         binplan = "0.005 32 0.01 64 0.1 128"
         clfd = 2.0
+    }
+
+    // =========================================================================
+    // Monitoring and Notification Settings
+    // =========================================================================
+    notification {
+        enabled = false              // Set to true to enable email notifications
+        email = ""                   // Email address for notifications (required if enabled)
+        on_complete = true           // Send notification when pipeline completes
+        on_fail = true               // Send notification when pipeline fails
+        on_error = true              // Send notification on errors
+        // SMTP settings (only needed if your system doesn't have sendmail configured)
+        // smtp_host = "smtp.example.com"
+        // smtp_port = 587
+        // smtp_user = ""
+        // smtp_password = ""
     }
 }

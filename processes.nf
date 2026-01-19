@@ -1,7 +1,8 @@
 process syncFiles {
     executor 'local'
     maxForks 11
-    
+    tag "${cluster}_${filename}"
+
     input:
     tuple val(pointing), val(fitsfilepath), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(filename)
 
@@ -22,8 +23,12 @@ process syncFiles {
 
 process dada_to_fits {
     label 'dada_to_fits'
+
+    //TODO this should be universal
     container "${params.edd_pulsar_image}"
-    
+    tag "${cluster}_${beam_name}_cdm_${cdm}"
+    cache 'lenient'
+
     input:
     tuple val(pointing), val(dada_files), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm)
 
@@ -32,7 +37,8 @@ process dada_to_fits {
 
     script:
     filename = "${cluster}_${utc_start}_${beam_name}_cdm_${cdm}.sf"
-    publish_dir = "${params.basedir}/${params.runID}/${beam_name}/FITS/"
+    // Use a shared location independent of runID for caching
+    publish_dir = "${params.basedir}/shared_cache/${cluster}/FITS/"
     """
     #!/bin/bash
     set -euo pipefail
@@ -114,15 +120,30 @@ process dada_to_fits {
     echo "digifits completed successfully."
 
     # Move the output file to the publish directory
-    mv "${filename}" ${publish_dir}/${filename}
+    mv "${filename}" "${publish_dir}/${filename}"
 
-    ln -s ${publish_dir}/${filename} ${filename}
+    # Create symlink in runID-specific directory for easy access
+    if [[ -n "${params.runID}" ]]; then
+        runid_dir="${params.basedir}/${params.runID}/${beam_name}/FITS"
+        mkdir -p "\${runid_dir}"
+        ln -sf "${publish_dir}/${filename}" "\${runid_dir}/${filename}"
+
+        # Verify symlink was created
+        if [[ ! -L "\${runid_dir}/${filename}" ]]; then
+            echo "WARNING: Failed to create symlink at \${runid_dir}/${filename}"
+        fi
+    fi
+
+    # Create symlink in work directory
+    ln -s "${publish_dir}/${filename}" "${filename}"
     """
 }
 
 process readfile {
     label 'readfile'
     container "${params.presto_image}"
+    tag "${cluster}_${beam_name}_cdm_${cdm}"
+    cache 'lenient'
 
     input:
     tuple val(pointing), path(fits_files), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(filename)
@@ -146,7 +167,10 @@ process readfile {
 process generateRfiFilter {
     label 'generate_rfi_filter'
     container "${params.rfi_mitigation_image}"
-    publishDir "${params.basedir}/${params.runID}/${beam_name}/RFIFILTER/", pattern: "*.{png,txt}", mode: 'copy'
+    tag "${cluster}_${beam_name}_cdm_${cdm}"
+    cache 'lenient'
+    // Don't use runID in publishDir for caching - use shared cache location
+    publishDir "${params.basedir}/shared_cache/${cluster}/${beam_name}/RFIFILTER/", pattern: "*.{png,txt}", mode: 'copy'
 
     input:
     tuple val(pointing), path(fits_files), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(time_per_file), val(tsamp), val(nsamples), val(subintlength)
@@ -177,12 +201,29 @@ process generateRfiFilter {
     mv combined_sk_heatmap_and_histogram.png ${beam_name}_cdm_${cdm}_rfi.png
     mv combined_frequent_outliers.txt combined_frequent_outliers_${beam_name}_${cdm}.txt
     mv block_bad_channel_percentages.txt block_bad_channel_percentages_${beam_name}_${cdm}.txt
+
+    # Also create symlinks in runID-specific directory for easy access
+    if [[ -n "${params.runID}" ]]; then
+        runid_dir="${params.basedir}/${params.runID}/${beam_name}/RFIFILTER"
+        mkdir -p "\${runid_dir}"
+
+        ln -sf "${params.basedir}/shared_cache/${cluster}/${beam_name}/RFIFILTER/${beam_name}_cdm_${cdm}_rfi.png" "\${runid_dir}/"
+        ln -sf "${params.basedir}/shared_cache/${cluster}/${beam_name}/RFIFILTER/combined_frequent_outliers_${beam_name}_${cdm}.txt" "\${runid_dir}/"
+        ln -sf "${params.basedir}/shared_cache/${cluster}/${beam_name}/RFIFILTER/block_bad_channel_percentages_${beam_name}_${cdm}.txt" "\${runid_dir}/"
+
+        # Verify symlinks were created
+        if [[ ! -L "\${runid_dir}/${beam_name}_cdm_${cdm}_rfi.png" ]]; then
+            echo "WARNING: Failed to create symlink for RFI filter plots"
+        fi
+    fi
     """
 }
 
 process filtool {
     label 'filtool'
     container "${params.pulsarx_image}"
+    tag "${cluster}_${beam_name}_cdm_${cdm}"
+    cache 'lenient'
     // publishDir "${params.basedir}/${cluster}/CLEANEDFIL/", pattern: "*.fil", mode: 'symlink'
     // removed publishDir to avoid symlinks, now using publishDir in the script
 
@@ -193,7 +234,7 @@ process filtool {
 
     output:
     tuple val(pointing), path("*clean_01.fil"), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm)
-    
+
     script:
     def outputFile = "${cluster.trim()}_${utc_start.trim()}_${beam_name.trim()}_cdm_${cdm}_clean"
     def source_name = "${cluster.trim()}"
@@ -207,7 +248,8 @@ process filtool {
     #!/bin/bash
     workdir=\$(pwd)
     echo "Working directory: \${workdir}"
-    publish_dir="${params.basedir}/${params.runID}/${beam_name}/CLEANEDFIL"
+    # Use shared cache location independent of runID
+    publish_dir="${params.basedir}/shared_cache/${cluster}/${beam_name}/CLEANEDFIL"
     mkdir -p \${publish_dir}
     cd \${publish_dir}
 
@@ -217,7 +259,7 @@ process filtool {
 
     # Extract the file extension from the first file
     file_extension="\$(basename "\${first_file}" | sed 's/.*\\.//')"
-    
+
     flip_flag=""
     if [[ ${params.filtool.flip} == true ]]; then
         flip_flag="--flip"
@@ -226,41 +268,70 @@ process filtool {
     if [[ "\${file_extension}" == "fits" || "\${file_extension}" == "sf" || "\${file_extension}" == "rf" ]]; then
         echo "Running: filtool --psrfits --scloffs \${flip_flag} --td ${params.filtool.td} --fd ${params.filtool.fd} -t ${threads} --telescope ${telescope} ${zaplist} -o ${outputFile} -f \${workdir}/${fits_files} -s ${source_name}"
         filtool --psrfits --scloffs \${flip_flag} --td ${params.filtool.td} --fd ${params.filtool.fd} -t ${threads} --telescope ${telescope} ${zaplist} -o ${outputFile} -f \${workdir}/${fits_files} -s ${source_name}
-    else 
+    else
         echo "Running: filtool \${flip_flag} --td ${params.filtool.td} --fd ${params.filtool.fd} -t ${threads} --telescope ${telescope} ${zaplist} -o ${outputFile} -f \${workdir}/${fits_files} -s ${source_name}"
         filtool \${flip_flag} --td ${params.filtool.td} --fd ${params.filtool.fd} -t ${threads} --telescope ${telescope} ${zaplist} -o ${outputFile} -f \${workdir}/${fits_files} -s ${source_name}
     fi
 
+    # Also create symlink in runID-specific directory for easy access
+    if [[ -n "${params.runID}" ]]; then
+        runid_dir="${params.basedir}/${params.runID}/${beam_name}/CLEANEDFIL"
+        mkdir -p "\${runid_dir}"
+        ln -sf "\${publish_dir}/${outputFile}_01.fil" "\${runid_dir}/${outputFile}_01.fil"
+
+        # Verify symlink was created
+        if [[ ! -L "\${runid_dir}/${outputFile}_01.fil" ]]; then
+            echo "WARNING: Failed to create symlink at \${runid_dir}/${outputFile}_01.fil"
+        fi
+    fi
+
     # create a symlink to the cleaned file in the work directory
     cd \${workdir}
-    ln -s \${publish_dir}/${outputFile}_01.fil ${outputFile}_01.fil
+    ln -s "\${publish_dir}/${outputFile}_01.fil" "${outputFile}_01.fil"
     """
 }
 
 process split_filterbank {
     label 'split_filterbank'
     container "${params.filtools_sig_image}"
+    tag "${cluster}_${beam_name}_cdm_${cdm}"
+    cache 'lenient'
 
     input:
     tuple val(pointing), path(fil_file), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm)
 
     output:
     tuple val(pointing), path("*cut.fil"), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm)
-    
+
     script:
     """
     #!/bin/bash
     outputFile="${cluster.trim()}_${utc_start.trim()}_${beam_name.trim()}_cdm_${cdm}_clean"
-    publish_dir="${params.basedir}/${params.runID}/${beam_name}/CLEANEDFIL"
+    # Use shared cache location independent of runID
+    publish_dir="${params.basedir}/shared_cache/${cluster}/${beam_name}/CLEANEDFIL"
+    mkdir -p "\${publish_dir}"
+
     if [[ ${params.split_fil} == true ]]; then
       if [[ ${beam_id} == 1 ]]; then
         echo "Splitting band 1"
         python ${baseDir}/scripts/cut_filterbank.py -i ${fil_file} -c ${params.split_freq} -l \${outputFile}_low.fil -u \${outputFile}_cut.fil
-        cp \${outputFile}_cut.fil \${publish_dir}/
+        cp \${outputFile}_cut.fil "\${publish_dir}/"
       else
         echo "File good. Skipping"
-        mv ${fil_file} \${outputFile}_cut.fil 
+        mv ${fil_file} \${outputFile}_cut.fil
       fi
+    fi
+
+    # Create symlink in runID-specific directory for easy access
+    if [[ -n "${params.runID}" && -f "\${outputFile}_cut.fil" ]]; then
+        runid_dir="${params.basedir}/${params.runID}/${beam_name}/CLEANEDFIL"
+        mkdir -p "\${runid_dir}"
+        ln -sf "\${publish_dir}/\${outputFile}_cut.fil" "\${runid_dir}/\${outputFile}_cut.fil"
+
+        # Verify symlink was created
+        if [[ ! -L "\${runid_dir}/\${outputFile}_cut.fil" ]]; then
+            echo "WARNING: Failed to create symlink at \${runid_dir}/\${outputFile}_cut.fil"
+        fi
     fi
     """
   }
@@ -269,6 +340,8 @@ process split_filterbank {
 process merge_filterbanks {
     label 'merge_filterbanks'
     container "${params.filtools_sig_image}"
+    tag "${cluster}_cfbf${group_label}_cdm_${cdm}"
+    cache 'lenient'
     // publishDir "${params.basedir}/${cluster}/${beam_name}/MERGED/", pattern: "*.fil", mode: 'copy'
 
     input:
@@ -281,7 +354,8 @@ process merge_filterbanks {
     def beam_name="cfbf${group_label}"
     def outputFile = "${cluster}.${utc}_cfbf${group_label}_cdm_${cdm}_stacked.fil"
     def filelist = fil_files.collect { it }.join(' ')
-    def publishDir = "${params.basedir}/${params.runID}/${beam_name}/MERGED"
+    // Use shared cache location independent of runID
+    def publishDir = "${params.basedir}/shared_cache/${cluster}/${beam_name}/MERGED"
     """
     #!/bin/bash
     beam_name="cfbf${group_label}"
@@ -293,19 +367,34 @@ process merge_filterbanks {
     python ${baseDir}/scripts/freq_stack.py -o ${outputFile} ${filelist}
 
     echo "Merged file created: ${outputFile}"
+
+    # Also create symlink in runID-specific directory for easy access
+    if [[ -n "${params.runID}" ]]; then
+        runid_dir="${params.basedir}/${params.runID}/cfbf${group_label}/MERGED"
+        mkdir -p "\${runid_dir}"
+        ln -sf "${publishDir}/${outputFile}" "\${runid_dir}/${outputFile}"
+
+        # Verify symlink was created
+        if [[ ! -L "\${runid_dir}/${outputFile}" ]]; then
+            echo "WARNING: Failed to create symlink at \${runid_dir}/${outputFile}"
+        fi
+    fi
+
     cd \${workdir}
-    ln -s ${publishDir}/${outputFile} ${outputFile}
+    ln -s "${publishDir}/${outputFile}" "${outputFile}"
     """
 }
 
 process segmented_params {
     label 'segmented_params'
     container "${params.presto_image}"
-    publishDir "${params.basedir}/${params.runID}/${beam_name}/segment_${segments}/SEGPARAMS/", pattern: "*.csv", mode: 'copy'
+    tag "${cluster}_${beam_name}_cdm_${cdm}_seg${segments}"
+    cache 'lenient'
+    // Don't use publishDir directive - handle publishing in script for shared cache approach
 
     input:
     tuple val(pointing), path(fil_file), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec),val(cdm), val(segments)
-    
+
     output:
     tuple val(pointing), path(fil_file), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), env(tsamp), env(nsamples), val(segments), path("*.csv")
 
@@ -326,20 +415,46 @@ process segmented_params {
 
     fft_size=\$((2**\$rounded_log2))
 
-    # Generate params.csv 
+    # Generate params.csv
     output_file="${beam_name}_cdm_${cdm}_segments_${segments}_params.csv"
-    echo "i,fft_size,start_sample,nsamples_per_segment" > \${output_file}
+
+    # Use shared cache location based on segments (not runID)
+    publish_dir="${params.basedir}/shared_cache/${cluster}/${beam_name}/segment_${segments}/SEGPARAMS"
+    mkdir -p "\${publish_dir}"
+
+    # Generate CSV in shared cache location
+    cd "\${publish_dir}"
+    echo "i,fft_size,start_sample,nsamples_per_segment" > "\${output_file}"
     start_sample=0
     for ((i=0; i<=${segments}-1; i++ )); do
-        echo "\$i,\$fft_size,\$start_sample,\$nsamples_per_segment" >> \${output_file}
+        echo "\$i,\$fft_size,\$start_sample,\$nsamples_per_segment" >> "\${output_file}"
         start_sample=\$((start_sample + nsamples_per_segment))
     done
+
+    # Create symlink in runID-specific directory for easy access
+    if [[ -n "${params.runID}" ]]; then
+        runid_dir="${params.basedir}/${params.runID}/${beam_name}/segment_${segments}/SEGPARAMS"
+        mkdir -p "\${runid_dir}"
+        ln -sf "\${publish_dir}/\${output_file}" "\${runid_dir}/\${output_file}"
+
+        # Verify symlink was created
+        if [[ ! -L "\${runid_dir}/\${output_file}" ]]; then
+            echo "WARNING: Failed to create symlink at \${runid_dir}/\${output_file}"
+        fi
+    fi
+
+    # Create symlink in work directory
+    workdir="\$(pwd | sed 's|/shared_cache/.*||')/\$(basename \$(pwd))"
+    cd "\${workdir}" 2>/dev/null || cd -
+    ln -s "\${publish_dir}/\${output_file}" "\${output_file}"
     """
 }
 
 process birdies {
     label 'birdies'
     container "${params.peasoup_image}"
+    tag "${cluster}_${beam_name}_seg${segments}${segment_id}_cdm_${cdm}"
+    cache 'lenient'
     publishDir "${params.basedir}/${params.runID}/${beam_name}/segment_${segments}/${segments}${segment_id}/BIRDIES/", pattern: "*.{xml,txt}", mode: 'copy'
 
     input:
@@ -369,6 +484,8 @@ process birdies {
 process generateDMFiles {
     label "generateDMFiles"
     container "${params.presto_image}"
+    tag "cdm_${cdm}_seg${segments}${segment_id}"
+    cache 'lenient'
     publishDir "${params.basedir}/${params.runID}/DMFILES/", pattern: "*.dm", mode: 'copy'
 
     input:
@@ -409,9 +526,10 @@ process generateDMFiles {
 process peasoup {
     label 'peasoup'
     container "${params.peasoup_image}"
+    tag "${cluster}_${beam_name}_seg${segments}${segment_id}_cdm_${cdm}_${dm_file.baseName}"
     publishDir "${params.basedir}/${params.runID}/${beam_name}/segment_${segments}/${segments}${segment_id}/SEARCH/", pattern: "*.xml", mode: 'copy'
     cache 'lenient'
-    
+
     input:
     tuple val(pointing), path(fil_file), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(tsamp), val(nsamples), val(segments), val(segment_id), val(fft_size), val(start_sample), path(birdies_file), path(dm_file)
 
@@ -440,6 +558,8 @@ process peasoup {
 process parse_xml {
     label 'parse_xml'
     container "${params.rusty_candypicker}"
+    tag "${cluster}_${beam_name}_seg${segments}${segment_id}_cdm_${cdm}"
+    cache 'lenient'
     publishDir "${params.basedir}/${params.runID}/${beam_name}/segment_${segments}/${segments}${segment_id}/PARSEXML/", pattern: "*.{csv,meta,txt,candfile}", mode: 'copy'
 
     input:
@@ -533,9 +653,14 @@ process parse_xml {
 process psrfold {
     label "psrfold"
     container "${params.pulsarx_image}"
+    tag "${cluster}_${beam_name}_seg${segments}${segment_id}_cdm_${cdm}"
+    cache 'lenient'
     // maxForks 100
-    publishDir "${params.basedir}/${params.runID}/${beam_name}/segment_${segments}/${segments}${segment_id}/FOLDING/", pattern: "*.{png,ar,cands}", mode: 'copy'
-    
+    // Organized output: separate directories for PNG, AR, and CANDS files
+    publishDir "${params.basedir}/${params.runID}/${beam_name}/segment_${segments}/${segments}${segment_id}/FOLDING/PNG/", pattern: "*.png", mode: 'copy'
+    publishDir "${params.basedir}/${params.runID}/${beam_name}/segment_${segments}/${segments}${segment_id}/FOLDING/AR/", pattern: "*.ar", mode: 'copy'
+    publishDir "${params.basedir}/${params.runID}/${beam_name}/segment_${segments}/${segments}${segment_id}/FOLDING/CANDS/", pattern: "*.cands", mode: 'copy'
+
     input:
     tuple val(pointing), val(cluster),val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(fft_size), val(segments), val(segment_id), val(fil_base_name), path(fil_file), val(start_sample), path(filtered_candidate_csv), path(candfile), path(metafile)
 
@@ -584,23 +709,29 @@ process psrfold {
 process search_fold_merge {
     label "search_fold_merge"
     container "${params.rusty_candypicker}"
-    publishDir "${params.basedir}/${params.runID}/${beam_name}/segment_${segments}/${segments}${segment_id}/FOLDING/", pattern: "*{.csv,master.cands}", mode: 'copy'
+    tag "${cluster}_${beam_name}_seg${segments}${segment_id}_cdm_${cdm}"
+    cache 'lenient'
+    publishDir "${params.basedir}/${params.runID}/${beam_name}/segment_${segments}/${segments}${segment_id}/FOLDING/CSV/", pattern: "*{.csv,master.cands}", mode: 'copy'
+    publishDir "${params.basedir}/${params.runID}/${beam_name}/segment_${segments}/${segments}${segment_id}/FOLDING/PROVENANCE/", pattern: "*_provenance.csv", mode: 'copy'
 
     input:
     tuple val(pointing), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(fft_size), val(segments), val(segment_id), val(fil_base_name), path(filtered_candidate_csv), path(ars), path(cands)
 
     output:
     tuple val(pointing), val(cluster),val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(fft_size), val(segments), val(segment_id), val(fil_base_name), path(filtered_candidate_csv), env(publish_dir), path(ars), path("*master.cands"), path("search_fold_cands*picked.csv")
-    
+
     script:
     """
-    publish_dir="${params.basedir}/${params.runID}/${beam_name}/segment_${segments}/${segments}${segment_id}/FOLDING"
+    # Base publish directory for PNG files (needed by downstream processes)
+    publish_dir="${params.basedir}/${params.runID}/${beam_name}/segment_${segments}/${segments}${segment_id}/FOLDING/PNG"
     mkdir -p \${publish_dir}
+    mkdir -p "${params.basedir}/${params.runID}/${beam_name}/segment_${segments}/${segments}${segment_id}/FOLDING/CSV"
+    mkdir -p "${params.basedir}/${params.runID}/${beam_name}/segment_${segments}/${segments}${segment_id}/FOLDING/PROVENANCE"
 
     fold_cands=\$(ls -v *.ar)
     pulsarx_cands_file=\$(ls -v *.cands)
-    
-    python3 ${baseDir}/scripts/fold_cands_to_csv.py -f \${fold_cands} -c \${pulsarx_cands_file} -x ${filtered_candidate_csv} -o search_fold_cands_${beam_name}_cdm_${cdm}_ck${segments}${segment_id}.csv --cands_per_node ${params.psrfold.cands_per_node} -p \${publish_dir} 
+
+    python3 ${baseDir}/scripts/fold_cands_to_csv.py -f \${fold_cands} -c \${pulsarx_cands_file} -x ${filtered_candidate_csv} -o search_fold_cands_${beam_name}_cdm_${cdm}_ck${segments}${segment_id}.csv --cands_per_node ${params.psrfold.cands_per_node} -p \${publish_dir}
 
     echo "Number of candidates before candy picking:"
     cat search_fold_cands_${beam_name}_cdm_${cdm}_ck${segments}${segment_id}.csv | wc -l
@@ -611,17 +742,103 @@ process search_fold_merge {
             dm_flag+=( --dmtol "${params.psrfold.dm_tolerance}" )
         fi
         echo "Picking candies"
-        csv_candypicker --ptol ${params.parse_xml.candy_picker_period_threshold} "\${dm_flag[@]}" --tobs 0 -i search_fold_cands*.csv -o search_fold_cands_${beam_name}_cdm_${cdm}_ck${segments}${segment_id}_picked.csv 
+        csv_candypicker --ptol ${params.parse_xml.candy_picker_period_threshold} "\${dm_flag[@]}" --tobs 0 -i search_fold_cands*.csv -o search_fold_cands_${beam_name}_cdm_${cdm}_ck${segments}${segment_id}_picked.csv
     else
         echo "Not picking candies"
         cp search_fold_cands_${beam_name}_cdm_${cdm}_ck${segments}${segment_id}.csv search_fold_cands_${beam_name}_cdm_${cdm}_ck${segments}${segment_id}_picked.csv
     fi
+
+    # ========================================================================
+    # Generate provenance tracking file
+    # This links each candidate to its source candfile, .cands file, and #id
+    # ========================================================================
+    provenance_file="${beam_name}_cdm_${cdm}_ck${segments}${segment_id}_provenance.csv"
+
+    # Get paths for XML and candfile directories
+    xml_dir="${params.basedir}/${params.runID}/${beam_name}/segment_${segments}/${segments}${segment_id}/PARSEXML/XML"
+    parsexml_dir="${params.basedir}/${params.runID}/${beam_name}/segment_${segments}/${segments}${segment_id}/PARSEXML"
+    ar_dir="${params.basedir}/${params.runID}/${beam_name}/segment_${segments}/${segments}${segment_id}/FOLDING/AR"
+
+    # Find XML files
+    xml_files=""
+    if [[ -d "\${xml_dir}" ]]; then
+        xml_files=\$(ls "\${xml_dir}"/*_picked.xml 2>/dev/null | tr '\\n' ';' | sed 's/;\$//')
+        if [[ -z "\${xml_files}" ]]; then
+            xml_files=\$(ls "\${xml_dir}"/*.xml 2>/dev/null | tr '\\n' ';' | sed 's/;\$//')
+        fi
+    fi
+    xml_files=\${xml_files:-"N/A"}
+
+    # Write provenance header with comprehensive tracking columns
+    echo "candidate_id,png_file,ar_file,cands_file,cands_file_id,candfile,candfile_id,xml_source,dm,period,f0,f1,snr,beam,segment_id,cdm,cluster,utc_start,ra,dec" > "\${provenance_file}"
+
+    # Parse the master.cands file to extract provenance for each candidate
+    master_cands_file=\$(ls *_master.cands 2>/dev/null | head -1)
+
+    if [[ -f "\${master_cands_file}" ]]; then
+        # Skip header line and process each row
+        tail -n +2 "\${master_cands_file}" | while IFS=',' read -r id f0_new f1_new dm_new sn_new f0_old f1_old dm_old sn_old f0_err f1_err candidate_name filename rest; do
+            # candidate_name format: CLUSTER_CANDFILENUM_cdm_CDM_ckSEGMENT_PEPOCH_BEAM_CANDNUM.png
+            # filename format: CLUSTER_CANDFILENUM_cdm_CDM_ckSEGMENT_PEPOCH_BEAM.cands
+
+            # Extract info from candidate_name
+            if [[ -n "\${candidate_name}" ]]; then
+                png_file="\${publish_dir}/\${candidate_name}"
+                ar_basename=\${candidate_name%.png}.ar
+                ar_file="\${ar_dir}/\${ar_basename}"
+
+                # Extract candfile number from filename
+                # The candfile number is the second field in the filename
+                candfile_num=\$(echo "\${filename}" | cut -d'_' -f2)
+
+                # Find the matching candfile
+                candfile_path=""
+                if [[ -d "\${parsexml_dir}" ]]; then
+                    # Look for candfile with matching pattern
+                    candfile_path=\$(ls "\${parsexml_dir}"/*_\${candfile_num}_*.candfile 2>/dev/null | head -1)
+                    if [[ -z "\${candfile_path}" ]]; then
+                        candfile_path=\$(ls "\${parsexml_dir}"/*.candfile 2>/dev/null | head -1)
+                    fi
+                fi
+                candfile_path=\${candfile_path:-"N/A"}
+
+                # The #id in the original candfile is: final_id - (candfile_num - 1) * cands_per_node
+                # But we need the original candidate ID within the candfile
+                # This is computed from the candidate_name's last field (the 5-digit number)
+                final_cand_num=\$(echo "\${candidate_name}" | rev | cut -d'_' -f1 | cut -d'.' -f2 | rev)
+                # Convert to integer (remove leading zeros)
+                final_cand_num=\$((10#\${final_cand_num}))
+                # Calculate original ID in candfile
+                candfile_id=\$(( (final_cand_num - 1) % ${params.psrfold.cands_per_node} + 1 ))
+
+                # Calculate period from f0
+                period="N/A"
+                if [[ -n "\${f0_new}" && "\${f0_new}" != "0" ]]; then
+                    period=\$(echo "scale=12; 1.0 / \${f0_new}" | bc -l 2>/dev/null || echo "N/A")
+                fi
+
+                # cands_file is the filename column
+                cands_file="\${filename}"
+                # The ID in the cands file is the same as the #id column (row number)
+                cands_file_id="\${id}"
+
+                echo "\${id},\${png_file},\${ar_file},\${cands_file},\${cands_file_id},\${candfile_path},\${candfile_id},\${xml_files},\${dm_new},\${period},\${f0_new},\${f1_new},\${sn_new},${beam_name},${segments}${segment_id},${cdm},${cluster},${utc_start},${ra},${dec}" >> "\${provenance_file}"
+            fi
+        done
+    else
+        echo "WARNING: No master.cands file found, provenance file will be incomplete"
+    fi
+
+    echo "Provenance file created: \${provenance_file}"
+    echo "Total candidates tracked: \$(wc -l < \${provenance_file})"
     """
 }
 
 process alpha_beta_gamma_test {
     label "alpha_beta_gamma_test"
     container "${params.pulsarx_image}"
+    tag "${cluster}_${beam_name}_seg${segments}${segment_id}_cdm_${cdm}"
+    cache 'lenient'
     publishDir "${params.basedir}/${params.runID}/${beam_name}/segment_${segments}/${segments}${segment_id}/ZERODM/", pattern: "DM0*.png", mode: 'copy'
     publishDir "${params.basedir}/${params.runID}/${beam_name}/segment_${segments}/${segments}${segment_id}/ABG", pattern: "*alpha_beta_gamma.csv", mode: 'copy'
 
@@ -643,6 +860,8 @@ process alpha_beta_gamma_test {
 process pics_classifier {
     label "pics_classifier"
     container "${params.pics_classifier_image}"
+    tag "${cluster}_${beam_name}_seg${segments}${segment_id}_cdm_${cdm}"
+    cache 'lenient'
     publishDir "${params.basedir}/${params.runID}/${beam_name}/segment_${segments}/${segments}${segment_id}/CLASSIFICATION/", pattern: "*scored.csv", mode: 'copy'
 
     input:
@@ -662,13 +881,18 @@ process pics_classifier {
 process create_candyjar_tarball {
     executor 'local'
     container "${params.pulsarx_image}"
-    // publishDir "${params.basedir}/${params.runID}/CANDIDATE_TARBALLS, pattern: "*.tar.gz", mode: 'move'
+    tag "${output_tarball_name}"
+    // Publish CSVs to dedicated directory for easy access
+    publishDir "${params.basedir}/${params.runID}/TARBALL_CSV/", pattern: "*_header.csv", mode: 'copy'
+    publishDir "${params.basedir}/${params.runID}/TARBALL_CSV/", pattern: "candidates.csv", mode: 'copy'
+    publishDir "${params.basedir}/${params.runID}/TARBALL_CSV/", pattern: "candidates_alpha_below_one.csv", mode: 'copy'
+    publishDir "${params.basedir}/${params.runID}/TARBALL_CSV/", pattern: "candidates_pics_above_threshold.csv", mode: 'copy'
 
     input:
     tuple path(candidate_results_file), val(output_tarball_name)
 
     output:
-    stdout
+    tuple path("*_header.csv"), path("candidates.csv"), path("candidates_alpha_below_one.csv"), path("candidates_pics_above_threshold.csv")
 
     script:
     """
@@ -681,22 +905,29 @@ process create_candyjar_tarball {
     cat "${candidate_results_file}" >> "\$candidate_results_file_with_header"
 
     publish_dir="${params.basedir}/${params.runID}/CANDIDATE_TARBALLS"
+    csv_dir="${params.basedir}/${params.runID}/TARBALL_CSV"
     mkdir -p \${publish_dir}
+    mkdir -p \${csv_dir}
 
-    python ${baseDir}/scripts/create_candyjar_tarball.py -i \$candidate_results_file_with_header -o ${output_tarball_name} --verbose --npointings 0 -m ${params.metafile_source_path} -d \${publish_dir} --threshold ${params.alpha_beta_gamma.threshold} --snr_threshold ${params.alpha_beta_gamma.snr_threshold} 
+    # Run the tarball creation script
+    # This creates candidates.csv, candidates_alpha_below_one.csv, and candidates_pics_above_threshold.csv
+    # in the current working directory
+    python ${baseDir}/scripts/create_candyjar_tarball.py -i \$candidate_results_file_with_header -o ${output_tarball_name} --verbose --npointings 0 -m ${params.metafile_source_path} -d \${publish_dir} --threshold ${params.alpha_beta_gamma.threshold} --snr_threshold ${params.alpha_beta_gamma.snr_threshold}
     """
 }
 
 
-// other pipelines 
+// other pipelines
 process parfold {
     label "parfold"
     container "${params.pulsarx_image}"
+    tag "${beam_name}_${parfile_channel.getName()}"
+    cache 'lenient'
     maxForks 100
     publishDir "${params.parfold.output_path}/", pattern: "*.png", mode: 'copy'
     publishDir "${params.parfold.output_path}/", pattern: "*.ar", mode: 'copy'
     publishDir "${params.parfold.output_path}/", pattern: "*.cands", mode: 'copy'
-    
+
     input:
     tuple val(pointing), path(fil_file), val(cluster),val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(tsamp), val(nsamples), val(subintlength)
     each path(parfile_channel)
@@ -717,6 +948,7 @@ process parfold {
 
 process extract_candidates {
     container "${params.pulsarx_image}"
+    tag "extract_${csv_file.baseName}"
     publishDir "${params.candypolice.output_dir}", pattern: "*{txt,candfile}", mode: 'copy'
     input:
     path csv_file
@@ -794,6 +1026,8 @@ process extract_candidates {
 process candypolice_pulsarx {
     label "candypolice_pulsarx"
     container "${params.pulsarx_image}"
+    tag "${cluster}_${beam_name}_${candfile.baseName}"
+    cache 'lenient'
     publishDir "${params.candypolice.output_path}", pattern: "**/*.{ar,png,cands}", mode: 'copy'
 
     input:
