@@ -29,6 +29,17 @@ include { dada_to_fits } from './processes'
 include { merge_filterbanks } from './processes'
 include {split_filterbank} from './processes.nf'
 
+// Default params to avoid warnings when running lightweight entries (e.g., help). !!! DO NOT CHANGE THIS
+params.basedir = params.basedir ?: '.'
+params.runID = params.runID ?: ''
+params.notification = params.notification ?: [
+    enabled: false,
+    email: '',
+    on_complete: false,
+    on_fail: false,
+    on_error: false
+]
+
 workflow intake {
     main:
     // Parse the CSV file to get the list of FITS files and parameters
