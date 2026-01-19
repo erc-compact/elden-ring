@@ -29,10 +29,14 @@ include { dada_to_fits } from './processes'
 include { merge_filterbanks } from './processes'
 include {split_filterbank} from './processes.nf'
 
-// Default params to avoid warnings when running lightweight entries (e.g., help). !!! DO NOT CHANGE THIS
-params.basedir = params.basedir ?: '.'
-params.runID = params.runID ?: ''
-params.notification = params.notification ?: [
+// ============================================================================
+// Default parameters to avoid warnings when running lightweight entries (e.g., help)
+// These are overridden when a params.config file is provided
+// !!! DO NOT CHANGE THIS SECTION !!!
+// ============================================================================
+params.basedir = null
+params.runID = null
+params.notification = [
     enabled: false,
     email: '',
     on_complete: false,
@@ -1258,10 +1262,15 @@ workflow.onComplete {
     def success = workflow.success
     def exitStatus = workflow.exitStatus
 
+    // Safe access to params (these have defaults defined at top of file)
+    def outputDir = params.basedir ?: '.'
+    def runIDStr = params.runID ?: 'N/A'
+    def notificationConfig = params.notification
+
     // ========================================================================
     // Cumulative runtime tracking across resume runs
     // ========================================================================
-    def runtimeFile = file("${params.basedir ?: '.'}/.cumulative_runtime_${workflow.sessionId}.txt")
+    def runtimeFile = file("${outputDir}/.cumulative_runtime_${workflow.sessionId}.txt")
     def cumulativeMillis = 0L
     def runCount = 1
 
@@ -1315,8 +1324,8 @@ workflow.onComplete {
     Completed:     ${workflow.complete}
 
     Work Dir:      ${workflow.workDir}
-    Output Dir:    ${params.basedir ?: 'N/A'}
-    Run ID:        ${params.runID ?: 'N/A'}
+    Output Dir:    ${basedirVal ?: 'N/A'}
+    Run ID:        ${runIDStr}
 
     Command:       ${workflow.commandLine}
     Profile:       ${workflow.profile}
@@ -1326,7 +1335,7 @@ workflow.onComplete {
     println summary
 
     // Write summary to file
-    def summaryFile = file("${params.basedir ?: '.'}/pipeline_summary_${workflow.runName}.txt")
+    def summaryFile = file("${outputDir}/pipeline_summary_${workflow.runName}.txt")
     try {
         summaryFile.text = summary
         println "Pipeline summary written to: ${summaryFile}"
@@ -1335,19 +1344,19 @@ workflow.onComplete {
     }
 
     // Send email notification if enabled
-    if (params.notification?.enabled && params.notification?.email) {
-        def subject = "[ELDEN-RING] Pipeline ${success ? 'COMPLETED' : 'FAILED'}: ${params.runID ?: workflow.runName}"
-        def shouldSend = (success && params.notification?.on_complete) ||
-                         (!success && params.notification?.on_fail)
+    if (notificationConfig?.enabled && notificationConfig?.email) {
+        def subject = "[ELDEN-RING] Pipeline ${success ? 'COMPLETED' : 'FAILED'}: ${runIDStr != 'N/A' ? runIDStr : workflow.runName}"
+        def shouldSend = (success && notificationConfig?.on_complete) ||
+                         (!success && notificationConfig?.on_fail)
 
         if (shouldSend) {
             try {
                 sendMail(
-                    to: params.notification.email,
+                    to: notificationConfig.email,
                     subject: subject,
                     body: summary
                 )
-                println "Email notification sent to: ${params.notification.email}"
+                println "Email notification sent to: ${notificationConfig.email}"
             } catch (Exception e) {
                 println "WARNING: Could not send email notification: ${e.message}"
                 println "Make sure your system has sendmail configured or SMTP settings are correct."
@@ -1357,6 +1366,10 @@ workflow.onComplete {
 }
 
 workflow.onError {
+    // Safe access to params (these have defaults defined at top of file)
+    def runIDStr = params.runID ?: 'N/A'
+    def notificationConfig = params.notification
+
     def errorMessage = """
     ╔══════════════════════════════════════════════════════════════════════════════╗
     ║                      ELDEN-RING Pipeline ERROR                               ║
@@ -1375,16 +1388,16 @@ workflow.onError {
     println errorMessage
 
     // Send error notification if enabled
-    if (params.notification?.enabled && params.notification?.email && params.notification?.on_error) {
-        def subject = "[ELDEN-RING] Pipeline ERROR: ${params.runID ?: workflow.runName}"
+    if (notificationConfig?.enabled && notificationConfig?.email && notificationConfig?.on_error) {
+        def subject = "[ELDEN-RING] Pipeline ERROR: ${runIDStr != 'N/A' ? runIDStr : workflow.runName}"
 
         try {
             sendMail(
-                to: params.notification.email,
+                to: notificationConfig.email,
                 subject: subject,
                 body: errorMessage
             )
-            println "Error notification sent to: ${params.notification.email}"
+            println "Error notification sent to: ${notificationConfig.email}"
         } catch (Exception e) {
             println "WARNING: Could not send error notification: ${e.message}"
         }
