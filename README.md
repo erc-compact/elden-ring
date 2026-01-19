@@ -1,121 +1,428 @@
-# elden-ring
-**Effelsberg Large-scale Data Exploration with Nextflow for Robust Identification of New Globular cluster pulsars.**
+# ELDEN-RING
+
+**E**ffelsberg **L**arge-scale **D**ata **E**xploration with **N**extflow for **R**obust **I**dentification of **N**ew **G**lobular cluster pulsars.
 
 ![elden-ring-transformed](https://github.com/user-attachments/assets/3e1a1c35-d055-4266-9ff7-5380ab1d463f)
 
-## Flowchart
+A GPU-accelerated Nextflow pipeline for pulsar candidate detection featuring RFI mitigation, periodicity searches with [peasoup](https://github.com/ewanbarr/peasoup), candidate folding with [PulsarX](https://github.com/ypmen/PulsarX), and machine learning classification.
+
+## Table of Contents
+
+- [Features](#features)
+- [Pipeline Overview](#pipeline-overview)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Input File Formats](#input-file-formats)
+- [Available Workflows](#available-workflows)
+- [Configuration](#configuration)
+- [Output Structure](#output-structure)
+- [Advanced Usage](#advanced-usage)
+- [Troubleshooting](#troubleshooting)
+- [Contributing](#contributing)
+- [License](#license)
+
+## Features
+
+- **GPU-Accelerated Search**: Fast periodicity searches using peasoup on NVIDIA GPUs
+- **RFI Mitigation**: Automated RFI detection and filtering with spectral kurtosis
+- **Multi-Beam Support**: Process multiple beams in parallel
+- **Coherent Dedispersion**: Support for DADA baseband data with digifits conversion
+- **Filterbank Stacking**: Stack multiple beams by coherent DM for improved sensitivity
+- **Segmented Searches**: Search full observation and sub-segments for accelerated pulsars
+- **ML Classification**: PICS-based candidate scoring
+- **Alpha-Beta-Gamma Scoring**: Additional candidate ranking metrics
+- **Resume Support**: Automatic caching and resume capability via Nextflow
+- **Cumulative Runtime Tracking**: Track total processing time across resumed runs
+- **Email Notifications**: Optional notifications on completion or failure
+- **Input Validation**: Pre-flight checks for parameters and input files
+
+## Pipeline Overview
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           ELDEN-RING Pipeline                                │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│   DADA Files ──► digifits ──┐                                               │
+│                             │                                               │
+│   FITS/Filterbanks ─────────┼──► RFI Filter ──► filtool ──► Segmentation   │
+│                             │                                               │
+│                             └──────────────────────────────────────────────►│
+│                                                                             │
+│   Segmentation ──► birdies ──► peasoup (GPU) ──► XML Parse ──► PulsarX     │
+│                                                                             │
+│   PulsarX ──► Merge Folds ──► PICS Classifier ──► Alpha-Beta-Gamma         │
+│                                                                             │
+│   Final Output: CandyJar tarball with ranked candidates                     │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
 ![mermaid-diagram-2025-04-24-115529](https://github.com/user-attachments/assets/92b86bb0-0b40-4050-8526-5f380136cf62)
 
-## 📦 Quick Start
+## Requirements
 
-Follow these steps to get up and running in minutes.
+### Software
 
----
+- **Nextflow** >= 21.10.0
+- **Singularity** >= 3.0 (or Docker)
+- **NVIDIA GPU** with CUDA support (for peasoup)
 
-### 1. Clone & make your config
+### Container Images
+
+The pipeline uses containerized tools. Required images:
+
+| Tool | Purpose |
+|------|---------|
+| `pulsarx_image` | Candidate folding (PulsarX) |
+| `peasoup_image` | GPU periodicity search |
+| `presto_image` | Filterbank utilities (readfile) |
+| `rfi_mitigation_image` | RFI analysis and filtering |
+| `pics_classifier_image` | ML candidate classification |
+| `edd_pulsar_image` | DADA to FITS conversion (digifits) |
+
+## Installation
+
+### Option 1: Clone the repository
 
 ```bash
 git clone https://github.com/erc-compact/elden-ring.git
 cd elden-ring
 ```
 
-or 
+### Option 2: Use Nextflow's built-in pull
 
 ```bash
 nextflow pull erc-compact/elden-ring
 ```
 
-# Copy the example into your working config
-cp example/params.config.example params.config
+## Quick Start
 
-# Edit `params.config`:
-# • Tweak any global parameters (e.g. singularity cacheDir, threads)
-```
-
----
-
-### 2. Prepare your input list
+### 1. Initialize a new project
 
 ```bash
-# Copy the sample CSV, or create your own with the same fields:
-cp examples/inputfile.txt .
-
-# By default, the pipeline looks for `inputfile.txt` in the elden-ring folder unless you override it:
-# In nextflow.config: params.files_list = 'path/to/inputfile.txt'
+nextflow run elden.nf -entry setup_basedir --basedir /path/to/my_project
 ```
 
----
+This creates:
+```
+/path/to/my_project/
+├── params.config           # Main configuration (edit this)
+├── inputfile.txt           # Input data CSV (edit this)
+├── generate_inputfile.sh   # Helper script for input generation
+├── meta/                   # Pipeline metadata
+└── shared_cache/           # Reusable cached files
+```
 
-### 3. (Optional) Tune pipeline parameters
+### 2. Generate your input file
 
-Open **`params.config`** and adjust any of:
-* **File copy**
-You can switch this to true to copy files from other clusters. passwordless login required.
+For filterbank/FITS files:
+```bash
+cd /path/to/my_project
+bash generate_inputfile.sh \
+    --cluster NGC6544 \
+    --ra "18:07:20.5" \
+    --dec "-24:59:51" \
+    --utc "2024-01-15T10:00:00" \
+    --cdm "60.0 120.0" \
+    /path/to/data/*.fil
+```
 
-* **RFI filtering**
+For DADA baseband directories:
+```bash
+bash generate_inputfile.sh \
+    --dada \
+    --cluster 2MASS-GC02 \
+    --ra "18:09:36.51" \
+    --dec "+20:46:43.99" \
+    --utc "2025-12-06T13:08:08" \
+    --cdm "156.0 428.0 700.0" \
+    /path/to/baseband3 /path/to/baseband4 /path/to/baseband5
+```
 
-  ```groovy
-  params.generateRfiFilter.run_rfi_filter = true
-  params.filtool.run_filtool         = true
-  ```
-* **Search/fold settings** (e.g. DM range, nbins, etc..)
-* **Parfile folding**
-
-  ```groovy
-  params.parfold.parfile_path = 'path/to/my.par'
-  ```
-
-You can also drop JSON templates into `templates/` for the candidate‐sifting step.
-
----
-
-### 4. Choose & run an entry workflow
-
-| Workflow              | Description                                                                               |
-| --------------------- | ----------------------------------------------------------------------------------------- |
-| `full`                | Run end-to-end: RFI mitigation → search & fold → ML classification                        |
-| `generate_rfi_filter` | Generate per‐file SK/kurtosis plots (no filtool)                                          |
-| `rfi_clean`           | Build SK‐based RFI mask **and** run `filtool` (requires `run_rfi_filter = true`)          |
-| `run_search_fold`     | Run search + fold on already‐cleaned data                                                 |
-| `fold_par`            | Fold using pre‐computed `.par` files (set `parfold.parfile_path`)                         |
-| `candypolice`         | Re‐fold “T1”/“T2” candidates from an existing `candyjar.csv` across all beams & bands     |
-
-
-Replace `<workflow>` below with any of the above names.
+### 3. Edit configuration
 
 ```bash
-nextflow run erc-compact/elden-ring \
-  -c params.config \
-  --files_list inputfile.txt \
-  -profile <profile> \
-  --entry  <workflow> \
-  -resume
+vim params.config
 ```
 
-* **`-profile <profile>`**
-  One of the profiles defined in your `nextflow.config` (`local`, `slurm`, `hercules`, etc.).
-  If you need a new profile, copy the profile example file from `conf/profiles` and use 
-* **`-c <nextflow.config>`**
-  Your local config overrides (you can chain `-c` multiple times).
-* **`--entry <workflow>`**
-  Selects which sub‐workflow to run (default: `full`).
-* **`-resume`**
-  Re‐uses any existing `work/` cache—skips stages that haven’t changed.
+Key parameters to review:
+- `basedir` - Output directory (auto-set by setup)
+- `runID` - Unique identifier for this search
+- `telescope` - Your telescope (effelsberg, meerkat, etc.)
+- `ddplan.*` - DM search range
+- `peasoup.*` - Search parameters (acceleration, segments, SNR threshold)
 
----
+### 4. Run the pipeline
 
-### 5. Inspect outputs & reports
+```bash
+nextflow run elden.nf \
+    -entry full \
+    -profile hercules \
+    -c params.config \
+    --runID my_search_v1 \
+    -resume
+```
 
-* Pipeline outputs land in `basedir` or in `output_dir` of certain workflows as configured in the config file.
-* Nextflow’s HTML **report**, **trace**, and **timeline** are generated automatically:
+## Input File Formats
 
-  ```bash
-  nextflow run … --with-report --with-trace --with-timeline
-  ```
----
+### Standard Input (inputfile.txt)
 
-❓ **Need help?**
-– Open an issue at [https://github.com/erc-compact/elden-ring/issues](https://github.com/erc-compact/elden-ring/issues)
-- mail me at fkareem[at]mpifr-bonn.mpg.de
+CSV format for filterbank/FITS files:
 
-Happy processing! 🚀
+```csv
+pointing,cluster,beam_name,beam_id,utc_start,ra,dec,fits_files,cdm
+0,NGC6544,cfbf00001,1,2024-01-15T10:00:00,18:07:20.5,-24:59:51,/path/to/beam1.fil,60.0
+0,NGC6544,cfbf00002,2,2024-01-15T10:00:00,18:07:20.5,-24:59:51,/path/to/beam2.fil,60.0
+```
+
+| Column | Description |
+|--------|-------------|
+| `pointing` | Pointing index (integer) |
+| `cluster` | Target name / cluster identifier |
+| `beam_name` | Beam identifier (e.g., cfbf00001) |
+| `beam_id` | Numeric beam ID |
+| `utc_start` | Observation start time (ISO format) |
+| `ra` | Right ascension (HH:MM:SS.ss) |
+| `dec` | Declination (DD:MM:SS.ss) |
+| `fits_files` | Full path to filterbank/FITS file |
+| `cdm` | Coherent dedispersion DM |
+
+### DADA Input (dada_files.csv)
+
+CSV format for DADA baseband directories:
+
+```csv
+pointing,dada_files,cluster,beam_name,beam_id,utc_start,ra,dec,cdm_list
+0,/path/to/baseband3/*dada,2MASS-GC02,cfbf00003,3,2025-12-06T13:08:08,18:09:36.51,+20:46:43.99,156.0 428.0 700.0
+0,/path/to/baseband4/*dada,2MASS-GC02,cfbf00004,4,2025-12-06T13:08:08,18:09:36.51,+20:46:43.99,156.0 428.0 700.0
+```
+
+Note: `cdm_list` contains space-separated coherent DM values. The pipeline will process each CDM independently.
+
+## Available Workflows
+
+Select a workflow with the `-entry` flag:
+
+### Main Processing Pipelines
+
+| Workflow | Description |
+|----------|-------------|
+| `full` | Complete pipeline: intake → RFI → clean → search → fold → classify |
+| `run_search_fold` | Search & fold on pre-cleaned filterbanks |
+| `run_rfi_clean` | RFI cleaning only (intake → filter → clean) |
+| `generate_rfi_filter` | Generate RFI diagnostic plots only |
+
+### DADA Processing Pipelines
+
+| Workflow | Description |
+|----------|-------------|
+| `run_dada_search` | Full pipeline starting from DADA baseband files |
+| `run_digifits` | Convert DADA to FITS/filterbank only |
+| `run_dada_clean_stack` | DADA → FITS → clean → stack (no search) |
+
+### Specialized Workflows
+
+| Workflow | Description |
+|----------|-------------|
+| `fold_par` | Fold data using a known pulsar ephemeris (.par file) |
+| `candypolice` | Re-fold candidates from an existing CandyJar CSV |
+
+### Utility Workflows
+
+| Workflow | Description |
+|----------|-------------|
+| `help` | Display detailed usage information |
+| `setup_basedir` | Initialize a new project directory |
+| `validate_inputs` | Validate input files and parameters |
+| `cleanup_cache` | Find orphaned files in shared cache |
+
+## Configuration
+
+### Key Parameters
+
+```groovy
+// Required
+params.basedir = "/path/to/project"
+params.runID = "search_v1"
+params.files_list = "inputfile.txt"
+params.telescope = "effelsberg"
+
+// DM Search Range
+params.ddplan.dm_start = -10    // Relative to coherent DM
+params.ddplan.dm_end = 10
+params.ddplan.dm_step = 0.1
+
+// Peasoup Search
+params.peasoup.segments = [1, 2, 4]   // Full, half, quarter segments
+params.peasoup.acc_start = -50        // Acceleration range (m/s²)
+params.peasoup.acc_end = 50
+params.peasoup.min_snr = 8.0
+
+// Processing Options
+params.filtool.run_filtool = true
+params.generateRfiFilter.run_rfi_filter = true
+params.stack_by_cdm = false
+params.split_fil = false
+
+// Notifications (optional)
+params.notification.enabled = true
+params.notification.email = "user@example.com"
+params.notification.on_complete = true
+params.notification.on_fail = true
+```
+
+### Cluster Profiles
+
+Select a profile with `-profile`:
+
+| Profile | Description |
+|---------|-------------|
+| `local` | Local execution (testing) |
+| `hercules` | SLURM cluster with GPU nodes |
+| `edgar` | Edgar cluster configuration |
+| `contra` | Contra cluster configuration |
+| `condor` | HTCondor submission |
+
+Create custom profiles in `conf/profiles/`.
+
+## Output Structure
+
+```
+basedir/
+├── shared_cache/                    # Reusable cached files
+│   └── <cluster>/
+│       ├── FITS/                    # Converted FITS files (from DADA)
+│       └── <beam_name>/
+│           ├── RFIFILTER/           # RFI diagnostic plots
+│           └── CLEANEDFIL/          # Cleaned filterbanks
+│
+├── <runID>/                         # Run-specific outputs
+│   ├── <beam_name>/
+│   │   └── segment_<N>/
+│   │       └── <seg_id>/
+│   │           ├── BIRDIES/         # Birdie detection files
+│   │           ├── SEARCH/          # Peasoup XML results
+│   │           ├── PARSEXML/        # Parsed candidates
+│   │           │   └── XML/         # Filtered XML files
+│   │           ├── FOLDING/         # PulsarX outputs
+│   │           │   ├── PNG/         # Diagnostic plots
+│   │           │   ├── AR/          # Archive files
+│   │           │   ├── CANDS/       # .cands files
+│   │           │   ├── CSV/         # Merged CSVs
+│   │           │   └── PROVENANCE/  # Tracking files
+│   │           ├── ABG/             # Alpha-beta-gamma scores
+│   │           ├── ZERODM/          # Zero-DM plots
+│   │           └── CLASSIFICATION/  # PICS scores
+│   │
+│   ├── TARBALL_CSV/                 # CSV files for tarball
+│   ├── CANDIDATE_TARBALLS/          # Final candidate packages
+│   ├── DMFILES/                     # DM search files
+│   └── pipeline_summary_*.txt       # Run summary
+│
+└── .cumulative_runtime_*.txt        # Runtime tracking
+```
+
+## Advanced Usage
+
+### Resume a Failed Run
+
+```bash
+nextflow run elden.nf -entry full -profile hercules -c params.config -resume
+```
+
+### Validate Inputs Before Running
+
+```bash
+nextflow run elden.nf -entry validate_inputs -c params.config
+```
+
+### Clean Up Orphaned Cache Files
+
+```bash
+# Dry run (shows what would be deleted)
+nextflow run elden.nf -entry cleanup_cache --basedir /path/to/project
+
+# Actually delete orphaned files
+bash scripts/cleanup_shared_cache.sh /path/to/project false
+```
+
+### Fold with Known Pulsar Ephemeris
+
+```bash
+nextflow run elden.nf -entry fold_par \
+    -c params.config \
+    --parfold.parfile_path /path/to/pulsar.par
+```
+
+### Re-fold Candidates from CandyJar
+
+```bash
+nextflow run elden.nf -entry candypolice \
+    -c params.config \
+    --candypolice.input_csv /path/to/candyjar.csv
+```
+
+### Copy Data from Remote Cluster
+
+Enable in params.config:
+```groovy
+params.copy_from_tape.run_copy = true
+params.copy_from_tape.remoteUser = "username"
+params.copy_from_tape.remoteHost = "remote.cluster.edu"
+```
+
+## Troubleshooting
+
+### Check Nextflow Logs
+
+```bash
+# View recent log
+cat .nextflow.log
+
+# View execution history
+nextflow log
+
+# View specific run
+nextflow log <run_name> -f name,status,exit,duration
+```
+
+### Common Issues
+
+**GPU not detected**
+- Ensure CUDA drivers are installed
+- Check Singularity GPU bindings: `singularity exec --nv`
+
+**Out of memory**
+- Reduce `params.peasoup.segments` to fewer segments
+- Adjust SLURM memory requests in profile
+
+**Missing input files**
+- Run `validate_inputs` workflow to check paths
+- Verify CSV file format matches expected columns
+
+**Cache corruption**
+- Delete `work/` directory and re-run with `-resume`
+- Clean shared_cache if needed
+
+### Get Help
+
+```bash
+nextflow run elden.nf -entry help
+```
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Submit a pull request
+
+## License
+
+This project is part of the ERC COMPACT project.
+
+## Contact
+
+- Open an issue: [https://github.com/erc-compact/elden-ring/issues](https://github.com/erc-compact/elden-ring/issues)
+- Email: fkareem[at]mpifr-bonn.mpg.de
