@@ -1165,10 +1165,11 @@ workflow validate_inputs {
 
 // Helper function to format duration in human-readable format
 def formatDuration(long millis) {
-    def seconds = (millis / 1000) % 60
-    def minutes = (millis / (1000 * 60)) % 60
-    def hours = (millis / (1000 * 60 * 60)) % 24
-    def days = millis / (1000 * 60 * 60 * 24)
+    def totalSeconds = (millis / 1000L) as long
+    def seconds = totalSeconds % 60
+    def minutes = Math.floorDiv(totalSeconds, 60L) % 60
+    def hours = Math.floorDiv(totalSeconds, 3600L) % 24
+    def days = Math.floorDiv(totalSeconds, 86400L)
 
     if (days > 0) {
         return String.format("%dd %dh %dm %ds", days, hours, minutes, seconds)
