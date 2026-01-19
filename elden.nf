@@ -803,7 +803,11 @@ Generating Input Files:
 -----------------------
 To auto-generate inputfile.txt from your data directory:
 
-   bash generate_inputfile.sh /path/to/data
+   bash generate_inputfile.sh --cluster CLUSTER --ra RA --dec DEC --utc UTC --cdm "47.0 101.0" /path/to/data
+
+For DADA inputs (directories; files expanded later):
+
+   bash generate_inputfile.sh --dada --cluster CLUSTER --ra RA --dec DEC --utc UTC --cdm "47.0 101.0" /path/to/dada_dir1 /path/to/dada_dir2
 
 Tips:
 -----
@@ -819,80 +823,134 @@ READMEEOF
     # Create generate_inputfile.sh script
     cat > "\${BASEDIR}/generate_inputfile.sh" << 'GENEOF'
 #!/bin/bash
-# Generate inputfile.txt from data directory
-# Usage: bash generate_inputfile.sh /path/to/data [cluster_name] [cdm_value]
+# Generate inputfile.txt or dada_files.csv from data directories.
+#
+# Usage:
+#   bash generate_inputfile.sh --cluster CLUSTER --ra RA --dec DEC --utc UTC --cdm "47.0 101.0" /path/to/data
+#   bash generate_inputfile.sh --dada --cluster CLUSTER --ra RA --dec DEC --utc UTC --cdm "47.0 101.0" /path/to/dada_dir1 /path/to/dada_dir2
 
-DATA_DIR="\${1:-.}"
-CLUSTER="\${2:-UNKNOWN}"
-CDM="\${3:-0.0}"
-OUTPUT="inputfile.txt"
+set -euo pipefail
 
-echo "Scanning for data files in: \${DATA_DIR}"
-echo "Cluster name: \${CLUSTER}"
-echo "Default CDM: \${CDM}"
-echo ""
+usage() {
+  cat << 'USAGE'
+Usage:
+  generate_inputfile.sh --cluster CLUSTER --ra RA --dec DEC --utc UTC --cdm "47.0 101.0" DATA_DIR [DATA_DIR...]
+  generate_inputfile.sh --dada --cluster CLUSTER --ra RA --dec DEC --utc UTC --cdm "47.0 101.0" DADA_DIR [DADA_DIR...]
 
-# Write header
-echo "pointing,cluster,beam_name,beam_id,utc_start,ra,dec,fits_files,cdm" > "\${OUTPUT}"
+Options:
+  --dada           Generate dada_files.csv using directory/*dada globs.
+  --cluster NAME   Cluster name to write in CSV.
+  --ra RA          Right ascension (e.g. 18:24:32.89).
+  --dec DEC        Declination (e.g. -24:52:11.4).
+  --utc UTC        UTC start time (e.g. 2025-05-13T01:41:02).
+  --cdm LIST       Space or comma separated CDM values (e.g. "37.0 101.0").
+  --output FILE    Output file name (optional).
+  -h, --help       Show this help.
+USAGE
+}
 
-# Counter for pointing IDs
-pointing=0
+MODE="fits"
+OUTPUT=""
+CLUSTER=""
+RA=""
+DEC=""
+UTC=""
+CDM_LIST=""
+DATA_DIRS=()
 
-# Find all supported file types
-find "\${DATA_DIR}" -type f \\( -name "*.fil" -o -name "*.fits" -o -name "*.sf" -o -name "*.rf" \\) | sort | while read filepath; do
-    filename=\$(basename "\${filepath}")
-
-    # Try to extract beam info from filename (common patterns)
-    # Pattern 1: *_cfbfNNNNN_* or *_cfbfN_*
-    if [[ "\${filename}" =~ cfbf([0-9]+) ]]; then
-        beam_id="\${BASH_REMATCH[1]}"
-        beam_name="cfbf\${beam_id}"
-    # Pattern 2: *_beamNN_*
-    elif [[ "\${filename}" =~ beam([0-9]+) ]]; then
-        beam_id="\${BASH_REMATCH[1]}"
-        beam_name="beam\${beam_id}"
-    # Pattern 3: *_BandN_*
-    elif [[ "\${filename}" =~ Band([0-9]+) ]]; then
-        beam_id="\${BASH_REMATCH[1]}"
-        beam_name="Band\${beam_id}"
-    else
-        beam_id="0"
-        beam_name="beam0"
-    fi
-
-    # Try to extract UTC from filename (pattern: YYYY-MM-DDTHH:MM:SS)
-    if [[ "\${filename}" =~ ([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}) ]]; then
-        utc_start="\${BASH_REMATCH[1]}"
-    elif [[ "\${filename}" =~ ([0-9]{4}-[0-9]{2}-[0-9]{2}) ]]; then
-        utc_start="\${BASH_REMATCH[1]}T00:00:00"
-    else
-        utc_start="1970-01-01T00:00:00"
-    fi
-
-    # Try to extract CDM from filename (pattern: cdm_NN.N or cdm_NN)
-    if [[ "\${filename}" =~ cdm_([0-9.]+) ]]; then
-        file_cdm="\${BASH_REMATCH[1]}"
-    else
-        file_cdm="\${CDM}"
-    fi
-
-    # Default RA/DEC (should be updated manually or from headers)
-    ra="00:00:00.0"
-    dec="+00:00:00.0"
-
-    # Write entry
-    echo "\${pointing},\${CLUSTER},\${beam_name},\${beam_id},\${utc_start},\${ra},\${dec},\${filepath},\${file_cdm}" >> "\${OUTPUT}"
-
-    ((pointing++))
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --dada) MODE="dada"; shift ;;
+    --cluster) CLUSTER="${2:-}"; shift 2 ;;
+    --ra) RA="${2:-}"; shift 2 ;;
+    --dec) DEC="${2:-}"; shift 2 ;;
+    --utc) UTC="${2:-}"; shift 2 ;;
+    --cdm) CDM_LIST="${2:-}"; shift 2 ;;
+    --output) OUTPUT="${2:-}"; shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    *) DATA_DIRS+=("$1"); shift ;;
+  esac
 done
 
+if [[ -z "${CLUSTER}" || -z "${RA}" || -z "${DEC}" || -z "${UTC}" || -z "${CDM_LIST}" || ${#DATA_DIRS[@]} -eq 0 ]]; then
+  echo "ERROR: missing required arguments."
+  usage
+  exit 1
+fi
+
+CDM_LIST_CLEAN="$(echo "${CDM_LIST}" | tr ',' ' ' | xargs)"
+if [[ -z "${CDM_LIST_CLEAN}" ]]; then
+  echo "ERROR: CDM list is empty."
+  exit 1
+fi
+read -r -a CDMS <<< "${CDM_LIST_CLEAN}"
+
+if [[ -z "${OUTPUT}" ]]; then
+  if [[ "${MODE}" == "dada" ]]; then
+    OUTPUT="dada_files.csv"
+  else
+    OUTPUT="inputfile.txt"
+  fi
+fi
+
+echo "Mode: ${MODE}"
+echo "Output: ${OUTPUT}"
+echo "Cluster: ${CLUSTER}"
+echo "RA/DEC: ${RA} ${DEC}"
+echo "UTC: ${UTC}"
+echo "CDM list: ${CDM_LIST_CLEAN}"
+echo "Data dirs: ${DATA_DIRS[*]}"
 echo ""
-echo "Generated \${OUTPUT} with \$(( \$(wc -l < \${OUTPUT}) - 1 )) entries"
-echo ""
-echo "IMPORTANT: Please verify and update the following in \${OUTPUT}:"
-echo "  - RA and DEC coordinates (currently set to defaults)"
-echo "  - CDM values if not extracted from filenames"
-echo "  - Cluster name if different from '\${CLUSTER}'"
+
+extract_beam() {
+  local text="$1"
+  if [[ "${text}" =~ baseband([0-9]+) ]]; then
+    local id="${BASH_REMATCH[1]}"
+    printf "%s %s\n" "${id}" "$(printf "cfbf%05d" "${id}")"
+  elif [[ "${text}" =~ cfbf([0-9]+) ]]; then
+    echo "${BASH_REMATCH[1]} cfbf${BASH_REMATCH[1]}"
+  elif [[ "${text}" =~ beam([0-9]+) ]]; then
+    echo "${BASH_REMATCH[1]} beam${BASH_REMATCH[1]}"
+  elif [[ "${text}" =~ Band([0-9]+) ]]; then
+    echo "${BASH_REMATCH[1]} Band${BASH_REMATCH[1]}"
+  else
+    echo "0 beam0"
+  fi
+}
+
+pointing=0
+
+if [[ "${MODE}" == "dada" ]]; then
+  echo "pointing,dada_files,cluster,beam_name,beam_id,utc_start,ra,dec,cdm_list" > "${OUTPUT}"
+  for dir in "${DATA_DIRS[@]}"; do
+    if [[ ! -d "${dir}" ]]; then
+      echo "WARNING: ${dir} is not a directory; skipping"
+      continue
+    fi
+    dir="${dir%/}"
+    read -r beam_id beam_name < <(extract_beam "${dir}")
+    dada_glob="${dir}/*dada"
+    echo "${pointing},${dada_glob},${CLUSTER},${beam_name},${beam_id},${UTC},${RA},${DEC},\"${CDM_LIST_CLEAN}\"" >> "${OUTPUT}"
+    ((pointing++))
+  done
+else
+  echo "pointing,cluster,beam_name,beam_id,utc_start,ra,dec,fits_files,cdm" > "${OUTPUT}"
+  mapfile -t files < <(find "${DATA_DIRS[@]}" -type f \\( -name "*.fil" -o -name "*.fits" -o -name "*.sf" -o -name "*.rf" \\) | sort)
+  if [[ ${#files[@]} -eq 0 ]]; then
+    echo "WARNING: no matching files found."
+  fi
+  for filepath in "${files[@]}"; do
+    filename="$(basename "${filepath}")"
+    read -r beam_id beam_name < <(extract_beam "${filename}")
+    for cdm in "${CDMS[@]}"; do
+      echo "${pointing},${CLUSTER},${beam_name},${beam_id},${UTC},${RA},${DEC},${filepath},${cdm}" >> "${OUTPUT}"
+      ((pointing++))
+    done
+  done
+fi
+
+lines=$(( $(wc -l < "${OUTPUT}") - 1 ))
+echo "Generated ${OUTPUT} with ${lines} entries"
 GENEOF
 
     chmod +x "\${BASEDIR}/generate_inputfile.sh"
@@ -921,7 +979,9 @@ METAEOF
     echo ""
     echo "  2. Generate input file from your data directory:"
     echo "     cd ${basedir}"
-    echo "     bash generate_inputfile.sh /path/to/your/data CLUSTER_NAME CDM_VALUE"
+    echo "     bash generate_inputfile.sh --cluster CLUSTER --ra RA --dec DEC --utc UTC --cdm \"47.0 101.0\" /path/to/data"
+    echo "     # DADA example:"
+    echo "     bash generate_inputfile.sh --dada --cluster CLUSTER --ra RA --dec DEC --utc UTC --cdm \"47.0 101.0\" /path/to/dada_dir1 /path/to/dada_dir2"
     echo ""
     echo "     Or manually edit inputfile.txt"
     echo ""

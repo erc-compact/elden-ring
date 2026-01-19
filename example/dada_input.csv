@@ -1,2 +1,2 @@
 pointing,dada_files,cluster,beam_name,beam_id,utc_start,ra,dec,cdm_list
-0,/bEDD/EDD_pipeline_data/production/pipeline_data/baseband3/107-23/NGC6626/2025-05-13/,NGC6626,cfbf00003,3,2025-05-13T01:41:02,18:24:32.89,-24:52:11.4,37.0,101.0
+0,/bEDD/EDD_pipeline_data/production/pipeline_data/baseband3/107-23/NGC6626/2025-05-13/*dada,NGC6626,cfbf00003,3,2025-05-13T01:41:02,18:24:32.89,-24:52:11.4,37.0 101.0
