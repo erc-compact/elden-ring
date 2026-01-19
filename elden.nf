@@ -872,7 +872,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ -z "${CLUSTER}" || -z "${RA}" || -z "${DEC}" || -z "${UTC}" || -z "${CDM_LIST}" || ${#DATA_DIRS[@]} -eq 0 ]]; then
+if [[ -z "${CLUSTER}" || -z "${RA}" || -z "${DEC}" || -z "${UTC}" || -z "${CDM_LIST}" || \${#DATA_DIRS[@]} -eq 0 ]]; then
   echo "ERROR: missing required arguments."
   usage
   exit 1
