@@ -5,7 +5,7 @@
 #   bash generate_inputfile.sh --cluster CLUSTER --ra RA --dec DEC --utc UTC --cdm "47.0 101.0" /path/to/data
 #   bash generate_inputfile.sh --dada --cluster CLUSTER --ra RA --dec DEC --utc UTC --cdm "47.0 101.0" /path/to/dada_dir1 /path/to/dada_dir2
 
-set -euo pipefail
+set -uo pipefail
 
 usage() {
   cat << 'USAGE'
@@ -110,7 +110,6 @@ if [[ "${MODE}" == "dada" ]]; then
     read -r beam_id beam_name < <(extract_beam "${dir}")
     dada_glob="${dir}/*dada"
     echo "${pointing},${dada_glob},${CLUSTER},${beam_name},${beam_id},${UTC},${RA},${DEC},${CDM_LIST_CLEAN}" >> "${OUTPUT}"
-    ((pointing++))
   done
 else
   echo "pointing,cluster,beam_name,beam_id,utc_start,ra,dec,fits_files,cdm" > "${OUTPUT}"
@@ -123,7 +122,7 @@ else
     read -r beam_id beam_name < <(extract_beam "${filename}")
     for cdm in "${CDMS[@]}"; do
       echo "${pointing},${CLUSTER},${beam_name},${beam_id},${UTC},${RA},${DEC},${filepath},${cdm}" >> "${OUTPUT}"
-      ((pointing++))
+      pointing=$((pointing + 1))
     done
   done
 fi
