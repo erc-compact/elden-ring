@@ -21,7 +21,7 @@
                 "min": null,
                 "max": null
             },
-            "total_cands_limit": 2500
+            "total_cands_limit": null
         },
         {
             "spin_period": {

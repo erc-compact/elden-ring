@@ -23,7 +23,7 @@ process {
     // Birdies Process Configuration
     withLabel: 'birdies' {
         cpus           = 1
-        memory         = '200 GB'
+        memory         = '100 GB'
         time           = { 4.hour * task.attempt }
         queue          = { (task.time <= 4.hour) ? "short.q" : "gpu.q" }
         clusterOptions = '--gres=gpu:1'
@@ -123,7 +123,8 @@ params {
     rfi_mitigation_image  = "/hercules/scratch/fkareem/singularity_img/rfi-mitigation-nextflow_amd64.sif"
     presto5_image         = "${singularity_image_dir}/presto5_pddot.sif"
     pics_classifier_image = "/hercules/scratch/fkareem/singularity_img/trapum_pulsarx_fold_docker_20220411.sif"
-
+    filtools_sig_image    = "${singularity_image_dir}/filtools-image_sig.sif"
+    rusty_candypicker     = "${singularity_image_dir}/rusty_candypicker_latest.sif"
     // Number of threads for processes used in filtool
     threads = 48  // Adjust as per the cluster's CPU availability
 }
@@ -132,7 +133,7 @@ params {
 apptainer {
     enabled = true
     autoMounts   = true
-    runOptions = '-B /hercules/ --nv'
+    runOptions = '-B /hercules/ -B /u/ --nv'
     envWhitelist = 'APPTAINER_BINDPATH, APPTAINER_LD_LIBRARY_PATH'
 }
 

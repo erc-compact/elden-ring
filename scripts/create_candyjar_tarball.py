@@ -7,7 +7,7 @@ If no splitting is requested (npointings=0), a separate tarball for candidates
 with alpha < 1.0 will also be created.
 
 Usage:
-    python pipeline.py -i input.csv -o output.tar.gz -d /path/to/output/ -m /path/to/metafiles/ [--threshold 0.1] [--npointings N] [--verbose]
+    python pipeline.py -i input.csv -o output.tar.gz -d /path/to/output/ -m /path/to/metafiles/ [--snr_threshold 6.0] [--threshold 0.1] [--npointings N] [--verbose]
 
 Examples:
     - Create one tarball with all candidates and an extra tarball for alpha < 1.0:
@@ -68,12 +68,20 @@ class TarballCreator:
                     logger.debug("Added main CSV: %s", output_csv)
                 # Add metafiles into the 'metafiles' folder.
                 for metafile in meta_files:
-                    tar.add(
-                        metafile,
-                        arcname=os.path.join("metafiles", os.path.basename(metafile)),
-                    )
-                    if logger:
-                        logger.debug("Added metafile: %s", metafile)
+                    arcname = os.path.join("metafiles", os.path.basename(metafile))
+                    if os.path.isfile(metafile):
+                        tar.add(metafile, arcname=arcname)
+                        if logger:
+                            logger.debug("Added metafile: %s", metafile)
+                    else:
+                        # Create an empty temp file and add it
+                        with open(metafile, "w") as f:
+                            pass  # creates a blank file
+                        tar.add(metafile, arcname=arcname)
+                        if logger:
+                            logger.warning(
+                                "Metafile not found. Created blank: %s", metafile
+                            )
                 # Add PNG images into the 'plots' folder.
                 for png in png_files:
                     # check if the file exists
@@ -114,6 +122,7 @@ class CandidateProcessor:
         output_tarball_path: str,
         metafile_source_path: str,
         threshold: float,
+        snr_threshold: float,
         logger: logging.Logger,
     ):
         self.input_file = input_file
@@ -121,6 +130,7 @@ class CandidateProcessor:
         self.output_tarball_path = output_tarball_path
         self.metafile_source_path = metafile_source_path
         self.threshold = threshold
+        self.snr_threshold = snr_threshold
         self.logger = logger
 
         # Intermediate CSV filenames.
@@ -229,6 +239,7 @@ class CandidateProcessor:
                 merged["maxdm_ymw16"] = row["maxdm_ymw16"]
                 merged["metafile_path"] = row["metafile_path"]
                 merged["segment_id"] = row["segment_id"]
+                merged["cdm"] = row["cdm"]
 
                 total_rows += merged.shape[0]
                 merged_results.extend(merged.values.tolist())
@@ -326,6 +337,7 @@ class CandidateProcessor:
             "sn_fold",
             "maxdm_ymw16",
             "dist_ymw16",
+            "cdm",
             "pics_trapum_ter5",
             "pics_palfa",
             "pics_palfa_meerkat_l_sband_best_fscore",
@@ -345,6 +357,15 @@ class CandidateProcessor:
         ]
 
         self.logger.info("Final DataFrame ready with %d rows.", final_df.shape[0])
+        
+        final_df = final_df[final_df["sn_fold"] > self.snr_threshold]
+        
+        self.logger.info(
+            "Filtered DataFrame to %d rows with SNR threshold: %f",
+            final_df.shape[0],
+            self.snr_threshold,
+        )
+        
         return final_df, png_files, meta_files
 
     def filter_and_save(self, final_df: pd.DataFrame) -> None:
@@ -362,7 +383,9 @@ class CandidateProcessor:
             | (final_df["pics_palfa"] >= self.threshold)
             | (final_df["pics_palfa_meerkat_l_sband_best_fscore"] >= self.threshold)
             | (final_df["pics_meerkat_l_sband_combined_best_recall"] >= self.threshold)
+            & (final_df["sn_fold"] >= self.snr_threshold)
         )
+
         pics_df = final_df.loc[condition]
         pics_df.to_csv(self.pics_csv, index=False)
         self.logger.info(
@@ -411,6 +434,13 @@ def parse_arguments() -> argparse.Namespace:
         default=0.1,
         help="Threshold for pics score filtering (default: 0.1)",
     )
+    parser.add_argument(
+        "--snr_threshold",
+        type=float,
+        default=0.0,
+        help="SNR threshold for filtering candidates (default: 0.0)",
+    )
+
     parser.add_argument(
         "--npointings",
         type=int,
@@ -478,16 +508,17 @@ def process_pointing_group(args_tuple):
 
     # Create main tarball.
     tarball_name = f"{output_prefix}_set_{idx}.tar.gz"
-    # additional_files = [subset_alpha_csv, subset_pics_csv]
+    tarball_path = os.path.join(output_path, tarball_name)
+    additional_files = [subset_alpha_csv, subset_pics_csv]
     # Comment this out if you want the tarball with all the candidates
-    # TarballCreator.create_tarball(
-    #     output_csv=subset_candidates_csv,
-    #     meta_files=subset_meta_files,
-    #     png_files=subset_png_files,
-    #     tarball_name=tarball_name,
-    #     additional_files=additional_files,
-    #     logger=None
-    # )
+    TarballCreator.create_tarball(
+        output_csv=subset_candidates_csv,
+        meta_files=subset_meta_files,
+        png_files=subset_png_files,
+        tarball_name=tarball_path,
+        additional_files=additional_files,
+        logger=None,
+    )
 
     # Create separate alpha tarball.
     alpha_png_files = (
@@ -550,19 +581,18 @@ def process_pointing_group(args_tuple):
 
 
 def create_single_tarball(processor, meta_files, png_files, args, logger):
-
     # Comment this out if you want the tarball with all the candidates
-    # main_tarball = os.path.join(args.output_path, args.output_file)
-    # additional_files = [processor.alpha_csv, processor.pics_csv]
-    # TarballCreator.create_tarball(
-    #     output_csv=processor.candidates_csv,
-    #     meta_files=meta_files,
-    #     png_files=png_files,
-    #     tarball_name=main_tarball,
-    #     additional_files=additional_files,
-    #     logger=logger
-    # )
-    # logger.info("Created single tarball with all candidates: %s", args.output_file)
+    main_tarball = os.path.join(args.output_path, args.output_file)
+    additional_files = [processor.alpha_csv, processor.pics_csv]
+    TarballCreator.create_tarball(
+        output_csv=processor.candidates_csv,
+        meta_files=meta_files,
+        png_files=png_files,
+        tarball_name=main_tarball,
+        additional_files=additional_files,
+        logger=logger,
+    )
+    logger.info("Created single tarball with all candidates: %s", args.output_file)
 
     # Create separate alpha tarball.
     alpha_df = pd.read_csv(processor.alpha_csv)
@@ -638,6 +668,7 @@ def main():
         output_tarball_path=args.output_path,
         metafile_source_path=args.metafile_source_path,
         threshold=args.threshold,
+        snr_threshold=args.snr_threshold,
         logger=logger,
     )
 

@@ -56,28 +56,10 @@ process filtool {
     }
     """
     #!/bin/bash
-    # Get the first file from the inputFile string
-    # This is used to determine the file extension
-    first_file=\$(echo ${fits_files} | awk '{print \$1}')
-
-    # Extract the file extension from the first file
-    file_extension="\$(basename "\${first_file}" | sed 's/.*\\.//')"
-    
     if [[ ${telescope} == "effelsberg" ]]; then
-        if [[ "\${file_extension}" == "fits" ]]; then
-            filtool --psrfits --flip --td ${params.filtool.td} --fd ${params.filtool.fd} -t ${threads} --telescope ${telescope} ${zaplist} -o ${outputFile} -f ${fits_files} -s ${source_name}
-        elif [[ "\${file_extension}" == "sf" ]]; then
-            filtool --psrfits --flip --td ${params.filtool.td} --fd ${params.filtool.fd} -t ${threads} --telescope ${telescope} ${zaplist} -o ${outputFile} -f ${fits_files} -s ${source_name}
-        else 
-            filtool --flip --td ${params.filtool.td} --fd ${params.filtool.fd} -t ${threads} --telescope ${telescope} ${zaplist} -o ${outputFile} -f ${fits_files} -s ${source_name}
-        fi
-
+        filtool -t ${threads} --telescope ${telescope} ${zaplist} -o ${outputFile} -f ${fits_files} -s ${source_name}
     elif [[ ${telescope} == "meerkat" ]]; then
-        if [[ "\${file_extension}" == "sf" ]]; then
-            filtool --psrfits --td ${params.filtool.td} --fd ${params.filtool.fd} -t ${threads} --telescope ${telescope} ${zaplist} -o ${outputFile} -f ${fits_files} -s ${source_name}
-        else 
-            filtool --td ${params.filtool.td} --fd ${params.filtool.fd} -t ${threads} --telescope ${telescope} ${zaplist} -o "${outputFile}" -f ${fits_files} -s ${source_name}
-        fi
+        filtool -t ${threads} --telescope ${telescope} ${zaplist} -o "${outputFile}" -f ${fits_files} -s ${source_name}
     fi
     """
 }
@@ -125,9 +107,6 @@ process peasoup {
     label 'peasoup'
     container "${params.peasoup_image}"
     publishDir "${params.basedir}/${cluster}/${beam_name}/segment_${segments}/${segments}${segment_id}/SEARCH/", pattern: "*.xml", mode: 'copy'
-    scratch true
-    stageInMode 'copy'
-    stageOutMode 'move'
 
     input:
     tuple path(fil_file), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(tsamp), val(nsamples),val(rfi_filter_string_id), val(rfi_filter_string), val(segments), val(segment_id), val(fft_size), val(start_sample)
@@ -140,7 +119,7 @@ process peasoup {
     """
     #!/bin/bash
 
-    peasoup -i ${fil_file} --fft_size ${fft_size} --limit ${params.peasoup.total_cands_limit} -m ${params.peasoup.min_snr} -t ${params.peasoup.ngpus} -n ${params.peasoup.nharmonics} --acc_start ${params.peasoup.acc_start} --acc_end ${params.peasoup.acc_end} --ram_limit_gb ${params.peasoup.ram_limit_gb} --dm_file ${dm_file} --start_sample ${start_sample} --cdm ${params.psrfold.cdm} --acc_pulse_width 64 --acc_tol 1.11 --dm_pulse_width 64 --min_freq 0.1 --max_freq 1100.0
+    peasoup -i ${fil_file} --fft_size ${fft_size} --limit ${params.peasoup.total_cands_limit} -m ${params.peasoup.min_snr} -t ${params.peasoup.ngpus} -n ${params.peasoup.nharmonics} --acc_start ${params.peasoup.acc_start} --acc_end ${params.peasoup.acc_end} --ram_limit_gb ${params.peasoup.ram_limit_gb} --dm_file ${dm_file} --start_sample ${start_sample} --cdm 52.0 --acc_pulse_width 64 --acc_tol 1.11 --dm_pulse_width 64 --min_freq 0.1 --max_freq 1100.0
 
     #Rename the output file
     mv **/*.xml ${beam_name}_${dm_file.baseName}_ck${segments}${segment_id}_rfi_${rfi_filter_string_id}_overview.xml
@@ -151,7 +130,6 @@ process parse_xml {
     label 'parse_xml'
     container "${params.pulsarx_image}"
     publishDir "${params.basedir}/${cluster}/${beam_name}/segment_${segments}/${segments}${segment_id}/PARSEXML/", pattern: "*{csv,meta}", mode: 'copy'
-    stageInMode 'symlink'
 
     input:
     tuple val(cluster),val(beam_name), val(beam_id), val(utc_start), val(fft_size), val(rfi_filter_string_id), val(rfi_filter_string), val(segments), val(segment_id), val(dm_file), val(fil_file_base), path(fil_file), path(xml_files), val(start_sample)
@@ -204,7 +182,7 @@ process splitcands {
 process psrfold {
     label "psrfold"
     container "${params.pulsarx_image}"
-    scratch true
+
     // maxForks 100
     publishDir "${params.basedir}/${cluster}/${beam_name}/segment_${segments}/${segments}${segment_id}/FOLDING/", pattern: "*.png", mode: 'copy'
     publishDir "${params.basedir}/${cluster}/${beam_name}/segment_${segments}/${segments}${segment_id}/FOLDING/", pattern: "*.ar", mode: 'copy'

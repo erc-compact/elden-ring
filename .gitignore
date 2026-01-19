@@ -6,11 +6,14 @@
 .report.html
 .profile.html
 *.exec
+work/
 
 # outputs & logs
 results/
 output/
 logs/
+.cumulative*
+pipeline_summary*
 
 # local configs
 conf/profiles/*.config

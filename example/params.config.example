@@ -2,12 +2,17 @@ params {
     cache           = 'lenient'
     // Base directories
     basedir         = "/b/PROCESSING_FAZAL/"
+    runID          = "UBB_NGC6401_02_PERIODICITY"
     template_dir    = "${projectDir}/templates"
     pics_model_dir  = "${projectDir}/ML_Models"
+    split_fil = true
+    split_freq = 1200.0
+    stack_by_cdm    = true // stack eff bands into 1+2+3, 4+5+6+7, and 1+2+3+4+5+6+7 currently only in the full pipeline.
+    stacks          = ['0000123': [1,2,3], '0004567':[4,5,6,7], '1234567':[1,2,3,4,5,6,7]] // 'key':[beam numbers], the key will be used as beam name. 
 
     // Input files
     files_list      = "${projectDir}/inputfile.txt"
-    metafile_source_path = "${projectDir}/include/"
+    metafile_source_path = "${basedir}/meta/"
 
     // Telescope configuration
     telescope       = "effelsberg"  // Options: 'meerkat', 'effelsberg', etc.
@@ -20,10 +25,21 @@ params {
         archivePath = "/p/MFR/MEERKAT/TRAPUM/TRAPUM_ALL_OBS_BY_CLUSTER/NGC6717/NGC6717_01L-trapum"
     }
 
+    dada{
+        dada_csv = "${basedir}/dada_files.csv"
+        bits = 8
+        nsblk = 4096
+        nchan = 768
+        tsamp = 60e-6
+        dedispersion = true
+        nfft = 32768
+        npol = 1
+    }
+
     // Generate RFI Filter Parameters
     generateRfiFilter {
         // Define parameters for folder paths
-        default_filter = "kadaneF 8 4 kadaneT 8 4"
+        default_flag = "kadaneF 8 4 kadaneT 8 4" // Default RFI filter to apply
         run_rfi_filter       = true // Set to false to use default RFI filters
         target_resolution_ms = 1.0   // Time sample to calculate mean, skew, kurtosis in milliseconds
     }
@@ -38,9 +54,9 @@ params {
     filtool {
         run_filtool = true 
         output_path = "${basedir}/Filtool"
-        td = 1 // tscrunch
-        fd = 1 // fscrunch
-        flip = true // Flip the data if needed ( required for Effelsberg data)
+        td = 1    // time scrunch 
+        fd = 1    // frequency scrunch
+        flip = true
         rfi_filter_list = [
             effelsberg: "kadaneF 8 4 kadaneT 8 4 zdot zap 1432.65 1434.68 zap 1452.47 1472.29 zap 1514.47 1514.47 zap 1520.06 1520.06 zap 1526.16 1526.67 zap 1530.23 1531.24 zap 1532.77 1544.96 zap 1545.98 1554.62 zap 1555.64 1557.16 zap 1559.19 1560.72 zap 1561.74 1564.28 zap 1565.29 1565.80 zap 1566.82 1566.82 zap 1567.83 1568.85 zap 1570.88 1571.90 zap 1572.92 1573.93 zap 1615.10 1634.92 zap 1642.54 1642.54 zap 1648.64 1649.15 zap 1711.15 1712.67 zap 1715.22 1715.72 zap 1717.25 1719.28 zap 1725.38 1727.41 zap 1728.43 1728.94 zap 1741.64 1741.64 zap 1742.66 1749.77 zap 1755.36 1755.87 zap 1798.05 1858.53 zap 1869.71 1874.28 zap 1881.40 1882.42 zap 1885.47 1885.47 zap 1886.99 1887.50 zap 1888.51 1889.02 zap 1890.04 1891.06 zap 1892.58 1892.58 zap 1893.60 1898.17 zap 1921.04 1926.12 zap 1936.79 1939.34", 
             meerkat: "kadaneF 8 4 kadaneT 8 4 zdot"
@@ -50,6 +66,7 @@ params {
 
     // Dispersion Measure (DM) Plan
     ddplan {
+        use_zero_dm = true // Whether to include DM=0 in the plan. 
         dm_start  = 85
         dm_end    = 95
         dm_step   = 0.1
@@ -63,12 +80,16 @@ params {
         // filterbanks into. 1=full_search, 2=split_in_half, etc.
         // Each entry in the list will be executed, so [1,2] will result in a 
         // full search and a segmented search on the halves
+        birdies_min_snr     = 11.0 // Minimum SNR for birdies
+        default_birdies     = "${projectDir}/include/default_birdies.txt" // Path to the default birdies file
+        birdies_max_freq    = 8300.0 // Maximum frequency for birdies in Hz default is 1100 Hz in peasoup
+        birdies_ram_limit_gb = 90.0 // RAM limit for birdies search in GB
+        birdies_harmonics  = 1 // Number of harmonics for birdies search ( keep 1 if giving max_freq = nyquist freq )
         min_snr             = 7.0
-        birdies_min_snr     = 14.0
         acc_start           = -50
         acc_end             = 50
         ram_limit_gb        = 145
-        nharmonics          = 4
+        nharmonics          = 4 
         ngpus               = 1
         total_cands_limit   = 5000
     }
@@ -76,6 +97,14 @@ params {
     // Parse XML Parameters
     parse_xml {
         script              = "${projectDir}/scripts/parse_split.py"    // Path to the parsexml.py script
+        pick_candies        = true  // Whether to pick candidates using candy_picker_rs
+        candy_picker_period_threshold = 1e-7 // Period threshold for candy picker in seconds
+        candy_picker_remove_birdies = true // true if you want to provide a birdie file 'freq width' to remove birdies from xml file.
+        candy_picker_birdies_file = "${projectDir}/include/default_birdies.txt" // Path to the birdies file for candy picker
+        birdies_harmonics = 16 // Max harmonic multiple to reject for each birdie (k=1..N) [default: 16]
+        scale_birdie_width = true // Whether to scale birdie width with frequency
+        candy_picker_dm_tolerance = 0 // DM tolerance for candy picker (set to 0 to ignore DM)
+        filter_cands      = true  // Whether to filter candidates using a config file
         config_file         = "${projectDir}/templates/pulsarx_fold_config_eff.json"  // Path to the config file for filtering the candidates. 
     }
 
@@ -91,8 +120,9 @@ params {
         clfd               = 2.0   
         threads            = 50        // Number of threads to use for folding // use 48 for hercules
         template_dir       = "${projectDir}/templates"  // Path to the template directory
-        cdm                 = 0.0    // Coherent DM usually 0.0 unless specified otherwise
         cands_per_node     = 350 // Number of candidates to fold per node. For single candidate file set this to 0.
+        cluster_folded     = true // Whether to cluster the folded candidates using csv_candypicker
+        dm_tolerance       = 0 // DM tolerance for csv_candypicker (set to 0 to ignore DM)
     }
 
     alpha_beta_gamma {
@@ -100,15 +130,17 @@ params {
         create_candyjar_tarball = true
         output_dir_alpha_pics_results = "NGC6656"
         threshold = 0.1
+        snr_threshold = 6.0
     }
 
     parfold {
         output_path = "${basedir}/PulsarX/ParFold"
         parfile_path = "/bscratch/fazal/meertime-ptuse_custom-052b72f73862/M28/J1824-2452C.par"
         threads = 48
+        subintlength        = 10
         nbins               = 32     // defaulf nbin for fold
         binplan             = "0.005 32 0.01 64 0.1 128"
-        nsub                = 64
+        nsub                = null // give value if you want to subband. 
         clfd               = 2.0
     }
 
@@ -120,5 +152,21 @@ params {
         nbins = 32
         binplan = "0.005 32 0.01 64 0.1 128"
         clfd = 2.0
+    }
+
+    // =========================================================================
+    // Monitoring and Notification Settings
+    // =========================================================================
+    notification {
+        enabled = false              // Set to true to enable email notifications
+        email = ""                   // Email address for notifications (required if enabled)
+        on_complete = true           // Send notification when pipeline completes
+        on_fail = true               // Send notification when pipeline fails
+        on_error = true              // Send notification on errors
+        // SMTP settings (only needed if your system doesn't have sendmail configured)
+        // smtp_host = "smtp.example.com"
+        // smtp_port = 587
+        // smtp_user = ""
+        // smtp_password = ""
     }
 }

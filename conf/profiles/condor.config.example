@@ -88,6 +88,7 @@ params {
     peasoup_image         = 'docker://vishnubk/peasoup:sm89'
     rfi_mitigation_image  = 'docker://wintervolcano/rfi-mitigation-nextflow:amd64'
     pics_classifier_image = 'docker://vishnubk/pics:20230630_pics_model_update'
+    rusty_candypicker     = 'docker://wintervolcano/rusty_candypicker:latest'
 
     // Number of threads for processes
     threads = 20  // Adjust as per the Edgar cluster's CPU availability

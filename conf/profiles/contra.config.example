@@ -110,15 +110,15 @@ params {
     rfi_mitigation_image  = "${singularity_image_dir}/rfi-mitigation-nextflow_amd64.sif"
     presto5_image         = "${singularity_image_dir}/presto5_pddot.sif"
     pics_classifier_image = "${singularity_image_dir}/trapum_pulsarx_fold_docker_20220411.sif"
-
+    filtools_sig_image    = "${singularity_image_dir}/filtools-image_sig.sif"
+    rusty_candypicker     = "${singularity_image_dir}/rusty_candypicker_latest.sif"
     threads               = 20
 }
 
 // Singularity configuration for Contra
 apptainer {
         enabled = true
-        autoMounts   = true
-        runOptions = '--env="CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}" -B /b -B /bscratch -B /homes --nv'
+        runOptions = '--env="CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}" -B /b -B /bscratch --nv'
         envWhitelist = 'APPTAINER_BINDPATH, APPTAINER_LD_LIBRARY_PATH'
     }
 
