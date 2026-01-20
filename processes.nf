@@ -33,7 +33,7 @@ process dada_to_fits {
     tuple val(pointing), val(dada_files), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm)
 
     output:
-    tuple val(pointing), path(filename), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm)
+    tuple val(pointing), path(filename), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(filename)
 
     script:
     filename = "${cluster}_${utc_start}_${beam_name}_cdm_${cdm}.sf"
