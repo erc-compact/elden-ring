@@ -1,336 +1,529 @@
 #!/usr/bin/env python3
 """
 Create CandyJar-compatible tarballs from PRESTO pipeline results.
-Similar to create_candyjar_tarball.py but handles PRESTO pfd files.
+
+This script creates tarballs that match the exact structure expected by CandyJar,
+including the same CSV fields and folder structure as create_candyjar_tarball.py.
+
+Tarball Structure:
+    {tarball_name}/
+    ├── candidates.csv
+    ├── candidates_pics_above_threshold.csv
+    ├── metafiles/
+    │   └── {utc_start}.meta
+    └── plots/
+        └── *.png
+
+Note: PRESTO doesn't produce alpha/beta/gamma values (those come from pulsarx fold
+optimization), so candidates_alpha_below_one.csv is not created for PRESTO.
+
+Author: ELDEN-RING Pipeline
 """
 
 import argparse
-import csv
-import glob
+import logging
 import os
 import sys
 import tarfile
 import shutil
 from datetime import datetime
 
+import pandas as pd
+import numpy as np
 
-def parse_pfd_info(pfd_file):
+# Optional imports for galactic coordinate calculation
+try:
+    from astropy.coordinates import SkyCoord
+    from astropy import units as u
+    from astropy.time import Time
+    import pygedm
+    HAS_ASTROPY = True
+except ImportError:
+    HAS_ASTROPY = False
+
+
+def setup_logging(verbose: bool) -> logging.Logger:
+    log_level = logging.DEBUG if verbose else logging.INFO
+    logging.basicConfig(
+        format="[%(asctime)s] %(levelname)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+        level=log_level,
+    )
+    return logging.getLogger(__name__)
+
+
+def add_galactic_info(df: pd.DataFrame, logger: logging.Logger) -> pd.DataFrame:
     """
-    Extract basic info from a pfd filename.
-    Expected format: beam_DM{dm}_{cand_num}.pfd
+    Add galactic coordinates, MJD, and max DM from YMW16 model.
+    Matches the processing done in create_candyjar_tarball.py.
     """
-    info = {
-        'filename': os.path.basename(pfd_file),
-        'dm': 0.0,
-        'cand_num': 0
+    if not HAS_ASTROPY:
+        logger.warning("Astropy/pygedm not available. Skipping galactic coordinate calculation.")
+        df["gl"] = 0.0
+        df["gb"] = 0.0
+        df["mjd_start"] = 0.0
+        df["maxdm_ymw16"] = 0.0
+        df["dist_ymw16"] = 0.0
+        return df
+
+    logger.info("Adding galactic coordinate info.")
+
+    # Get unique RA/Dec combinations
+    if "ra" in df.columns and "dec" in df.columns:
+        unique = df[["ra", "dec"]].drop_duplicates().copy()
+
+        # Handle different RA/Dec formats
+        try:
+            # Try hourangle format first (HH:MM:SS)
+            coords = SkyCoord(ra=unique["ra"], dec=unique["dec"], unit=(u.hourangle, u.deg))
+        except Exception:
+            try:
+                # Try degree format
+                coords = SkyCoord(ra=unique["ra"], dec=unique["dec"], unit=(u.deg, u.deg))
+            except Exception as e:
+                logger.warning(f"Could not parse coordinates: {e}")
+                df["gl"] = 0.0
+                df["gb"] = 0.0
+                df["maxdm_ymw16"] = 0.0
+                df["dist_ymw16"] = 0.0
+                return df
+
+        unique["gl"] = coords.galactic.l.deg
+        unique["gb"] = coords.galactic.b.deg
+
+        # Calculate max DM using YMW16 model
+        max_dm = []
+        for idx, row in unique.iterrows():
+            try:
+                dm, _ = pygedm.dist_to_dm(row["gl"], row["gb"], 50000, method="ymw16")
+                max_dm.append(dm.value)
+            except Exception as err:
+                logger.debug(f"DM calc failed at index {idx}: {err}")
+                max_dm.append(float("nan"))
+        unique["maxdm_ymw16"] = max_dm
+
+        # Merge back
+        df = df.merge(unique[["ra", "dec", "gl", "gb", "maxdm_ymw16"]], on=["ra", "dec"], how="left")
+    else:
+        df["gl"] = 0.0
+        df["gb"] = 0.0
+        df["maxdm_ymw16"] = 0.0
+
+    # Add MJD start if utc_start is available
+    if "utc_start" in df.columns:
+        try:
+            # Try different datetime formats
+            for fmt in ["%Y-%m-%dT%H:%M:%S", "%Y-%m-%d-%H:%M:%S", "%Y/%m/%d %H:%M:%S"]:
+                try:
+                    df["mjd_start"] = df["utc_start"].apply(
+                        lambda x: Time(datetime.strptime(str(x), fmt)).mjd if pd.notna(x) else 0.0
+                    )
+                    break
+                except Exception:
+                    continue
+            else:
+                df["mjd_start"] = 0.0
+        except Exception as e:
+            logger.warning(f"Could not calculate MJD: {e}")
+            df["mjd_start"] = 0.0
+    else:
+        df["mjd_start"] = 0.0
+
+    # Add dist_ymw16 placeholder (would need DM to calculate properly)
+    df["dist_ymw16"] = 0.0
+
+    logger.debug("Galactic info added.")
+    return df
+
+
+def normalize_presto_columns(df: pd.DataFrame, logger: logging.Logger) -> pd.DataFrame:
+    """
+    Normalize PRESTO output columns to match CandyJar expected format.
+    """
+    logger.info("Normalizing PRESTO columns to CandyJar format.")
+
+    # Column mapping from PRESTO output to CandyJar format
+    rename_map = {
+        # Period/frequency columns
+        "period": "period_s",
+        "p0": "period_s",
+        "frequency": "f0_user",
+        "freq": "f0_user",
+        "f0": "f0_user",
+
+        # DM columns
+        "dm": "dm_user",
+        "DM": "dm_user",
+
+        # Acceleration columns
+        "acc": "acc_user",
+        "accel": "acc_user",
+        "acceleration": "acc_user",
+
+        # S/N columns
+        "snr": "sn_fft",
+        "sigma": "sn_fft",
+        "S/N": "sn_fft",
+        "sn": "sn_fft",
+
+        # Candidate ID
+        "cand_id": "id",
+        "cand_num": "id",
+        "candidate_id": "id",
+        "#id": "id",
+
+        # File paths
+        "pfd_file": "archive_path",
+        "png_file": "png_path",
+        "fil_file": "filterbank_path",
+        "filterbank_file": "filterbank_path",
     }
 
-    base = os.path.basename(pfd_file).replace('.pfd', '')
-    parts = base.split('_')
+    # Apply renames (only for columns that exist)
+    for old_name, new_name in rename_map.items():
+        if old_name in df.columns and new_name not in df.columns:
+            df.rename(columns={old_name: new_name}, inplace=True)
+            logger.debug(f"Renamed column: {old_name} -> {new_name}")
 
-    for i, part in enumerate(parts):
-        if part.startswith('DM'):
-            try:
-                info['dm'] = float(part[2:])
-            except ValueError:
-                pass
-        if part.isdigit():
-            info['cand_num'] = int(part)
+    # Calculate frequency from period if needed
+    if "f0_user" not in df.columns and "period_s" in df.columns:
+        df["f0_user"] = 1.0 / df["period_s"].replace(0, np.nan)
+        logger.debug("Calculated f0_user from period_s")
 
-    return info
+    # Add missing columns with default values
+    default_columns = {
+        "pointing_id": 0,
+        "beam_id": "00",
+        "beam_name": "",
+        "source_name": "",
+        "segment_id": 0,
+        "ra": "",
+        "dec": "",
+        "gl": 0.0,
+        "gb": 0.0,
+        "mjd_start": 0.0,
+        "utc_start": "",
+        "f0_user": 0.0,
+        "f0_opt": 0.0,
+        "f0_opt_err": 0.0,
+        "f1_user": 0.0,
+        "f1_opt": 0.0,
+        "f1_opt_err": 0.0,
+        "acc_user": 0.0,
+        "acc_opt": 0.0,
+        "acc_opt_err": 0.0,
+        "dm_user": 0.0,
+        "dm_opt": 0.0,
+        "dm_opt_err": 0.0,
+        "sn_fft": 0.0,
+        "sn_fold": 0.0,
+        "maxdm_ymw16": 0.0,
+        "dist_ymw16": 0.0,
+        "cdm": 0.0,
+        "png_path": "",
+        "metafile_path": "",
+        "filterbank_path": "",
+        "candidate_tarball_path": "",
+    }
+
+    for col, default_val in default_columns.items():
+        if col not in df.columns:
+            df[col] = default_val
+            logger.debug(f"Added missing column: {col} = {default_val}")
+
+    # Copy f0_user to f0_opt if not set (PRESTO doesn't optimize)
+    if df["f0_opt"].eq(0).all() and "f0_user" in df.columns:
+        df["f0_opt"] = df["f0_user"]
+
+    # Copy dm_user to dm_opt if not set
+    if df["dm_opt"].eq(0).all() and "dm_user" in df.columns:
+        df["dm_opt"] = df["dm_user"]
+
+    # Copy acc_user to acc_opt if not set
+    if df["acc_opt"].eq(0).all() and "acc_user" in df.columns:
+        df["acc_opt"] = df["acc_user"]
+
+    # Use sn_fft as sn_fold if sn_fold not available
+    if df["sn_fold"].eq(0).all() and "sn_fft" in df.columns:
+        df["sn_fold"] = df["sn_fft"]
+
+    return df
 
 
-def read_presto_csv(csv_file):
+def add_pics_columns(df: pd.DataFrame, logger: logging.Logger) -> pd.DataFrame:
     """
-    Read the PRESTO candidates CSV file.
+    Ensure PICS score columns exist. They should be populated from the PICS classifier.
     """
-    candidates = []
+    pics_columns = [
+        "pics_trapum_ter5",
+        "pics_palfa",
+        "pics_palfa_meerkat_l_sband_best_fscore",
+        "pics_meerkat_l_sband_combined_best_recall",
+    ]
 
-    with open(csv_file, 'r') as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            candidates.append(row)
+    # Map from raw PICS output names to CandyJar names
+    pics_rename = {
+        "clfl2_trapum_Ter5": "pics_trapum_ter5",
+        "PALFA_MeerKAT_L_SBAND_Best_Fscore": "pics_palfa_meerkat_l_sband_best_fscore",
+        "clfl2_PALFA": "pics_palfa",
+        "MeerKAT_L_SBAND_COMBINED_Best_Recall": "pics_meerkat_l_sband_combined_best_recall",
+    }
 
-    return candidates
+    # Apply renames
+    for old_name, new_name in pics_rename.items():
+        if old_name in df.columns and new_name not in df.columns:
+            df.rename(columns={old_name: new_name}, inplace=True)
+            logger.debug(f"Renamed PICS column: {old_name} -> {new_name}")
 
+    # Add missing PICS columns with default 0.0
+    for col in pics_columns:
+        if col not in df.columns:
+            df[col] = 0.0
+            logger.debug(f"Added missing PICS column: {col}")
 
-def read_classification_scores(score_file):
-    """
-    Read classification scores (if available).
-    """
-    scores = {}
-
-    if not os.path.exists(score_file):
-        return scores
-
-    with open(score_file, 'r') as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            cand_id = row.get('id') or row.get('candidate_id')
-            if cand_id:
-                scores[cand_id] = row
-
-    return scores
+    return df
 
 
-def create_tarball(output_name, candidates, png_dir, pfd_dir, output_dir,
-                   pics_scores=None, alpha_threshold=1.0, pics_threshold=0.1,
-                   snr_threshold=6.0, verbose=False):
+def create_tarball(
+    candidates_df: pd.DataFrame,
+    png_dir: str,
+    metafile_dir: str,
+    output_tarball: str,
+    tarball_prefix: str,
+    pics_threshold: float,
+    snr_threshold: float,
+    logger: logging.Logger,
+) -> str:
     """
     Create CandyJar-compatible tarball from PRESTO results.
-
-    Args:
-        output_name: Name for output tarball
-        candidates: List of candidate dictionaries
-        png_dir: Directory containing PNG files
-        pfd_dir: Directory containing PFD files
-        output_dir: Output directory for tarball
-        pics_scores: Optional PICS classification scores
-        alpha_threshold: Alpha threshold for filtering
-        pics_threshold: PICS score threshold for filtering
-        snr_threshold: SNR threshold for filtering
-        verbose: Print verbose output
     """
-    os.makedirs(output_dir, exist_ok=True)
+    logger.info(f"Creating tarball: {output_tarball}")
 
     # Create working directory
-    work_dir = os.path.join(output_dir, 'tarball_work')
+    work_dir = os.path.join(os.path.dirname(output_tarball) or ".", "tarball_work")
     if os.path.exists(work_dir):
         shutil.rmtree(work_dir)
     os.makedirs(work_dir)
 
-    # Prepare candidate lists
-    all_candidates = []
-    alpha_below_one = []
-    pics_above_threshold = []
+    # Create subdirectories
+    plots_dir = os.path.join(work_dir, "plots")
+    meta_dir = os.path.join(work_dir, "metafiles")
+    os.makedirs(plots_dir, exist_ok=True)
+    os.makedirs(meta_dir, exist_ok=True)
 
-    for cand in candidates:
-        cand_entry = cand.copy()
+    # Set paths in dataframe
+    candidates_df["candidate_tarball_path"] = output_tarball
 
-        # Get classification scores if available
-        cand_id = str(cand.get('id', cand.get('cand_num', '')))
-        if pics_scores and cand_id in pics_scores:
-            score_data = pics_scores[cand_id]
-            cand_entry['pics_score'] = score_data.get('pics_score', score_data.get('score', 0.0))
-            cand_entry['alpha'] = score_data.get('alpha', 0.0)
-            cand_entry['beta'] = score_data.get('beta', 0.0)
-            cand_entry['gamma'] = score_data.get('gamma', 0.0)
+    # Update png_path to be relative to tarball
+    candidates_df["png_path"] = candidates_df.apply(
+        lambda row: os.path.join("plots", os.path.basename(str(row.get("png_path", ""))) or f"cand_{row.name}.png"),
+        axis=1,
+    )
 
-        # Find associated PNG and PFD files
-        if 'png_file' not in cand_entry:
-            # Search for matching PNG
-            cand_name = cand.get('filename', '').replace('.pfd', '')
-            png_patterns = [
-                os.path.join(png_dir, f"*{cand_name}*.png"),
-                os.path.join(png_dir, f"*{cand_id}*.png"),
-            ]
-            for pattern in png_patterns:
-                matches = glob.glob(pattern)
-                if matches:
-                    cand_entry['png_file'] = matches[0]
-                    break
+    # Update metafile_path
+    if "utc_start" in candidates_df.columns:
+        candidates_df["metafile_path"] = candidates_df["utc_start"].apply(
+            lambda x: f"metafiles/{x}.meta" if pd.notna(x) and str(x) else "metafiles/unknown.meta"
+        )
 
-        if 'pfd_file' not in cand_entry:
-            # Search for matching PFD
-            cand_name = cand.get('filename', '').replace('.png', '')
-            pfd_patterns = [
-                os.path.join(pfd_dir, f"*{cand_name}*.pfd"),
-                os.path.join(pfd_dir, f"*{cand_id}*.pfd"),
-            ]
-            for pattern in pfd_patterns:
-                matches = glob.glob(pattern)
-                if matches:
-                    cand_entry['pfd_file'] = matches[0]
-                    break
-
-        all_candidates.append(cand_entry)
-
-        # Filter by alpha
-        alpha = float(cand_entry.get('alpha', 2.0))
-        if alpha < alpha_threshold:
-            alpha_below_one.append(cand_entry)
-
-        # Filter by PICS score
-        pics = float(cand_entry.get('pics_score', 0.0))
-        snr = float(cand_entry.get('sigma', cand_entry.get('sn_fold', cand_entry.get('snr', 0.0))))
-        if pics >= pics_threshold and snr >= snr_threshold:
-            pics_above_threshold.append(cand_entry)
-
-    # Create CSV files
-    csv_fields = [
-        'id', 'dm', 'period_ms', 'freq_hz', 'sigma', 'snr', 'accel',
-        'alpha', 'beta', 'gamma', 'pics_score',
-        'png_file', 'pfd_file', 'source_file'
+    # Define required columns in order (matching CandyJar)
+    required_cols = [
+        "pointing_id",
+        "beam_id",
+        "beam_name",
+        "source_name",
+        "segment_id",
+        "ra",
+        "dec",
+        "gl",
+        "gb",
+        "mjd_start",
+        "utc_start",
+        "f0_user",
+        "f0_opt",
+        "f0_opt_err",
+        "f1_user",
+        "f1_opt",
+        "f1_opt_err",
+        "acc_user",
+        "acc_opt",
+        "acc_opt_err",
+        "dm_user",
+        "dm_opt",
+        "dm_opt_err",
+        "sn_fft",
+        "sn_fold",
+        "maxdm_ymw16",
+        "dist_ymw16",
+        "cdm",
+        "pics_trapum_ter5",
+        "pics_palfa",
+        "pics_palfa_meerkat_l_sband_best_fscore",
+        "pics_meerkat_l_sband_combined_best_recall",
+        "png_path",
+        "metafile_path",
+        "filterbank_path",
+        "candidate_tarball_path",
     ]
 
-    def write_candidates_csv(cands, filename):
-        with open(filename, 'w', newline='') as f:
-            writer = csv.DictWriter(f, fieldnames=csv_fields, extrasaction='ignore')
-            writer.writeheader()
-            for c in cands:
-                writer.writerow(c)
+    # Get extra columns not in required list
+    extra_cols = [col for col in candidates_df.columns if col not in required_cols]
 
-    all_csv = os.path.join(work_dir, 'candidates.csv')
-    alpha_csv = os.path.join(work_dir, 'candidates_alpha_below_one.csv')
-    pics_csv = os.path.join(work_dir, 'candidates_pics_above_threshold.csv')
+    # Reorder columns
+    final_cols = [col for col in required_cols if col in candidates_df.columns] + extra_cols
+    final_df = candidates_df[final_cols].copy()
 
-    write_candidates_csv(all_candidates, all_csv)
-    write_candidates_csv(alpha_below_one, alpha_csv)
-    write_candidates_csv(pics_above_threshold, pics_csv)
+    # Filter by SNR threshold
+    if snr_threshold > 0:
+        original_count = len(final_df)
+        final_df = final_df[final_df["sn_fold"] >= snr_threshold]
+        logger.info(f"SNR filter: {original_count} -> {len(final_df)} candidates (threshold: {snr_threshold})")
 
-    # Create plots directory and copy PNG files
-    plots_dir = os.path.join(work_dir, 'plots')
-    os.makedirs(plots_dir, exist_ok=True)
+    # Save main candidates CSV
+    candidates_csv = os.path.join(work_dir, "candidates.csv")
+    final_df.to_csv(candidates_csv, index=False)
+    logger.info(f"Saved {len(final_df)} candidates to candidates.csv")
 
-    for cand in all_candidates:
-        png_file = cand.get('png_file')
-        if png_file and os.path.exists(png_file):
-            shutil.copy2(png_file, plots_dir)
+    # Filter by PICS threshold and save
+    pics_cols = [
+        "pics_trapum_ter5",
+        "pics_palfa",
+        "pics_palfa_meerkat_l_sband_best_fscore",
+        "pics_meerkat_l_sband_combined_best_recall",
+    ]
+    pics_condition = (
+        (final_df["pics_trapum_ter5"] >= pics_threshold)
+        | (final_df["pics_palfa"] >= pics_threshold)
+        | (final_df["pics_palfa_meerkat_l_sband_best_fscore"] >= pics_threshold)
+        | (final_df["pics_meerkat_l_sband_combined_best_recall"] >= pics_threshold)
+    )
+    pics_df = final_df[pics_condition]
+    pics_csv = os.path.join(work_dir, "candidates_pics_above_threshold.csv")
+    pics_df.to_csv(pics_csv, index=False)
+    logger.info(f"Saved {len(pics_df)} PICS-filtered candidates (threshold: {pics_threshold})")
 
-    # Create archives directory and copy PFD files
-    archives_dir = os.path.join(work_dir, 'archives')
-    os.makedirs(archives_dir, exist_ok=True)
+    # Copy PNG files
+    png_count = 0
+    if png_dir and os.path.isdir(png_dir):
+        for png_file in os.listdir(png_dir):
+            if png_file.endswith(".png"):
+                src = os.path.join(png_dir, png_file)
+                dst = os.path.join(plots_dir, png_file)
+                shutil.copy2(src, dst)
+                png_count += 1
+    logger.info(f"Copied {png_count} PNG files")
 
-    for cand in all_candidates:
-        pfd_file = cand.get('pfd_file')
-        if pfd_file and os.path.exists(pfd_file):
-            shutil.copy2(pfd_file, archives_dir)
-
-    # Create metadata file
-    metadata = {
-        'pipeline': 'ELDEN-RING (PRESTO)',
-        'created': datetime.now().isoformat(),
-        'total_candidates': len(all_candidates),
-        'alpha_below_threshold': len(alpha_below_one),
-        'pics_above_threshold': len(pics_above_threshold),
-        'alpha_threshold': alpha_threshold,
-        'pics_threshold': pics_threshold,
-        'snr_threshold': snr_threshold
-    }
-
-    meta_file = os.path.join(work_dir, 'metadata.txt')
-    with open(meta_file, 'w') as f:
-        for key, value in metadata.items():
-            f.write(f"{key}: {value}\n")
+    # Copy metafiles
+    meta_count = 0
+    if metafile_dir and os.path.isdir(metafile_dir):
+        unique_utc = final_df["utc_start"].dropna().unique()
+        for utc in unique_utc:
+            meta_file = os.path.join(metafile_dir, f"{utc}.meta")
+            if os.path.isfile(meta_file):
+                shutil.copy2(meta_file, meta_dir)
+                meta_count += 1
+    logger.info(f"Copied {meta_count} metafiles")
 
     # Create tarball
-    tarball_path = os.path.join(output_dir, f"{output_name}.tar.gz")
-    with tarfile.open(tarball_path, 'w:gz') as tar:
-        tar.add(work_dir, arcname=output_name)
+    tarball_name = f"{tarball_prefix}_presto"
+    with tarfile.open(output_tarball, "w:gz") as tar:
+        tar.add(work_dir, arcname=tarball_name)
+    logger.info(f"Created tarball: {output_tarball}")
 
     # Cleanup
     shutil.rmtree(work_dir)
 
-    if verbose:
-        print(f"Created tarball: {tarball_path}")
-        print(f"  Total candidates: {len(all_candidates)}")
-        print(f"  Alpha < {alpha_threshold}: {len(alpha_below_one)}")
-        print(f"  PICS >= {pics_threshold}: {len(pics_above_threshold)}")
-
-    # Also copy individual CSV files to output directory
-    final_all_csv = os.path.join(output_dir, 'candidates.csv')
-    final_alpha_csv = os.path.join(output_dir, 'candidates_alpha_below_one.csv')
-    final_pics_csv = os.path.join(output_dir, 'candidates_pics_above_threshold.csv')
-
-    # Re-write CSVs to output dir (since we deleted work_dir)
-    write_candidates_csv(all_candidates, final_all_csv)
-    write_candidates_csv(alpha_below_one, final_alpha_csv)
-    write_candidates_csv(pics_above_threshold, final_pics_csv)
-
-    return tarball_path, all_csv, alpha_csv, pics_csv
+    return output_tarball
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Create CandyJar-compatible tarball from PRESTO results'
+        description="Create CandyJar-compatible tarball from PRESTO results"
     )
     parser.add_argument(
-        '-i', '--input',
+        "-i", "--input",
         required=True,
-        help='Input candidates CSV file'
+        help="Input candidates CSV file (from PRESTO pipeline)"
     )
     parser.add_argument(
-        '-o', '--output',
+        "-o", "--output",
         required=True,
-        help='Output tarball name (without .tar.gz extension)'
+        help="Output tarball path (e.g., output_presto.tar.gz)"
     )
     parser.add_argument(
-        '-d', '--output-dir',
-        default='.',
-        help='Output directory for tarball (default: current directory)'
+        "--png-dir",
+        default=".",
+        help="Directory containing PNG files"
     )
     parser.add_argument(
-        '--png-dir',
-        default='.',
-        help='Directory containing PNG files'
-    )
-    parser.add_argument(
-        '--pfd-dir',
-        default='.',
-        help='Directory containing PFD files'
-    )
-    parser.add_argument(
-        '--scores',
+        "--metafile-dir",
         default=None,
-        help='Classification scores CSV file (optional)'
+        help="Directory containing .meta files"
     )
     parser.add_argument(
-        '--alpha-threshold',
-        type=float,
-        default=1.0,
-        help='Alpha threshold for filtering (default: 1.0)'
+        "--tarball-prefix",
+        default="presto",
+        help="Prefix for tarball internal directory name"
     )
     parser.add_argument(
-        '--pics-threshold',
+        "--pics-threshold",
         type=float,
         default=0.1,
-        help='PICS score threshold for filtering (default: 0.1)'
+        help="PICS score threshold for filtering (default: 0.1)"
     )
     parser.add_argument(
-        '--snr-threshold',
+        "--snr-threshold",
         type=float,
         default=6.0,
-        help='SNR threshold for filtering (default: 6.0)'
+        help="SNR threshold for filtering (default: 6.0)"
     )
     parser.add_argument(
-        '-v', '--verbose',
-        action='store_true',
-        help='Verbose output'
+        "-v", "--verbose",
+        action="store_true",
+        help="Verbose output"
     )
 
     args = parser.parse_args()
+    logger = setup_logging(args.verbose)
 
-    # Read candidates
-    candidates = read_presto_csv(args.input)
+    logger.info("Starting PRESTO tarball creation")
 
-    if not candidates:
-        print(f"ERROR: No candidates found in {args.input}")
+    # Read input CSV
+    logger.info(f"Reading input file: {args.input}")
+    try:
+        df = pd.read_csv(args.input)
+        logger.info(f"Loaded {len(df)} candidates")
+    except Exception as e:
+        logger.error(f"Error reading input file: {e}")
         sys.exit(1)
 
-    if args.verbose:
-        print(f"Read {len(candidates)} candidates from {args.input}")
+    if len(df) == 0:
+        logger.warning("No candidates found in input file")
+        sys.exit(0)
 
-    # Read scores if available
-    scores = None
-    if args.scores:
-        scores = read_classification_scores(args.scores)
-        if args.verbose:
-            print(f"Read {len(scores)} classification scores")
+    # Normalize columns to CandyJar format
+    df = normalize_presto_columns(df, logger)
+
+    # Add galactic info
+    df = add_galactic_info(df, logger)
+
+    # Add PICS columns
+    df = add_pics_columns(df, logger)
 
     # Create tarball
     create_tarball(
-        output_name=args.output,
-        candidates=candidates,
+        candidates_df=df,
         png_dir=args.png_dir,
-        pfd_dir=args.pfd_dir,
-        output_dir=args.output_dir,
-        pics_scores=scores,
-        alpha_threshold=args.alpha_threshold,
+        metafile_dir=args.metafile_dir,
+        output_tarball=args.output,
+        tarball_prefix=args.tarball_prefix,
         pics_threshold=args.pics_threshold,
         snr_threshold=args.snr_threshold,
-        verbose=args.verbose
+        logger=logger,
     )
 
+    logger.info("PRESTO tarball creation completed successfully")
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()

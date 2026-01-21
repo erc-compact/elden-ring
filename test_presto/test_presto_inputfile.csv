@@ -1,0 +1,2 @@
+pointing,fits_files,cluster,beam_name,beam_id,utc_start,ra,dec,cdm
+1,/hercules/results/rsenzel/signal_inject/J0514-4002A_3HM_000_52.0_01_noise_t4_15min_inj_FAZAL_PRESTO.fil,J0514-4002A_test,cfbf00001,1,2024-01-15-12:00:00,05:14:06.7,-40:02:48.0,30.0

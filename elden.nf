@@ -30,22 +30,45 @@ include { dada_to_fits } from './processes'
 include { merge_filterbanks } from './processes'
 include { split_filterbank } from './processes.nf'
 
-// PRESTO pipeline processes
-include { presto_rfifind } from './processes'
-include { presto_prepdata_zerodm } from './processes'
-include { presto_accelsearch_zerodm } from './processes'
-include { presto_prepsubband } from './processes'
-include { presto_accelsearch } from './processes'
-include { presto_sift_candidates } from './processes'
-include { presto_prepfold_batch } from './processes'
-include { presto_pfd_to_png } from './processes'
-include { presto_fold_merge } from './processes'
-include { presto_create_tarball } from './processes'
-include { presto_fold_pulsarx } from './processes'
-
-// Peasoup time series dumping for PRESTO processing
-include { peasoup_dump_timeseries } from './processes'
-include { generate_fold_meta } from './processes'
+// PRESTO pipeline - all processes and workflows from presto.nf
+include {
+    // Processes
+    presto_rfifind;
+    presto_prepdata_zerodm;
+    presto_accelsearch_zerodm;
+    presto_prepsubband;
+    presto_accelsearch;
+    presto_sift_candidates;
+    presto_prepfold;
+    presto_prepfold_batch;
+    presto_ps_to_png;
+    presto_fold_merge;
+    presto_create_tarball;
+    presto_pics_classifier;
+    presto_fold_pulsarx;
+    generate_fold_meta;
+    peasoup_dump_timeseries;
+    // State file processes
+    save_presto_rfi_state;
+    save_presto_birdies_state;
+    save_presto_dedisperse_state;
+    save_presto_search_state;
+    save_presto_sift_fold_state;
+    // Workflows
+    presto_rfi;
+    presto_birdies;
+    presto_dedisperse;
+    presto_search;
+    presto_sift_fold;
+    presto_postprocess;
+    presto_full;
+    presto_pipeline;
+    run_presto_search;
+    peasoup_timeseries_dump;
+    presto_on_peasoup_timeseries;
+    run_accelsearch_single;
+    run_accelsearch_on_timeseries;
+} from './presto'
 
 // Utility workflow includes
 include { help } from './utilities'
@@ -549,408 +572,15 @@ workflow candypolice {
     candypolice_pulsarx(rdout, candfiles)
 }
 
-// ============================================================================
-// PRESTO PIPELINE WORKFLOWS
-// ============================================================================
-
 /*
- * PRESTO RFI Detection workflow
+ * Entry point wrapper for PRESTO full pipeline using intake()
+ * NOTE: For simpler single-file usage, use presto_pipeline entry point with --input_fil
+ * This entry point is for running with CSV input files via intake()
  */
-workflow presto_rfi {
-    take:
-    input_files
-
+workflow presto_full_entry {
     main:
-    presto_rfifind(input_files)
-        .set { rfi_out }
-
-    emit:
-    rfi_mask = rfi_out.rfi_mask
-    rfi_files = rfi_out.rfi_files
-    rfi_stats = rfi_out.rfi_stats
-}
-
-/*
- * PRESTO Birdie Detection workflow (zero-DM search for RFI identification)
- */
-workflow presto_birdies {
-    take:
-    input_file
-    rfi_mask
-
-    main:
-    presto_prepdata_zerodm(input_file, rfi_mask)
-        .set { zerodm_out }
-
-    presto_accelsearch_zerodm(zerodm_out.dat_file, zerodm_out.inf_file)
-        .set { birdie_out }
-
-    emit:
-    zaplist = birdie_out.zaplist
-}
-
-/*
- * PRESTO Dedispersion workflow
- */
-workflow presto_dedisperse {
-    take:
-    input_file
-    rfi_mask
-    dm_ranges  // Channel of tuples: (dm_low, dm_high, dm_step, downsamp)
-
-    main:
-    presto_prepsubband(input_file, rfi_mask, dm_ranges)
-        .set { subband_out }
-
-    emit:
-    subband_data = subband_out.subband_data
-}
-
-/*
- * PRESTO Acceleration Search workflow
- */
-workflow presto_search {
-    take:
-    dat_files
-    inf_files
-    zaplist
-
-    main:
-    // Handle case where zaplist may not exist
-    zaplist_ch = zaplist.ifEmpty(file('NO_ZAPLIST'))
-
-    presto_accelsearch(dat_files, inf_files, zaplist_ch)
-        .set { accel_out }
-
-    emit:
-    accel_files = accel_out.accel_files
-    cand_files = accel_out.cand_files
-}
-
-/*
- * PRESTO Sift and Fold workflow
- */
-workflow presto_sift_fold {
-    take:
-    accel_files
-    input_file
-    rfi_mask
-
-    main:
-    presto_sift_candidates(accel_files, input_file)
-        .set { sifted_out }
-
-    presto_prepfold_batch(input_file, sifted_out.sifted_csv, rfi_mask)
-        .set { fold_out }
-
-    emit:
-    pfd_files = fold_out.pfd_files
-    sifted_csv = sifted_out.sifted_csv
-}
-
-/*
- * PRESTO Post-processing workflow (PNG conversion and tarball creation)
- */
-workflow presto_postprocess {
-    take:
-    pfd_files
-    sifted_csv
-    input_file
-
-    main:
-    presto_pfd_to_png(pfd_files)
-        .set { png_out }
-
-    // Collect bestprof files (may be empty)
-    bestprof_ch = pfd_files.map { pfd ->
-        file("${pfd}.bestprof")
-    }.filter { it.exists() }.collect().ifEmpty([])
-
-    presto_fold_merge(
-        pfd_files.collect(),
-        png_out.png_files.collect(),
-        bestprof_ch,
-        sifted_csv
-    ).set { merged_out }
-
-    presto_create_tarball(
-        merged_out.merged_csv,
-        merged_out.all_pfd,
-        merged_out.all_png,
-        input_file
-    ).set { tarball_out }
-
-    emit:
-    tarball = tarball_out.tarball
-    final_csv = tarball_out.final_csv
-    png_files = png_out.png_files
-}
-
-/*
- * Full PRESTO search pipeline
- * Runs: RFI detection -> Birdie detection -> Dedispersion -> Acceleration search -> Sifting -> Folding -> Post-processing
- *
- * Set params.presto.fold_backend = 'presto' (default) to fold with prepfold
- * Set params.presto.fold_backend = 'pulsarx' to fold with psrfold_fil2
- */
-workflow presto_full {
-    main:
-    // Intake files
     def intake_ch = intake()
-
-    // Extract filterbank files and metadata
-    def fil_channel = intake_ch.map { p, f, c, bn, bi, u, ra, dec, cdm, fname ->
-        file(f)
-    }
-
-    // Also keep the full metadata for PulsarX folding
-    def meta_channel = intake_ch.map { p, f, c, bn, bi, u, ra, dec, cdm, fname ->
-        tuple(p, f, c, bn, bi, u, ra, dec, cdm)
-    }
-
-    // Run RFI detection
-    presto_rfi(fil_channel)
-        .set { rfi_out }
-
-    // Run birdie detection
-    presto_birdies(fil_channel, rfi_out.rfi_mask)
-        .set { birdie_out }
-
-    // Generate DM ranges from params
-    def dm_ranges = Channel.from(params.presto.dm_ranges).map { range ->
-        tuple(range.dm_low, range.dm_high, range.dm_step, range.downsamp)
-    }
-
-    // Combine input file with rfi_mask for dedispersion
-    def dedisperse_input = fil_channel.combine(rfi_out.rfi_mask)
-
-    // Run dedispersion for each DM range
-    presto_prepsubband(
-        dedisperse_input.map { it[0] },
-        dedisperse_input.map { it[1] },
-        dm_ranges
-    ).set { subband_out }
-
-    // Run acceleration search on all dedispersed data
-    presto_accelsearch(
-        subband_out.dat_files.flatten(),
-        subband_out.inf_files.flatten(),
-        birdie_out.zaplist.ifEmpty(file('NO_ZAPLIST'))
-    ).set { accel_out }
-
-    // Collect all ACCEL files and sift
-    presto_sift_candidates(
-        accel_out.accel_files.collect(),
-        fil_channel
-    ).set { sifted_out }
-
-    // Choose folding backend based on params.presto.fold_backend
-    def fold_backend = params.presto?.fold_backend ?: 'presto'
-
-    if (fold_backend == 'pulsarx') {
-        // Fold with PulsarX (psrfold_fil2) using pulsarx_fold.py --csv
-        // Generate meta file with observation parameters
-        def fft_size = params.presto?.fft_size ?: 134217728
-        generate_fold_meta(meta_channel, fft_size, fold_backend)
-            .set { meta_out }
-
-        // Fold with PulsarX
-        presto_fold_pulsarx(
-            fil_channel,
-            sifted_out.sifted_csv,
-            meta_out.meta_file
-        ).set { fold_out }
-
-        // Note: PulsarX folding produces .ar and .png files directly
-        // No additional tarball creation needed for PulsarX output
-    } else {
-        // Default: Fold with PRESTO prepfold
-        // prepfold doesn't need a meta file - it uses command-line parameters
-        // The period correction is handled by the presto_prepfold_batch process
-        presto_prepfold_batch(
-            fil_channel,
-            sifted_out.sifted_csv,
-            rfi_out.rfi_mask
-        ).set { fold_out }
-
-        // Post-processing: PNG conversion and tarball
-        presto_pfd_to_png(fold_out.pfd_files.collect())
-            .set { png_out }
-
-        // Create merged results and tarball
-        presto_fold_merge(
-            fold_out.pfd_files.collect(),
-            png_out.png_files.collect(),
-            fold_out.bestprof_files.collect().ifEmpty([]),
-            sifted_out.sifted_csv
-        ).set { merged_out }
-
-        presto_create_tarball(
-            merged_out.merged_csv,
-            merged_out.all_pfd,
-            merged_out.all_png,
-            fil_channel
-        ).set { tarball_out }
-    }
-}
-
-/*
- * PRESTO search on pre-cleaned filterbanks
- * Similar to run_search_fold but using PRESTO instead of peasoup+pulsarx
- */
-workflow run_presto_search {
-    main:
-    // Intake pre-cleaned files
-    def cleaned_ch = intake().map { p, f, c, bn, bi, u, ra, dec, cdm, fname ->
-        file(f)
-    }
-
-    // Run RFI detection
-    presto_rfi(cleaned_ch)
-        .set { rfi_out }
-
-    // Run birdie detection
-    presto_birdies(cleaned_ch, rfi_out.rfi_mask)
-        .set { birdie_out }
-
-    // Generate DM ranges
-    def dm_ranges = Channel.from(params.presto.dm_ranges).map { range ->
-        tuple(range.dm_low, range.dm_high, range.dm_step, range.downsamp)
-    }
-
-    // Run dedispersion
-    presto_prepsubband(cleaned_ch, rfi_out.rfi_mask, dm_ranges)
-        .set { subband_out }
-
-    // Run acceleration search
-    presto_accelsearch(
-        subband_out.dat_files.flatten(),
-        subband_out.inf_files.flatten(),
-        birdie_out.zaplist.ifEmpty(file('NO_ZAPLIST'))
-    ).set { accel_out }
-
-    // Sift candidates
-    presto_sift_candidates(accel_out.accel_files.collect(), cleaned_ch)
-        .set { sifted_out }
-
-    // Fold candidates
-    presto_prepfold_batch(cleaned_ch, sifted_out.sifted_csv, rfi_out.rfi_mask)
-        .set { fold_out }
-
-    // Convert to PNG
-    presto_pfd_to_png(fold_out.pfd_files.collect())
-        .set { png_out }
-
-    // Merge and create tarball
-    presto_fold_merge(
-        fold_out.pfd_files.collect(),
-        png_out.png_files.collect(),
-        fold_out.bestprof_files.collect().ifEmpty([]),
-        sifted_out.sifted_csv
-    ).set { merged_out }
-
-    presto_create_tarball(
-        merged_out.merged_csv,
-        merged_out.all_pfd,
-        merged_out.all_png,
-        cleaned_ch
-    ).set { tarball_out }
-}
-
-/*
- * Peasoup time series dumping workflow
- * Dumps PRESTO-compatible .dat/.inf files from peasoup for subsequent PRESTO processing
- *
- * Enable with: params.peasoup.dump_timeseries = true
- */
-workflow peasoup_timeseries_dump {
-    take:
-    input_channel  // tuple(pointing, fil_file, cluster, beam_name, beam_id, utc, ra, dec, cdm)
-    dm_file
-    birdies_file
-
-    main:
-    def fil_channel = input_channel.map { p, f, c, bn, bi, u, ra, dec, cdm ->
-        file(f)
-    }
-
-    peasoup_dump_timeseries(fil_channel, dm_file, birdies_file)
-        .set { timeseries_out }
-
-    emit:
-    dat_files = timeseries_out.dat_files
-    inf_files = timeseries_out.inf_files
-    timeseries_data = timeseries_out.timeseries_data
-}
-
-/*
- * PRESTO search on peasoup-dumped time series
- *
- * This workflow:
- * 1. Takes peasoup-dumped .dat/.inf files
- * 2. Runs PRESTO accelsearch on them
- * 3. Sifts candidates
- * 4. Folds with either prepfold or PulsarX
- *
- * Usage: nextflow run elden.nf -entry presto_on_peasoup_timeseries
- */
-workflow presto_on_peasoup_timeseries {
-    take:
-    dat_files   // Channel of .dat files from peasoup
-    inf_files   // Channel of .inf files from peasoup
-    fil_channel // Original filterbank files for folding
-    meta_channel // Metadata channel for PulsarX folding
-
-    main:
-    // Run acceleration search on peasoup time series
-    presto_accelsearch(
-        dat_files.flatten(),
-        inf_files.flatten(),
-        file('NO_ZAPLIST')  // No zaplist for peasoup time series
-    ).set { accel_out }
-
-    // Sift candidates
-    presto_sift_candidates(accel_out.accel_files.collect(), fil_channel)
-        .set { sifted_out }
-
-    // Choose folding backend
-    def fold_backend = params.presto?.fold_backend ?: 'pulsarx'
-
-    if (fold_backend == 'pulsarx') {
-        // Generate meta file for PulsarX folding
-        def fft_size = params.peasoup?.fft_size ?: 134217728
-        generate_fold_meta(meta_channel, fft_size, fold_backend)
-            .set { meta_out }
-
-        // Fold with PulsarX
-        presto_fold_pulsarx(fil_channel, sifted_out.sifted_csv, meta_out.meta_file)
-            .set { fold_out }
-    } else {
-        // Fold with prepfold (no meta file needed)
-        presto_prepfold_batch(fil_channel, sifted_out.sifted_csv, file('NO_MASK'))
-            .set { fold_out }
-
-        // Post-processing
-        presto_pfd_to_png(fold_out.pfd_files.collect())
-            .set { png_out }
-
-        presto_fold_merge(
-            fold_out.pfd_files.collect(),
-            png_out.png_files.collect(),
-            fold_out.bestprof_files.collect().ifEmpty([]),
-            sifted_out.sifted_csv
-        ).set { merged_out }
-
-        presto_create_tarball(
-            merged_out.merged_csv,
-            merged_out.all_pfd,
-            merged_out.all_png,
-            fil_channel
-        ).set { tarball_out }
-    }
-
-    emit:
-    sifted_csv = sifted_out.sifted_csv
+    presto_full(intake_ch)
 }
 
 /*
@@ -1014,231 +644,10 @@ workflow search_pipeline {
     def backend = params.search_backend ?: 'peasoup'
 
     if (backend == 'presto') {
-        presto_full()
+        presto_full_entry()
     } else {
         full()
     }
-}
-
-/*
- * Entry point for running accelsearch on pre-dumped time series from peasoup
- *
- * This workflow is for the second run scenario:
- * 1. First run: normal peasoup search with dump_timeseries=true → tarballs + .dat/.inf files
- * 2. Second run: use this entry point to run accelsearch on the dumped .dat/.inf files
- *
- * Two modes of operation:
- *
- * MODE 1: Multi-file mode (uses same input CSV as first run)
- *   Uses the same params.files_list CSV to find filterbanks and auto-discovers
- *   time series directories based on the output structure from run 1.
- *
- *   Required parameters:
- *     params.files_list           - Same input CSV file used in first run
- *     params.basedir              - Same basedir used in first run
- *     params.runID                - Same runID used in first run
- *
- *   Usage:
- *     nextflow run elden.nf -entry run_accelsearch_on_timeseries -params-file params.config
- *
- * MODE 2: Single-file mode (explicit paths)
- *   For processing a single filterbank with its time series.
- *
- *   Required parameters:
- *     params.timeseries_input_dir  - Directory containing pre-dumped .dat and .inf files
- *     params.filterbank_file       - Original filterbank file for folding
- *
- *   Usage:
- *     nextflow run elden.nf -entry run_accelsearch_on_timeseries \
- *         --timeseries_input_dir /path/to/TIMESERIES \
- *         --filterbank_file /path/to/file.fil
- *
- * Common parameters:
- *   params.presto.fold_backend   - 'pulsarx' or 'presto' (default: 'pulsarx')
- *   params.presto.fft_size       - FFT size used in original search (for period correction)
- */
-workflow run_accelsearch_on_timeseries {
-    main:
-    // Determine which mode to use
-    def single_file_mode = params.timeseries_input_dir && params.filterbank_file
-    def multi_file_mode = params.files_list && params.basedir && params.runID
-
-    if (!single_file_mode && !multi_file_mode) {
-        error """ERROR: Missing required parameters.
-
-For multi-file mode (recommended), provide:
-  - params.files_list  (same input CSV as first run)
-  - params.basedir     (same basedir as first run)
-  - params.runID       (same runID as first run)
-
-For single-file mode, provide:
-  - params.timeseries_input_dir  (directory with .dat/.inf files)
-  - params.filterbank_file       (original filterbank file)
-"""
-    }
-
-    if (single_file_mode) {
-        // ===== SINGLE FILE MODE =====
-        def dat_channel = Channel.fromPath("${params.timeseries_input_dir}/*.dat")
-        def inf_channel = Channel.fromPath("${params.timeseries_input_dir}/*.inf")
-        def fil_channel = Channel.fromPath(params.filterbank_file)
-
-        def meta_channel = fil_channel.map { fil ->
-            def basename = fil.baseName
-            tuple(
-                basename,                    // pointing
-                fil,                         // filterbank path
-                params.cluster ?: 'unknown', // cluster
-                basename,                    // beam_name
-                '0',                         // beam_id
-                'unknown',                   // utc
-                '00:00:00.0',               // ra
-                '+00:00:00.0',              // dec
-                params.cdm ?: '0.0'         // cdm
-            )
-        }
-
-        run_accelsearch_single(dat_channel, inf_channel, fil_channel, meta_channel)
-
-    } else {
-        // ===== MULTI-FILE MODE =====
-        // Parse input CSV (same format as first run)
-        def input_channel = Channel.fromPath("${params.files_list}")
-            .splitCsv(header: true, sep: ',')
-            .map { row ->
-                def pointing = row.pointing.trim()
-                def fits_files = row.fits_files.trim()
-                def cluster = row.cluster.trim()
-                def beam_name = row.beam_name.trim()
-                def beam_id = row.beam_id.trim()
-                def utc_start = row.utc_start.trim().replace(" ", "-")
-                def ra = row.ra.trim()
-                def dec = row.dec.trim()
-                def cdm = row.cdm.trim()
-                tuple(pointing, fits_files, cluster, beam_name, beam_id, utc_start, ra, dec, cdm)
-            }
-
-        // For each input file, find its time series directory
-        // Structure from run 1: ${basedir}/${runID}/${beam_name}/segment_${segments}/${segments}${segment_id}/TIMESERIES/
-        // We search for all segment directories with TIMESERIES subfolder
-        def timeseries_channel = input_channel.flatMap { pointing, fits_file, cluster, beam_name, beam_id, utc, ra, dec, cdm ->
-            // Find all TIMESERIES directories for this beam
-            def base_path = "${params.basedir}/${params.runID}/${beam_name}"
-            def timeseries_dirs = []
-
-            // Search for TIMESERIES directories in all segment subdirectories
-            def base_dir = file(base_path)
-            if (base_dir.exists()) {
-                base_dir.eachDirRecurse { dir ->
-                    if (dir.name == 'TIMESERIES' && dir.isDirectory()) {
-                        def dat_files = file("${dir}/*.dat")
-                        def inf_files = file("${dir}/*.inf")
-                        if (dat_files || inf_files) {
-                            timeseries_dirs << tuple(
-                                pointing, fits_file, cluster, beam_name, beam_id, utc, ra, dec, cdm,
-                                dir.toString()
-                            )
-                        }
-                    }
-                }
-            }
-
-            if (timeseries_dirs.isEmpty()) {
-                log.warn "No TIMESERIES directories found for beam ${beam_name} in ${base_path}"
-            }
-
-            return timeseries_dirs
-        }
-
-        // Process each beam's time series
-        timeseries_channel.map { pointing, fits_file, cluster, beam_name, beam_id, utc, ra, dec, cdm, ts_dir ->
-            def dat_files = file("${ts_dir}/*.dat")
-            def inf_files = file("${ts_dir}/*.inf")
-            tuple(
-                pointing, file(fits_file), cluster, beam_name, beam_id, utc, ra, dec, cdm,
-                dat_files, inf_files, ts_dir
-            )
-        }.set { beam_timeseries }
-
-        // Process each beam separately
-        beam_timeseries.each { pointing, fil_file, cluster, beam_name, beam_id, utc, ra, dec, cdm, dat_files, inf_files, ts_dir ->
-            log.info "Processing time series for beam ${beam_name} from ${ts_dir}"
-
-            def dat_ch = Channel.fromList(dat_files instanceof List ? dat_files : [dat_files])
-            def inf_ch = Channel.fromList(inf_files instanceof List ? inf_files : [inf_files])
-            def fil_ch = Channel.of(fil_file)
-            def meta_ch = Channel.of(tuple(pointing, fil_file, cluster, beam_name, beam_id, utc, ra, dec, cdm))
-
-            run_accelsearch_single(dat_ch, inf_ch, fil_ch, meta_ch)
-        }
-    }
-}
-
-/*
- * Helper workflow to run accelsearch on a single set of time series files
- */
-workflow run_accelsearch_single {
-    take:
-    dat_channel   // Channel of .dat files
-    inf_channel   // Channel of .inf files
-    fil_channel   // Filterbank file channel
-    meta_channel  // Metadata channel for PulsarX
-
-    main:
-    // Run acceleration search on pre-dumped time series
-    presto_accelsearch(
-        dat_channel.flatten(),
-        inf_channel.flatten(),
-        file('NO_ZAPLIST')  // No zaplist for pre-dumped time series
-    ).set { accel_out }
-
-    // Sift candidates
-    presto_sift_candidates(accel_out.accel_files.collect(), fil_channel)
-        .set { sifted_out }
-
-    // Choose folding backend
-    def fold_backend = params.presto?.fold_backend ?: 'pulsarx'
-
-    if (fold_backend == 'pulsarx') {
-        // Generate meta file for PulsarX folding
-        def fft_size = params.presto?.fft_size ?: params.peasoup?.fft_size ?: 134217728
-        generate_fold_meta(meta_channel, fft_size, fold_backend)
-            .set { meta_out }
-
-        // Fold with PulsarX
-        presto_fold_pulsarx(fil_channel, sifted_out.sifted_csv, meta_out.meta_file)
-            .set { fold_out }
-
-        log.info "Folding complete with PulsarX. Output files are in the publishDir."
-
-    } else {
-        // Fold with prepfold (no meta file needed)
-        presto_prepfold_batch(fil_channel, sifted_out.sifted_csv, file('NO_MASK'))
-            .set { fold_out }
-
-        // Post-processing: PNG conversion and tarball
-        presto_pfd_to_png(fold_out.pfd_files.collect())
-            .set { png_out }
-
-        // Create merged results
-        presto_fold_merge(
-            fold_out.pfd_files.collect(),
-            png_out.png_files.collect(),
-            fold_out.bestprof_files.collect().ifEmpty([]),
-            sifted_out.sifted_csv
-        ).set { merged_out }
-
-        // Create tarball
-        presto_create_tarball(
-            merged_out.merged_csv,
-            merged_out.all_pfd,
-            merged_out.all_png,
-            fil_channel
-        ).set { tarball_out }
-    }
-
-    emit:
-    sifted_csv = sifted_out.sifted_csv
 }
 
 // Default to `full` if no --entry is given
