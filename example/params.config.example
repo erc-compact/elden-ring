@@ -8,7 +8,10 @@ params {
     split_fil = true
     split_freq = 1200.0
     stack_by_cdm    = true // stack eff bands into 1+2+3, 4+5+6+7, and 1+2+3+4+5+6+7 currently only in the full pipeline.
-    stacks          = ['0000123': [1,2,3], '0004567':[4,5,6,7], '1234567':[1,2,3,4,5,6,7]] // 'key':[beam numbers], the key will be used as beam name. 
+    stacks          = ['0000123': [1,2,3], '0004567':[4,5,6,7], '1234567':[1,2,3,4,5,6,7]] // 'key':[beam numbers], the key will be used as beam name.
+
+    // Search backend selection: 'peasoup' (default) or 'presto'
+    search_backend  = 'peasoup' 
 
     // Input files
     files_list      = "${projectDir}/inputfile.txt"
@@ -152,6 +155,56 @@ params {
         nbins = 32
         binplan = "0.005 32 0.01 64 0.1 128"
         clfd = 2.0
+    }
+
+    // =========================================================================
+    // PRESTO Pipeline Parameters (used when search_backend = 'presto')
+    // =========================================================================
+    presto {
+        // RFI detection (rfifind) parameters
+        rfifind_time        = 2.0       // Integration time for RFI statistics (seconds)
+        rfifind_chanfrac    = 0.5       // Fraction of channels flagged to mark time as bad
+        rfifind_intfrac     = 0.3       // Fraction of intervals flagged to mark channel as bad
+        rfifind_timesig     = 10        // Sigma threshold for time-domain RFI
+        rfifind_freqsig     = 4         // Sigma threshold for frequency-domain RFI
+
+        // Dedispersion parameters
+        nsub                = 128       // Number of subbands for prepsubband
+        dm_ranges           = [
+            // Each entry: [dm_low, dm_high, dm_step, downsamp]
+            [dm_low: 0.0,   dm_high: 30.0,  dm_step: 0.1,  downsamp: 1],
+            [dm_low: 30.0,  dm_high: 100.0, dm_step: 0.3,  downsamp: 2],
+            [dm_low: 100.0, dm_high: 300.0, dm_step: 1.0,  downsamp: 4],
+            [dm_low: 300.0, dm_high: 500.0, dm_step: 2.0,  downsamp: 8]
+        ]
+
+        // Acceleration search parameters
+        use_gpu             = true      // Use GPU acceleration (requires PRESTO with CUDA)
+        zmax                = 200       // Maximum z (acceleration) to search
+        wmax                = 0         // Maximum w (jerk) to search (0 = no jerk search)
+        numharm             = 8         // Number of harmonics to sum
+        sigma_threshold     = 2.0       // Sigma threshold for candidate detection
+
+        // Birdie detection (zero-DM) parameters
+        birdie_zmax         = 0         // z value for birdie detection (usually 0)
+
+        // Candidate sifting parameters
+        sift_min_dm         = 2.0       // Minimum DM for real candidates
+        sift_r_err          = 1.1       // Fourier frequency error for matching
+        sift_short_period   = 0.0005    // Shortest period to consider (seconds)
+        sift_long_period    = 15.0      // Longest period to consider (seconds)
+        sift_sigma_threshold = 4.0      // Minimum sigma for sifted candidates
+
+        // Folding parameters
+        fold_nsub           = 128       // Number of subbands for prepfold
+        fold_npart          = 64        // Number of sub-integrations
+        fold_pstep          = 1         // Period search step
+        fold_pdstep         = 2         // Period derivative search step
+        fold_dmstep         = 2         // DM search step
+        max_fold_cands      = 100       // Maximum number of candidates to fold
+
+        // Output parameters
+        output_dir          = "${basedir}/PRESTO"
     }
 
     // =========================================================================

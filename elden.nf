@@ -30,6 +30,18 @@ include { dada_to_fits } from './processes'
 include { merge_filterbanks } from './processes'
 include { split_filterbank } from './processes.nf'
 
+// PRESTO pipeline processes
+include { presto_rfifind } from './processes'
+include { presto_prepdata_zerodm } from './processes'
+include { presto_accelsearch_zerodm } from './processes'
+include { presto_prepsubband } from './processes'
+include { presto_accelsearch } from './processes'
+include { presto_sift_candidates } from './processes'
+include { presto_prepfold_batch } from './processes'
+include { presto_pfd_to_png } from './processes'
+include { presto_fold_merge } from './processes'
+include { presto_create_tarball } from './processes'
+
 // Utility workflow includes
 include { help } from './utilities'
 include { setup_basedir } from './utilities'
@@ -528,8 +540,300 @@ workflow candypolice {
         def cList = cf instanceof List ? cf : [cf]
         return tuple(cList)
     }
-    
+
     candypolice_pulsarx(rdout, candfiles)
+}
+
+// ============================================================================
+// PRESTO PIPELINE WORKFLOWS
+// ============================================================================
+
+/*
+ * PRESTO RFI Detection workflow
+ */
+workflow presto_rfi {
+    take:
+    input_files
+
+    main:
+    presto_rfifind(input_files)
+        .set { rfi_out }
+
+    emit:
+    rfi_mask = rfi_out.rfi_mask
+    rfi_files = rfi_out.rfi_files
+    rfi_stats = rfi_out.rfi_stats
+}
+
+/*
+ * PRESTO Birdie Detection workflow (zero-DM search for RFI identification)
+ */
+workflow presto_birdies {
+    take:
+    input_file
+    rfi_mask
+
+    main:
+    presto_prepdata_zerodm(input_file, rfi_mask)
+        .set { zerodm_out }
+
+    presto_accelsearch_zerodm(zerodm_out.dat_file, zerodm_out.inf_file)
+        .set { birdie_out }
+
+    emit:
+    zaplist = birdie_out.zaplist
+}
+
+/*
+ * PRESTO Dedispersion workflow
+ */
+workflow presto_dedisperse {
+    take:
+    input_file
+    rfi_mask
+    dm_ranges  // Channel of tuples: (dm_low, dm_high, dm_step, downsamp)
+
+    main:
+    presto_prepsubband(input_file, rfi_mask, dm_ranges)
+        .set { subband_out }
+
+    emit:
+    subband_data = subband_out.subband_data
+}
+
+/*
+ * PRESTO Acceleration Search workflow
+ */
+workflow presto_search {
+    take:
+    dat_files
+    inf_files
+    zaplist
+
+    main:
+    // Handle case where zaplist may not exist
+    zaplist_ch = zaplist.ifEmpty(file('NO_ZAPLIST'))
+
+    presto_accelsearch(dat_files, inf_files, zaplist_ch)
+        .set { accel_out }
+
+    emit:
+    accel_files = accel_out.accel_files
+    cand_files = accel_out.cand_files
+}
+
+/*
+ * PRESTO Sift and Fold workflow
+ */
+workflow presto_sift_fold {
+    take:
+    accel_files
+    input_file
+    rfi_mask
+
+    main:
+    presto_sift_candidates(accel_files, input_file)
+        .set { sifted_out }
+
+    presto_prepfold_batch(input_file, sifted_out.sifted_csv, rfi_mask)
+        .set { fold_out }
+
+    emit:
+    pfd_files = fold_out.pfd_files
+    sifted_csv = sifted_out.sifted_csv
+}
+
+/*
+ * PRESTO Post-processing workflow (PNG conversion and tarball creation)
+ */
+workflow presto_postprocess {
+    take:
+    pfd_files
+    sifted_csv
+    input_file
+
+    main:
+    presto_pfd_to_png(pfd_files)
+        .set { png_out }
+
+    // Collect bestprof files (may be empty)
+    bestprof_ch = pfd_files.map { pfd ->
+        file("${pfd}.bestprof")
+    }.filter { it.exists() }.collect().ifEmpty([])
+
+    presto_fold_merge(
+        pfd_files.collect(),
+        png_out.png_files.collect(),
+        bestprof_ch,
+        sifted_csv
+    ).set { merged_out }
+
+    presto_create_tarball(
+        merged_out.merged_csv,
+        merged_out.all_pfd,
+        merged_out.all_png,
+        input_file
+    ).set { tarball_out }
+
+    emit:
+    tarball = tarball_out.tarball
+    final_csv = tarball_out.final_csv
+    png_files = png_out.png_files
+}
+
+/*
+ * Full PRESTO search pipeline
+ * Runs: RFI detection -> Birdie detection -> Dedispersion -> Acceleration search -> Sifting -> Folding -> Post-processing
+ */
+workflow presto_full {
+    main:
+    // Intake files
+    def intake_ch = intake()
+
+    // Extract filterbank files
+    def fil_channel = intake_ch.map { p, f, c, bn, bi, u, ra, dec, cdm, fname ->
+        file(f)
+    }
+
+    // Run RFI detection
+    presto_rfi(fil_channel)
+        .set { rfi_out }
+
+    // Run birdie detection
+    presto_birdies(fil_channel, rfi_out.rfi_mask)
+        .set { birdie_out }
+
+    // Generate DM ranges from params
+    def dm_ranges = Channel.from(params.presto.dm_ranges).map { range ->
+        tuple(range.dm_low, range.dm_high, range.dm_step, range.downsamp)
+    }
+
+    // Combine input file with rfi_mask for dedispersion
+    def dedisperse_input = fil_channel.combine(rfi_out.rfi_mask)
+
+    // Run dedispersion for each DM range
+    presto_prepsubband(
+        dedisperse_input.map { it[0] },
+        dedisperse_input.map { it[1] },
+        dm_ranges
+    ).set { subband_out }
+
+    // Run acceleration search on all dedispersed data
+    presto_accelsearch(
+        subband_out.dat_files.flatten(),
+        subband_out.inf_files.flatten(),
+        birdie_out.zaplist.ifEmpty(file('NO_ZAPLIST'))
+    ).set { accel_out }
+
+    // Collect all ACCEL files and sift
+    presto_sift_candidates(
+        accel_out.accel_files.collect(),
+        fil_channel
+    ).set { sifted_out }
+
+    // Fold candidates
+    presto_prepfold_batch(
+        fil_channel,
+        sifted_out.sifted_csv,
+        rfi_out.rfi_mask
+    ).set { fold_out }
+
+    // Post-processing: PNG conversion and tarball
+    presto_pfd_to_png(fold_out.pfd_files.collect())
+        .set { png_out }
+
+    // Create merged results and tarball
+    presto_fold_merge(
+        fold_out.pfd_files.collect(),
+        png_out.png_files.collect(),
+        fold_out.bestprof_files.collect().ifEmpty([]),
+        sifted_out.sifted_csv
+    ).set { merged_out }
+
+    presto_create_tarball(
+        merged_out.merged_csv,
+        merged_out.all_pfd,
+        merged_out.all_png,
+        fil_channel
+    ).set { tarball_out }
+}
+
+/*
+ * PRESTO search on pre-cleaned filterbanks
+ * Similar to run_search_fold but using PRESTO instead of peasoup+pulsarx
+ */
+workflow run_presto_search {
+    main:
+    // Intake pre-cleaned files
+    def cleaned_ch = intake().map { p, f, c, bn, bi, u, ra, dec, cdm, fname ->
+        file(f)
+    }
+
+    // Run RFI detection
+    presto_rfi(cleaned_ch)
+        .set { rfi_out }
+
+    // Run birdie detection
+    presto_birdies(cleaned_ch, rfi_out.rfi_mask)
+        .set { birdie_out }
+
+    // Generate DM ranges
+    def dm_ranges = Channel.from(params.presto.dm_ranges).map { range ->
+        tuple(range.dm_low, range.dm_high, range.dm_step, range.downsamp)
+    }
+
+    // Run dedispersion
+    presto_prepsubband(cleaned_ch, rfi_out.rfi_mask, dm_ranges)
+        .set { subband_out }
+
+    // Run acceleration search
+    presto_accelsearch(
+        subband_out.dat_files.flatten(),
+        subband_out.inf_files.flatten(),
+        birdie_out.zaplist.ifEmpty(file('NO_ZAPLIST'))
+    ).set { accel_out }
+
+    // Sift candidates
+    presto_sift_candidates(accel_out.accel_files.collect(), cleaned_ch)
+        .set { sifted_out }
+
+    // Fold candidates
+    presto_prepfold_batch(cleaned_ch, sifted_out.sifted_csv, rfi_out.rfi_mask)
+        .set { fold_out }
+
+    // Convert to PNG
+    presto_pfd_to_png(fold_out.pfd_files.collect())
+        .set { png_out }
+
+    // Merge and create tarball
+    presto_fold_merge(
+        fold_out.pfd_files.collect(),
+        png_out.png_files.collect(),
+        fold_out.bestprof_files.collect().ifEmpty([]),
+        sifted_out.sifted_csv
+    ).set { merged_out }
+
+    presto_create_tarball(
+        merged_out.merged_csv,
+        merged_out.all_pfd,
+        merged_out.all_png,
+        cleaned_ch
+    ).set { tarball_out }
+}
+
+/*
+ * Main workflow with search backend selection
+ * Use params.search_backend = 'presto' or 'peasoup' to select pipeline
+ */
+workflow search_pipeline {
+    main:
+    def backend = params.search_backend ?: 'peasoup'
+
+    if (backend == 'presto') {
+        presto_full()
+    } else {
+        full()
+    }
 }
 
 // Default to `full` if no --entry is given

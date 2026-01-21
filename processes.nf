@@ -1115,3 +1115,459 @@ process candypolice_presto {
         p.wait()
     """
 }
+
+// ============================================================================
+// PRESTO PIPELINE PROCESSES
+// ============================================================================
+
+/*
+ * PRESTO RFI Detection - rfifind
+ * Creates RFI mask for the observation
+ */
+process presto_rfifind {
+    label 'presto'
+    label 'short'
+
+    publishDir "${params.output_dir}/${params.target_name}/presto/rfi", mode: 'copy', pattern: "*.mask"
+
+    input:
+    path input_file
+
+    output:
+    path "*.mask", emit: rfi_mask
+    path "*.rfifind*", emit: rfi_files
+    path "*_rfifind.out", emit: rfi_stats
+
+    script:
+    def basename = input_file.baseName
+    def time_int = params.presto?.rfifind_time ?: 2.0
+    def chanfrac = params.presto?.rfifind_chanfrac ?: 0.5
+    def intfrac = params.presto?.rfifind_intfrac ?: 0.3
+    def timesig = params.presto?.rfifind_timesig ?: 10
+    def freqsig = params.presto?.rfifind_freqsig ?: 4
+    """
+    rfifind -time ${time_int} -chanfrac ${chanfrac} -intfrac ${intfrac} \
+        -timesig ${timesig} -freqsig ${freqsig} \
+        -o ${basename} ${input_file} 2>&1 | tee ${basename}_rfifind.out
+    """
+}
+
+/*
+ * PRESTO prepdata for zero-DM time series (birdie detection)
+ */
+process presto_prepdata_zerodm {
+    label 'presto'
+    label 'short'
+
+    input:
+    path input_file
+    path rfi_mask
+
+    output:
+    path "*.dat", emit: dat_file
+    path "*.inf", emit: inf_file
+
+    script:
+    def basename = input_file.baseName
+    """
+    prepdata -dm 0 -mask ${rfi_mask} -o ${basename}_DM0 ${input_file}
+    """
+}
+
+/*
+ * PRESTO accelsearch at zero DM for birdie list
+ */
+process presto_accelsearch_zerodm {
+    label 'presto'
+    label 'medium'
+
+    input:
+    path dat_file
+    path inf_file
+
+    output:
+    path "*.zaplist", emit: zaplist, optional: true
+    path "*_ACCEL_*", emit: accel_files
+
+    script:
+    def basename = dat_file.baseName
+    def zmax = params.presto?.birdie_zmax ?: 0
+    def numharm = params.presto?.numharm ?: 8
+    """
+    realfft ${dat_file}
+    accelsearch -zmax ${zmax} -numharm ${numharm} ${basename}.fft
+
+    # Create zaplist from significant zero-DM candidates (potential birdies)
+    if [ -f ${basename}_ACCEL_${zmax} ]; then
+        awk 'NR>3 && \$1!="#" && \$4>5 {print \$2}' ${basename}_ACCEL_${zmax} > birdies.zaplist || true
+    fi
+    touch birdies.zaplist
+    """
+}
+
+/*
+ * PRESTO prepsubband - dedispersion across DM range
+ */
+process presto_prepsubband {
+    label 'presto'
+    label 'long'
+
+    publishDir "${params.output_dir}/${params.target_name}/presto/subbands/${dm_low}_${dm_high}", mode: 'symlink'
+
+    input:
+    path input_file
+    path rfi_mask
+    tuple val(dm_low), val(dm_high), val(dm_step), val(downsamp)
+
+    output:
+    path "*.dat", emit: dat_files
+    path "*.inf", emit: inf_files
+    tuple val(dm_low), val(dm_high), val(dm_step), val(downsamp), path("*.dat"), path("*.inf"), emit: subband_data
+
+    script:
+    def basename = input_file.baseName
+    def nsub = params.presto?.nsub ?: 128
+    """
+    prepsubband -dm ${dm_low} -dmstep ${dm_step} -ndm ${((dm_high.toFloat() - dm_low.toFloat()) / dm_step.toFloat()).toInteger()} \
+        -nsub ${nsub} -downsamp ${downsamp} \
+        -mask ${rfi_mask} -o ${basename} ${input_file}
+    """
+}
+
+/*
+ * PRESTO accelsearch - acceleration/jerk search
+ * Can use GPU acceleration if available
+ */
+process presto_accelsearch {
+    label 'presto_gpu'
+    label 'long'
+
+    publishDir "${params.output_dir}/${params.target_name}/presto/accelsearch", mode: 'symlink'
+
+    input:
+    path dat_file
+    path inf_file
+    path zaplist
+
+    output:
+    path "*_ACCEL_*", emit: accel_files
+    path "*.cand", emit: cand_files, optional: true
+    path "*.fft", emit: fft_files
+
+    script:
+    def basename = dat_file.baseName
+    def zmax = params.presto?.zmax ?: 200
+    def wmax = params.presto?.wmax ?: 0
+    def numharm = params.presto?.numharm ?: 8
+    def sigma = params.presto?.sigma_threshold ?: 2.0
+    def use_gpu = params.presto?.use_gpu ?: false
+    def gpu_flag = use_gpu ? "-cuda" : ""
+    def zap_flag = zaplist.name != 'NO_ZAPLIST' ? "-zaplist ${zaplist}" : ""
+    """
+    realfft ${dat_file}
+    accelsearch ${gpu_flag} -zmax ${zmax} -wmax ${wmax} -numharm ${numharm} \
+        -sigma ${sigma} ${zap_flag} ${basename}.fft
+    """
+}
+
+/*
+ * PRESTO candidate sifting
+ */
+process presto_sift_candidates {
+    label 'presto'
+    label 'short'
+
+    publishDir "${params.output_dir}/${params.target_name}/presto/sifted", mode: 'copy'
+
+    input:
+    path accel_files
+    path input_file
+
+    output:
+    path "sifted_candidates.csv", emit: sifted_csv
+    path "sifted_candidates.candfile", emit: candfile
+
+    script:
+    def basename = input_file.baseName
+    def min_dm = params.presto?.sift_min_dm ?: 2.0
+    def r_err = params.presto?.sift_r_err ?: 1.1
+    def short_period = params.presto?.sift_short_period ?: 0.0005
+    def long_period = params.presto?.sift_long_period ?: 15.0
+    def sigma_threshold = params.presto?.sift_sigma_threshold ?: 4.0
+    """
+    python ${projectDir}/scripts/presto_accel_sift.py \
+        --glob_pattern "*.cand" \
+        --min_dm ${min_dm} \
+        --r_err ${r_err} \
+        --short_period ${short_period} \
+        --long_period ${long_period} \
+        --sigma_threshold ${sigma_threshold} \
+        --output_prefix sifted_candidates
+    """
+}
+
+/*
+ * PRESTO prepfold - fold candidates
+ */
+process presto_prepfold {
+    label 'presto'
+    label 'medium'
+
+    publishDir "${params.output_dir}/${params.target_name}/presto/folded", mode: 'copy'
+
+    input:
+    path input_file
+    path candidate_csv
+    path rfi_mask
+    val candidate_line
+
+    output:
+    path "*.pfd", emit: pfd_files
+    path "*.pfd.bestprof", emit: bestprof_files
+    path "*.pfd.ps", emit: ps_files
+
+    script:
+    def basename = input_file.baseName
+    def nsub = params.presto?.fold_nsub ?: 128
+    def npart = params.presto?.fold_npart ?: 64
+    def pstep = params.presto?.fold_pstep ?: 1
+    def pdstep = params.presto?.fold_pdstep ?: 2
+    def dmstep = params.presto?.fold_dmstep ?: 2
+    """
+    #!/usr/bin/env python3
+    import subprocess
+    import os
+
+    line = "${candidate_line}".strip()
+    parts = line.split(',')
+
+    # Expected CSV format: filename,cand_num,dm,period,f0,f1,accel,sigma
+    if len(parts) >= 5:
+        dm = parts[2]
+        period = parts[3]
+        f0 = parts[4]
+        f1 = parts[5] if len(parts) > 5 else "0"
+        accel = parts[6] if len(parts) > 6 else "0"
+        cand_id = parts[1]
+
+        outname = f"${basename}_cand_{cand_id}"
+
+        cmd = f"prepfold -dm {dm} -p {period} -pd {f1} " \
+              f"-mask ${rfi_mask} -nsub ${nsub} -npart ${npart} " \
+              f"-pstep ${pstep} -pdstep ${pdstep} -dmstep ${dmstep} " \
+              f"-o {outname} ${input_file}"
+
+        subprocess.run(cmd, shell=True, check=True)
+    """
+}
+
+/*
+ * PRESTO prepfold batch - fold multiple candidates
+ */
+process presto_prepfold_batch {
+    label 'presto'
+    label 'long'
+
+    publishDir "${params.output_dir}/${params.target_name}/presto/folded", mode: 'copy'
+
+    input:
+    path input_file
+    path candidate_csv
+    path rfi_mask
+
+    output:
+    path "*.pfd", emit: pfd_files
+    path "*.pfd.bestprof", emit: bestprof_files, optional: true
+    path "*.pfd.ps", emit: ps_files, optional: true
+
+    script:
+    def basename = input_file.baseName
+    def nsub = params.presto?.fold_nsub ?: 128
+    def npart = params.presto?.fold_npart ?: 64
+    def max_cands = params.presto?.max_fold_cands ?: 100
+    """
+    #!/usr/bin/env python3
+    import subprocess
+    import csv
+    import os
+    from concurrent.futures import ProcessPoolExecutor, as_completed
+
+    def fold_candidate(args):
+        dm, period, f1, cand_id, basename, input_file, rfi_mask = args
+        outname = f"{basename}_cand_{cand_id}"
+        cmd = f"prepfold -dm {dm} -p {period} -pd {f1} " \
+              f"-mask {rfi_mask} -nsub ${nsub} -npart ${npart} " \
+              f"-o {outname} {input_file}"
+        try:
+            subprocess.run(cmd, shell=True, check=True, capture_output=True)
+            return True, cand_id
+        except Exception as e:
+            return False, str(e)
+
+    # Read candidates
+    candidates = []
+    with open("${candidate_csv}", 'r') as f:
+        reader = csv.reader(f)
+        next(reader, None)  # Skip header
+        for i, row in enumerate(reader):
+            if i >= ${max_cands}:
+                break
+            if len(row) >= 5:
+                candidates.append((
+                    row[2],  # dm
+                    row[3],  # period
+                    row[5] if len(row) > 5 else "0",  # f1
+                    row[1],  # cand_id
+                    "${basename}",
+                    "${input_file}",
+                    "${rfi_mask}"
+                ))
+
+    # Fold in parallel
+    with ProcessPoolExecutor(max_workers=min(8, len(candidates))) as executor:
+        futures = [executor.submit(fold_candidate, c) for c in candidates]
+        for future in as_completed(futures):
+            success, result = future.result()
+            if not success:
+                print(f"Warning: Folding failed: {result}")
+    """
+}
+
+/*
+ * PRESTO PFD to PNG conversion
+ */
+process presto_pfd_to_png {
+    label 'presto'
+    label 'short'
+
+    publishDir "${params.output_dir}/${params.target_name}/presto/plots", mode: 'copy'
+
+    input:
+    path pfd_files
+
+    output:
+    path "*.png", emit: png_files
+
+    script:
+    """
+    python ${projectDir}/scripts/presto_pfd_to_png.py \
+        --input_dir . \
+        --output_dir . \
+        --workers 4
+    """
+}
+
+/*
+ * PRESTO merge folded results
+ */
+process presto_fold_merge {
+    label 'presto'
+    label 'short'
+
+    publishDir "${params.output_dir}/${params.target_name}/presto/merged", mode: 'copy'
+
+    input:
+    path pfd_files
+    path png_files
+    path bestprof_files
+    path sifted_csv
+
+    output:
+    path "merged_results.csv", emit: merged_csv
+    path "pfd_files/*", emit: all_pfd
+    path "png_files/*", emit: all_png
+
+    script:
+    """
+    #!/usr/bin/env python3
+    import os
+    import csv
+    import shutil
+    import glob
+
+    os.makedirs("pfd_files", exist_ok=True)
+    os.makedirs("png_files", exist_ok=True)
+
+    # Copy pfd and png files
+    for pfd in glob.glob("*.pfd"):
+        shutil.copy(pfd, "pfd_files/")
+    for png in glob.glob("*.png"):
+        shutil.copy(png, "png_files/")
+
+    # Parse bestprof files and merge with candidate info
+    results = []
+    sifted_data = {}
+
+    # Read sifted candidates
+    with open("${sifted_csv}", 'r') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            sifted_data[row.get('cand_id', row.get('cand_num', ''))] = row
+
+    # Parse bestprof files
+    for bp in glob.glob("*.bestprof"):
+        cand_id = bp.split('_cand_')[1].replace('.pfd.bestprof', '') if '_cand_' in bp else ''
+        basename = os.path.basename(bp).replace('.pfd.bestprof', '')
+
+        with open(bp, 'r') as f:
+            content = f.read()
+
+        # Extract key parameters
+        result = {
+            'basename': basename,
+            'cand_id': cand_id,
+            'pfd_file': basename + '.pfd',
+            'png_file': basename + '.png' if os.path.exists(basename + '.png') else ''
+        }
+
+        # Add sifted data if available
+        if cand_id in sifted_data:
+            result.update(sifted_data[cand_id])
+
+        results.append(result)
+
+    # Write merged results
+    if results:
+        fieldnames = list(results[0].keys())
+        with open("merged_results.csv", 'w', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(results)
+    else:
+        with open("merged_results.csv", 'w') as f:
+            f.write("basename,cand_id,pfd_file,png_file\\n")
+    """
+}
+
+/*
+ * PRESTO create tarball for CandyJar
+ */
+process presto_create_tarball {
+    label 'presto'
+    label 'short'
+
+    publishDir "${params.output_dir}/${params.target_name}/presto/tarballs", mode: 'copy'
+
+    input:
+    path merged_csv
+    path pfd_dir
+    path png_dir
+    path input_file
+
+    output:
+    path "*.tar.gz", emit: tarball
+    path "candidates.csv", emit: final_csv
+
+    script:
+    def basename = input_file.baseName
+    """
+    python ${projectDir}/scripts/create_presto_tarball.py \
+        --input_csv ${merged_csv} \
+        --pfd_dir ${pfd_dir} \
+        --png_dir ${png_dir} \
+        --output_tarball ${basename}_presto_candidates.tar.gz \
+        --output_csv candidates.csv \
+        --pointing_name ${params.target_name} \
+        --beam_name ${basename}
+    """
+}
