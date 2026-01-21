@@ -31,3 +31,6 @@ Thumbs.db
 __pycache__/
 env/
 venv/
+
+# Claude Code reference
+CLAUDE.md

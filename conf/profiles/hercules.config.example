@@ -110,6 +110,116 @@ process {
         time       = '10m'
         queue      = 'short.q'
     }
+
+    // =========================================================================
+    // PRESTO Pipeline Process Configurations
+    // =========================================================================
+
+    // PRESTO CPU processes (rfifind, prepdata, prepsubband, prepfold, sifting)
+    withLabel: 'presto' {
+        cpus           = 8
+        memory         = '64 GB'
+        time           = { 4.hour * task.attempt }
+        queue          = { (task.time <= 4.hour) ? 'short.q' : 'long.q' }
+        errorStrategy  = { task.exitStatus in (137..140) ? 'retry' : 'finish' }
+        maxRetries     = 2
+        container      = "${params.prestozl_image}"
+    }
+
+    // PRESTO GPU processes (accelsearch with CUDA)
+    withLabel: 'presto_gpu' {
+        cpus           = 4
+        memory         = '128 GB'
+        time           = { 4.hour * task.attempt }
+        queue          = 'gpu.q'
+        clusterOptions = '--gres=gpu:1'
+        errorStrategy  = { task.exitStatus in (137..140) ? 'retry' : 'finish' }
+        maxRetries     = 2
+        container      = "${params.prestozl_image}"
+    }
+
+    // Short PRESTO processes (sifting, PNG conversion, tarball)
+    withLabel: 'short' {
+        time   = '1h'
+        queue  = 'short.q'
+    }
+
+    // Medium PRESTO processes (single candidate folding)
+    withLabel: 'medium' {
+        time   = '2h'
+        queue  = 'short.q'
+    }
+
+    // Long PRESTO processes (batch folding, dedispersion)
+    withLabel: 'long' {
+        time   = { 4.hour * task.attempt }
+        queue  = { (task.time <= 4.hour) ? 'short.q' : 'long.q' }
+    }
+
+    // PulsarX folding for PRESTO candidates
+    withLabel: 'pulsarx' {
+        cpus           = 16
+        memory         = '64 GB'
+        time           = { 4.hour * task.attempt }
+        queue          = { (task.time <= 4.hour) ? 'short.q' : 'long.q' }
+        errorStrategy  = { task.exitStatus in (137..140) ? 'retry' : 'finish' }
+        maxRetries     = 2
+        container      = "${params.pulsarx_image}"
+    }
+
+    // alpha_beta_gamma_test Process Configuration
+    withLabel: 'alpha_beta_gamma_test' {
+        cpus       = 4
+        memory     = '20 GB'
+        time       = '1h'
+        queue      = 'short.q'
+    }
+
+    // split_filterbank Process Configuration
+    withLabel: 'split_filterbank' {
+        cpus       = 1
+        memory     = '20 GB'
+        time       = '1h'
+        queue      = 'short.q'
+    }
+
+    // merge_filterbanks Process Configuration
+    withLabel: 'merge_filterbanks' {
+        cpus           = 4
+        memory         = '50 GB'
+        time           = { 2.hour * task.attempt }
+        queue          = 'short.q'
+        errorStrategy  = { task.exitStatus in (137..140) ? 'retry' : 'finish' }
+        maxRetries     = 2
+    }
+
+    // segmented_params Process Configuration
+    withLabel: 'segmented_params' {
+        cpus       = 1
+        memory     = '10 GB'
+        time       = '15m'
+        queue      = 'short.q'
+    }
+
+    // candypolice_pulsarx Process Configuration
+    withLabel: 'candypolice_pulsarx' {
+        cpus           = 48
+        memory         = '200 GB'
+        time           = { 4.hour * task.attempt }
+        queue          = { (task.time <= 4.hour) ? 'short.q' : 'long.q' }
+        errorStrategy  = { task.exitStatus in (137..140) ? 'retry' : 'finish' }
+        maxRetries     = 2
+    }
+
+    // candypolice_presto Process Configuration
+    withLabel: 'candypolice_presto' {
+        cpus           = 8
+        memory         = '64 GB'
+        time           = { 4.hour * task.attempt }
+        queue          = { (task.time <= 4.hour) ? 'short.q' : 'long.q' }
+        errorStrategy  = { task.exitStatus in (137..140) ? 'retry' : 'finish' }
+        maxRetries     = 2
+    }
 }
 
 // Define container image paths specific to Hercules cluster
@@ -125,6 +235,8 @@ params {
     pics_classifier_image = "/hercules/scratch/fkareem/singularity_img/trapum_pulsarx_fold_docker_20220411.sif"
     filtools_sig_image    = "${singularity_image_dir}/filtools-image_sig.sif"
     rusty_candypicker     = "${singularity_image_dir}/rusty_candypicker_latest.sif"
+    // PrestoZL GPU-accelerated container (pull from zjlabastro/prestozl:v1.0)
+    prestozl_image        = "${singularity_image_dir}/prestozl_v1.0.sif"
     // Number of threads for processes used in filtool
     threads = 48  // Adjust as per the cluster's CPU availability
 }

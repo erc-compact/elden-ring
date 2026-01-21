@@ -97,6 +97,94 @@ process {
         memory         = '200 GB'
         errorStrategy = 'ignore'
     }
+
+    // alpha_beta_gamma_test Process Configuration
+    withLabel: 'alpha_beta_gamma_test' {
+        cpus       = 4
+        memory     = '20 GB'
+        time       = '1h'
+    }
+
+    // split_filterbank Process Configuration
+    withLabel: 'split_filterbank' {
+        cpus       = 1
+        memory     = '20 GB'
+        time       = '1h'
+    }
+
+    // merge_filterbanks Process Configuration
+    withLabel: 'merge_filterbanks' {
+        cpus       = 4
+        memory     = '50 GB'
+        time       = '2h'
+    }
+
+    // segmented_params Process Configuration
+    withLabel: 'segmented_params' {
+        cpus       = 1
+        memory     = '10 GB'
+        time       = '15m'
+    }
+
+    // candypolice_pulsarx Process Configuration
+    withLabel: 'candypolice_pulsarx' {
+        cpus           = 20
+        memory         = '200 GB'
+        time           = '4h'
+    }
+
+    // candypolice_presto Process Configuration
+    withLabel: 'candypolice_presto' {
+        cpus           = 8
+        memory         = '64 GB'
+        time           = '4h'
+    }
+
+    // =========================================================================
+    // PRESTO Pipeline Process Configurations
+    // =========================================================================
+
+    // PRESTO CPU processes (rfifind, prepdata, prepsubband, prepfold, sifting)
+    withLabel: 'presto' {
+        cpus           = 8
+        memory         = '64 GB'
+        time           = '4h'
+        errorStrategy  = 'retry'
+        maxRetries     = 2
+    }
+
+    // PRESTO GPU processes (accelsearch with CUDA)
+    withLabel: 'presto_gpu' {
+        cpus           = 4
+        memory         = '128 GB'
+        clusterOptions = 'request_gpus = 1'
+        errorStrategy  = 'retry'
+        maxRetries     = 2
+    }
+
+    // Short PRESTO processes (sifting, PNG conversion, tarball)
+    withLabel: 'short' {
+        time   = '1h'
+    }
+
+    // Medium PRESTO processes (single candidate folding)
+    withLabel: 'medium' {
+        time   = '2h'
+    }
+
+    // Long PRESTO processes (batch folding, dedispersion)
+    withLabel: 'long' {
+        time   = '8h'
+    }
+
+    // PulsarX folding for PRESTO candidates
+    withLabel: 'pulsarx' {
+        cpus           = 16
+        memory         = '64 GB'
+        time           = '4h'
+        errorStrategy  = 'retry'
+        maxRetries     = 2
+    }
 }
 
 // Define container image paths specific to Edgar cluster
@@ -112,6 +200,8 @@ params {
     pics_classifier_image = "${singularity_image_dir}/trapum_pulsarx_fold_docker_20220411.sif"
     filtools_sig_image    = "${singularity_image_dir}/filtools-image_sig.sif"
     rusty_candypicker     = "${singularity_image_dir}/rusty_candypicker_latest.sif"
+    // PrestoZL GPU-accelerated container
+    prestozl_image        = "${singularity_image_dir}/prestozl_v1.0.sif"
     threads               = 20
 }
 

@@ -1,0 +1,4 @@
+pointing,fits_files,cluster,beam_name,beam_id,utc_start,ra,dec,cdm
+1,/bscratch/fazal/test_data/TEST_PULSAR_beam1_clean_01.fil,TEST_PULSAR,cfbf00001,1,2024-01-01-00:00:00,12:00:00.0,+30:00:00.0,50.0
+2,/bscratch/fazal/test_data/TEST_PULSAR_beam2_clean_01.fil,TEST_PULSAR,cfbf00002,2,2024-01-01-00:00:00,12:00:00.0,+30:00:00.0,50.0
+3,/bscratch/fazal/test_data/TEST_PULSAR_beam3_clean_01.fil,TEST_PULSAR,cfbf00003,3,2024-01-01-00:00:00,12:00:00.0,+30:00:00.0,50.0

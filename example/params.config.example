@@ -3,6 +3,8 @@ params {
     // Base directories
     basedir         = "/b/PROCESSING_FAZAL/"
     runID          = "UBB_NGC6401_02_PERIODICITY"
+    target_name    = "NGC6401"  // Target name for PRESTO output directories
+    output_dir     = "${basedir}"  // Base output directory for PRESTO pipelines
     template_dir    = "${projectDir}/templates"
     pics_model_dir  = "${projectDir}/ML_Models"
     split_fil = true
@@ -79,9 +81,9 @@ params {
     // Peasoup Parameters
     peasoup {
         segmented_search    = true
-        segments            = [1] // The list contains the no. of chunks to split the 
+        segments            = [1] // The list contains the no. of chunks to split the
         // filterbanks into. 1=full_search, 2=split_in_half, etc.
-        // Each entry in the list will be executed, so [1,2] will result in a 
+        // Each entry in the list will be executed, so [1,2] will result in a
         // full search and a segmented search on the halves
         birdies_min_snr     = 11.0 // Minimum SNR for birdies
         default_birdies     = "${projectDir}/include/default_birdies.txt" // Path to the default birdies file
@@ -92,10 +94,39 @@ params {
         acc_start           = -50
         acc_end             = 50
         ram_limit_gb        = 145
-        nharmonics          = 4 
+        nharmonics          = 4
         ngpus               = 1
         total_cands_limit   = 5000
+
+        // Time series dumping for PRESTO processing
+        dump_timeseries     = false  // Set to true to dump PRESTO-compatible .dat/.inf files
+        // When enabled, peasoup runs with -d flag to output dedispersed time series
+        // WHILE ALSO performing the normal search. The .dat/.inf files are saved to:
+        // ${basedir}/${runID}/${beam_name}/segment_${segments}/${segments}${segment_id}/TIMESERIES/
+        // These can be processed with PRESTO's accelsearch in a second run using:
+        //   nextflow run elden.nf -entry run_accelsearch_on_timeseries
     }
+
+    // =========================================================================
+    // Parameters for second-run accelsearch on pre-dumped time series
+    // Used with: nextflow run elden.nf -entry run_accelsearch_on_timeseries
+    // =========================================================================
+    //
+    // Two modes are available:
+    //
+    // MODE 1: Multi-file mode (RECOMMENDED)
+    //   Uses the same params.files_list, basedir, and runID as the first run.
+    //   The workflow auto-discovers TIMESERIES directories for each beam.
+    //   Usage: nextflow run elden.nf -entry run_accelsearch_on_timeseries -params-file params.config
+    //
+    // MODE 2: Single-file mode
+    //   For processing a single filterbank with explicit paths.
+    //   Uncomment and set these parameters:
+    //   timeseries_input_dir = "/path/to/TIMESERIES"  // Directory with .dat/.inf files
+    //   filterbank_file = "/path/to/original.fil"    // Original filterbank file
+    //   Usage: nextflow run elden.nf -entry run_accelsearch_on_timeseries \
+    //              --timeseries_input_dir /path/to/TIMESERIES \
+    //              --filterbank_file /path/to/file.fil
 
     // Parse XML Parameters
     parse_xml {
@@ -196,6 +227,7 @@ params {
         sift_sigma_threshold = 4.0      // Minimum sigma for sifted candidates
 
         // Folding parameters
+        fold_backend        = 'presto'  // Folding backend: 'presto' (prepfold) or 'pulsarx' (psrfold_fil2)
         fold_nsub           = 128       // Number of subbands for prepfold
         fold_npart          = 64        // Number of sub-integrations
         fold_pstep          = 1         // Period search step
@@ -203,8 +235,19 @@ params {
         fold_dmstep         = 2         // DM search step
         max_fold_cands      = 100       // Maximum number of candidates to fold
 
+        // PulsarX folding parameters (when fold_backend = 'pulsarx')
+        fold_nbins          = 64        // Number of phase bins for PulsarX
+        fold_binplan        = "0.005 32 0.01 64 0.1 128"  // Bin plan for PulsarX
+        fold_subint_length  = 10.0      // Subintegration length in seconds
+        fold_clfd           = 2.0       // CLFD parameter for PulsarX
+        fold_threads        = 16        // Number of threads for PulsarX
+        fold_cdm            = 0.0       // Coherent DM for PulsarX folding
+
         // Output parameters
         output_dir          = "${basedir}/PRESTO"
+
+        // Container settings (PrestoZL with GPU support)
+        container           = "zjlabastro/prestozl:v1.0"  // GPU-accelerated PRESTO container
     }
 
     // =========================================================================

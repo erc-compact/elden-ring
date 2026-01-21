@@ -4,7 +4,7 @@
 
 ![elden-ring-transformed](https://github.com/user-attachments/assets/3e1a1c35-d055-4266-9ff7-5380ab1d463f)
 
-A GPU-accelerated Nextflow pipeline for pulsar candidate detection featuring RFI mitigation, periodicity searches with [peasoup](https://github.com/ewanbarr/peasoup), candidate folding with [PulsarX](https://github.com/ypmen/PulsarX), and machine learning classification.
+A GPU-accelerated Nextflow pipeline for pulsar candidate detection featuring RFI mitigation, periodicity searches with [peasoup](https://github.com/ewanbarr/peasoup) or [PRESTO](https://github.com/scottransom/presto), candidate folding with [PulsarX](https://github.com/ypmen/PulsarX) or prepfold, and machine learning classification.
 
 ## Table of Contents
 
@@ -24,12 +24,16 @@ A GPU-accelerated Nextflow pipeline for pulsar candidate detection featuring RFI
 
 ## Features
 
+- **Dual Search Backends**: Choose between peasoup (GPU) or PRESTO for periodicity searches
 - **GPU-Accelerated Search**: Fast periodicity searches using peasoup on NVIDIA GPUs
+- **PRESTO Pipeline**: Full PRESTO support including rfifind, prepsubband, accelsearch, and prepfold
+- **Hybrid Mode**: Dump peasoup time series for subsequent PRESTO accelsearch processing
 - **RFI Mitigation**: Automated RFI detection and filtering with spectral kurtosis
 - **Multi-Beam Support**: Process multiple beams in parallel
 - **Coherent Dedispersion**: Support for DADA baseband data with digifits conversion
 - **Filterbank Stacking**: Stack multiple beams by coherent DM for improved sensitivity
 - **Segmented Searches**: Search full observation and sub-segments for accelerated pulsars
+- **Flexible Folding**: Fold candidates with PulsarX or PRESTO prepfold
 - **ML Classification**: PICS-based candidate scoring
 - **Alpha-Beta-Gamma Scoring**: Additional candidate ranking metrics
 - **Resume Support**: Automatic caching and resume capability via Nextflow
@@ -78,9 +82,13 @@ The pipeline uses containerized tools. Required images:
 | `pulsarx_image` | Candidate folding (PulsarX) |
 | `peasoup_image` | GPU periodicity search |
 | `presto_image` | Filterbank utilities (readfile) |
+| `presto5_image` | PRESTO 5 with pdot support |
+| `prestozl_image` | GPU-accelerated PRESTO (PrestoZL) |
 | `rfi_mitigation_image` | RFI analysis and filtering |
 | `pics_classifier_image` | ML candidate classification |
 | `edd_pulsar_image` | DADA to FITS conversion (digifits) |
+| `filtools_sig_image` | Filterbank tools with signal injection |
+| `rusty_candypicker` | Candidate filtering (Rust implementation) |
 
 ## Installation
 
@@ -205,7 +213,7 @@ Note: `cdm_list` contains space-separated coherent DM values. The pipeline will 
 
 Select a workflow with the `-entry` flag:
 
-### Main Processing Pipelines
+### Main Processing Pipelines (Peasoup)
 
 | Workflow | Description |
 |----------|-------------|
@@ -213,6 +221,16 @@ Select a workflow with the `-entry` flag:
 | `run_search_fold` | Search & fold on pre-cleaned filterbanks |
 | `run_rfi_clean` | RFI cleaning only (intake → filter → clean) |
 | `generate_rfi_filter` | Generate RFI diagnostic plots only |
+| `search_pipeline` | Auto-select backend based on `params.search_backend` |
+
+### PRESTO Pipelines
+
+| Workflow | Description |
+|----------|-------------|
+| `presto_full` | Full PRESTO pipeline: rfifind → birdie detection → dedisperse → accelsearch → sift → fold |
+| `run_presto_search` | PRESTO search on pre-cleaned filterbanks |
+| `run_accelsearch_on_timeseries` | Run accelsearch on pre-dumped .dat/.inf files from peasoup |
+| `peasoup_with_presto_search` | Hybrid: peasoup search + optional PRESTO accelsearch on dumped time series |
 
 ### DADA Processing Pipelines
 
@@ -249,6 +267,9 @@ params.runID = "search_v1"
 params.files_list = "inputfile.txt"
 params.telescope = "effelsberg"
 
+// Search Backend Selection
+params.search_backend = "peasoup"  // Options: 'peasoup' (default) or 'presto'
+
 // DM Search Range
 params.ddplan.dm_start = -10    // Relative to coherent DM
 params.ddplan.dm_end = 10
@@ -259,6 +280,16 @@ params.peasoup.segments = [1, 2, 4]   // Full, half, quarter segments
 params.peasoup.acc_start = -50        // Acceleration range (m/s²)
 params.peasoup.acc_end = 50
 params.peasoup.min_snr = 8.0
+params.peasoup.dump_timeseries = false  // Set true to dump .dat/.inf for PRESTO
+
+// PRESTO Search (when search_backend = 'presto')
+params.presto.zmax = 200              // Max z (acceleration) for accelsearch
+params.presto.wmax = 0                // Max w (jerk) for accelsearch
+params.presto.numharm = 8             // Number of harmonics to sum
+params.presto.fold_backend = 'pulsarx'  // Options: 'pulsarx' or 'presto'
+params.presto.dm_ranges = [
+    [dm_low: 0.0, dm_high: 100.0, dm_step: 0.5, downsamp: 1]
+]
 
 // Processing Options
 params.filtool.run_filtool = true
@@ -362,6 +393,55 @@ nextflow run elden.nf -entry fold_par \
 nextflow run elden.nf -entry candypolice \
     -c params.config \
     --candypolice.input_csv /path/to/candyjar.csv
+```
+
+### Run PRESTO Pipeline
+
+```bash
+# Full PRESTO search
+nextflow run elden.nf -entry presto_full \
+    -profile hercules \
+    -c params.config \
+    --search_backend presto
+
+# Or use the auto-select workflow
+nextflow run elden.nf -entry search_pipeline \
+    -profile hercules \
+    -c params.config \
+    --search_backend presto
+```
+
+### Hybrid Peasoup + PRESTO Search
+
+Run peasoup with time series dumping, then process with PRESTO accelsearch:
+
+```bash
+# Step 1: Run peasoup with dump_timeseries enabled
+nextflow run elden.nf -entry full \
+    -profile hercules \
+    -c params.config \
+    --peasoup.dump_timeseries true
+
+# Step 2: Run accelsearch on dumped time series
+nextflow run elden.nf -entry run_accelsearch_on_timeseries \
+    -profile hercules \
+    -c params.config
+```
+
+### Choose Folding Backend for PRESTO Candidates
+
+PRESTO candidates can be folded with either PulsarX or prepfold:
+
+```bash
+# Fold with PulsarX (recommended for better plots)
+nextflow run elden.nf -entry presto_full \
+    -c params.config \
+    --presto.fold_backend pulsarx
+
+# Fold with PRESTO prepfold (traditional .pfd files)
+nextflow run elden.nf -entry presto_full \
+    -c params.config \
+    --presto.fold_backend presto
 ```
 
 ### Copy Data from Remote Cluster

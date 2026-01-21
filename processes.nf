@@ -528,15 +528,18 @@ process peasoup {
     container "${params.peasoup_image}"
     tag "${cluster}_${beam_name}_seg${segments}${segment_id}_cdm_${cdm}_${dm_file.baseName}"
     publishDir "${params.basedir}/${params.runID}/${beam_name}/segment_${segments}/${segments}${segment_id}/SEARCH/", pattern: "*.xml", mode: 'copy'
+    publishDir "${params.basedir}/${params.runID}/${beam_name}/segment_${segments}/${segments}${segment_id}/TIMESERIES/", pattern: "timeseries_dump/*.{dat,inf}", mode: 'copy', enabled: params.peasoup?.dump_timeseries ?: false, saveAs: { filename -> filename.split('/').last() }
     cache 'lenient'
 
     input:
     tuple val(pointing), path(fil_file), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(tsamp), val(nsamples), val(segments), val(segment_id), val(fft_size), val(start_sample), path(birdies_file), path(dm_file)
 
     output:
-    tuple val(pointing), val(cluster),val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(fft_size), val(segments), val(segment_id), path(dm_file), path(fil_file, followLinks: false), path("*.xml"), path(birdies_file), val(start_sample), val(nsamples)
+    tuple val(pointing), val(cluster),val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(fft_size), val(segments), val(segment_id), path(dm_file), path(fil_file, followLinks: false), path("*.xml"), path(birdies_file), val(start_sample), val(nsamples), emit: search_results
+    tuple path("timeseries_dump/*.dat"), path("timeseries_dump/*.inf"), emit: timeseries_data, optional: true
 
     script:
+    def dump_timeseries = params.peasoup?.dump_timeseries ?: false
     """
     #!/bin/bash
 
@@ -548,10 +551,18 @@ process peasoup {
         birdies_string="--zapfile ${birdies_file}"
     fi
 
-    peasoup -i ${fil_file} --cdm ${cdm} --fft_size ${fft_size} --limit ${params.peasoup.total_cands_limit} -m ${params.peasoup.min_snr} -t ${params.peasoup.ngpus} -n ${params.peasoup.nharmonics} --acc_start ${params.peasoup.acc_start} --acc_end ${params.peasoup.acc_end} --ram_limit_gb ${params.peasoup.ram_limit_gb} --dm_file ${dm_file} \${birdies_string} --start_sample ${start_sample} 
+    # Run normal peasoup search
+    peasoup -i ${fil_file} --cdm ${cdm} --fft_size ${fft_size} --limit ${params.peasoup.total_cands_limit} -m ${params.peasoup.min_snr} -t ${params.peasoup.ngpus} -n ${params.peasoup.nharmonics} --acc_start ${params.peasoup.acc_start} --acc_end ${params.peasoup.acc_end} --ram_limit_gb ${params.peasoup.ram_limit_gb} --dm_file ${dm_file} \${birdies_string} --start_sample ${start_sample}
 
-    #Rename the output file
+    # Rename the output file
     mv **/*.xml ${beam_name}_cdm_${cdm}_${dm_file.baseName}_ck${segments}${segment_id}_overview.xml
+
+    # If dump_timeseries is enabled, run a second peasoup with --nosearch to dump .dat/.inf files
+    if [ "${dump_timeseries}" == "true" ]; then
+        echo "Dumping time series with peasoup --nosearch -d timeseries_dump"
+        mkdir -p timeseries_dump
+        peasoup -i ${fil_file} --cdm ${cdm} --fft_size ${fft_size} -t ${params.peasoup.ngpus} --ram_limit_gb ${params.peasoup.ram_limit_gb} --dm_file ${dm_file} --nosearch -d timeseries_dump --start_sample ${start_sample}
+    fi
     """
 }
 
@@ -1363,12 +1374,24 @@ process presto_prepfold {
 
 /*
  * PRESTO prepfold batch - fold multiple candidates
+ *
+ * This process applies period correction using the formulas from foldx.py:
+ *   pdot = period * accel / LIGHT_SPEED
+ *   fold_period = period - pdot * fft_size * tsamp / 2
+ *
+ * The corrected period is used with prepfold's -topo flag for topocentric folding.
+ *
+ * Meta file handling for prepfold:
+ *   - prepfold does NOT need a meta file
+ *   - It takes period, DM, pdot directly from the CSV
+ *   - Period correction is applied in this process
+ *   - Uses -topo flag for topocentric folding
  */
 process presto_prepfold_batch {
     label 'presto'
     label 'long'
 
-    publishDir "${params.output_dir}/${params.target_name}/presto/folded", mode: 'copy'
+    publishDir "${params.presto?.output_dir ?: params.basedir}/presto/folded", mode: 'copy'
 
     input:
     path input_file
@@ -1385,43 +1408,98 @@ process presto_prepfold_batch {
     def nsub = params.presto?.fold_nsub ?: 128
     def npart = params.presto?.fold_npart ?: 64
     def max_cands = params.presto?.max_fold_cands ?: 100
+    def mask_opt = rfi_mask.name != 'NO_MASK' ? "-mask ${rfi_mask}" : ""
     """
     #!/usr/bin/env python3
     import subprocess
     import csv
     import os
+    import struct
     from concurrent.futures import ProcessPoolExecutor, as_completed
 
+    LIGHT_SPEED = 2.99792458e8  # Speed of Light in SI (m/s)
+
+    def a_to_pdot(period, accel):
+        \"\"\"Convert acceleration to period derivative.\"\"\"
+        return period * accel / LIGHT_SPEED
+
+    def period_correction_for_prepfold(p0, pdot, tsamp, fft_size):
+        \"\"\"Correct period to beginning of observation for prepfold.\"\"\"
+        return p0 - pdot * float(fft_size) * tsamp / 2
+
+    def read_fil_tsamp(filepath):
+        \"\"\"Read tsamp from filterbank header.\"\"\"
+        try:
+            with open(filepath, 'rb') as f:
+                content = f.read(4096)
+                if b'tsamp' in content:
+                    idx = content.find(b'tsamp')
+                    f.seek(idx + 5)
+                    return struct.unpack('d', f.read(8))[0]
+        except:
+            pass
+        return 64e-6  # Default tsamp
+
     def fold_candidate(args):
-        dm, period, f1, cand_id, basename, input_file, rfi_mask = args
+        fold_period, pdot, dm, cand_id, basename, input_file, mask_opt = args
         outname = f"{basename}_cand_{cand_id}"
-        cmd = f"prepfold -dm {dm} -p {period} -pd {f1} " \
-              f"-mask {rfi_mask} -nsub ${nsub} -npart ${npart} " \
+
+        # Use -topo for topocentric folding (period already corrected to tobs start)
+        # Add -slow flag for slow pulsars
+        slow_flag = "-slow" if fold_period > 0.1 else ""
+
+        cmd = f"prepfold -fixchi -noxwin -topo {slow_flag} " \\
+              f"-p {fold_period:.16f} -dm {dm:.6f} -pd {pdot:.16e} " \\
+              f"{mask_opt} -nsub ${nsub} -npart ${npart} " \\
               f"-o {outname} {input_file}"
+
         try:
             subprocess.run(cmd, shell=True, check=True, capture_output=True)
             return True, cand_id
         except Exception as e:
             return False, str(e)
 
-    # Read candidates
+    # Read tsamp from filterbank
+    tsamp = read_fil_tsamp("${input_file}")
+    print(f"Using tsamp = {tsamp}")
+
+    # Estimate fft_size (will be refined from actual search parameters)
+    # For now, use a reasonable default based on observation length
+    fft_size = ${params.presto?.fft_size ?: 134217728}
+
+    # Read candidates from CSV
+    # Expected columns: file, cand_id, dm, period, f0, f1, accel, sigma
     candidates = []
     with open("${candidate_csv}", 'r') as f:
-        reader = csv.reader(f)
-        next(reader, None)  # Skip header
+        reader = csv.DictReader(f)
         for i, row in enumerate(reader):
             if i >= ${max_cands}:
                 break
-            if len(row) >= 5:
+
+            try:
+                period = float(row.get('period', row.get('P', 0)))
+                accel = float(row.get('accel', row.get('acc', 0)))
+                dm = float(row.get('dm', row.get('DM', 0)))
+                cand_id = row.get('cand_id', row.get('id', i))
+
+                # Calculate pdot and corrected period
+                pdot = a_to_pdot(period, accel)
+                fold_period = period_correction_for_prepfold(period, pdot, tsamp, fft_size)
+
                 candidates.append((
-                    row[2],  # dm
-                    row[3],  # period
-                    row[5] if len(row) > 5 else "0",  # f1
-                    row[1],  # cand_id
+                    fold_period,
+                    pdot,
+                    dm,
+                    cand_id,
                     "${basename}",
                     "${input_file}",
-                    "${rfi_mask}"
+                    "${mask_opt}"
                 ))
+            except (KeyError, ValueError) as e:
+                print(f"Warning: Could not parse candidate row: {e}")
+                continue
+
+    print(f"Folding {len(candidates)} candidates with prepfold")
 
     # Fold in parallel
     with ProcessPoolExecutor(max_workers=min(8, len(candidates))) as executor:
@@ -1569,5 +1647,203 @@ process presto_create_tarball {
         --output_csv candidates.csv \
         --pointing_name ${params.target_name} \
         --beam_name ${basename}
+    """
+}
+
+// ============================================================================
+// PEASOUP TIME SERIES DUMPING (PRESTO-COMPATIBLE)
+// ============================================================================
+
+/*
+ * Peasoup dedispersion-only mode to dump PRESTO-compatible time series
+ * Uses peasoup with --nosearch and -d <dir> flags to output .dat and .inf files
+ * Peasoup generates both .dat and .inf files automatically when using -d
+ */
+process peasoup_dump_timeseries {
+    label 'peasoup'
+    label 'long'
+
+    publishDir "${params.output_dir}/${params.target_name}/timeseries/${dm_low}_${dm_high}", mode: 'symlink', saveAs: { filename -> filename.split('/').last() }
+
+    input:
+    path input_file
+    path dm_file
+    path birdies_file
+
+    output:
+    path "timeseries_out/*.dat", emit: dat_files
+    path "timeseries_out/*.inf", emit: inf_files
+    tuple path("timeseries_out/*.dat"), path("timeseries_out/*.inf"), emit: timeseries_data
+
+    script:
+    def basename = input_file.baseName
+    def ram_limit = params.peasoup?.ram_limit_gb ?: 90
+    def ngpus = params.peasoup?.ngpus ?: 1
+    def fft_size = params.peasoup?.fft_size ?: 134217728
+    """
+    mkdir -p timeseries_out
+
+    # Run peasoup with --nosearch and -d to dump time series
+    # Peasoup generates both .dat and .inf files automatically
+    peasoup --nosearch -d timeseries_out \\
+        -i ${input_file} \\
+        --dm_file ${dm_file} \\
+        -z ${birdies_file} \\
+        --fft_size ${fft_size} \\
+        --ram_limit_gb ${ram_limit} \\
+        -t ${ngpus}
+    """
+}
+
+// ============================================================================
+// PRESTO CANDIDATES FOLDING WITH PULSARX
+// ============================================================================
+
+/*
+ * Fold PRESTO/peasoup candidates using PulsarX (psrfold_fil2)
+ * Uses the updated pulsarx_fold.py script with --csv flag for CSV candidates
+ *
+ * The meta file must contain:
+ *   - filterbank_file: path to filterbank
+ *   - fft_size: FFT size used in search
+ *   - tsamp or sampling_time: sampling time in seconds
+ *   - source_name: source name prefix
+ *   - tstart or xml_segment_pepoch: reference epoch (MJD)
+ *   - And standard PulsarX parameters (subint_length, nsubband, etc.)
+ *
+ * The CSV file must have columns: dm, acc, period, snr
+ */
+process presto_fold_pulsarx {
+    label 'pulsarx'
+    label 'long'
+
+    publishDir "${params.presto?.output_dir ?: params.basedir}/pulsarx_fold", mode: 'copy'
+
+    input:
+    path input_file
+    path sifted_csv
+    path meta_file
+
+    output:
+    path "*.png", emit: png_files
+    path "*.ar", emit: ar_files, optional: true
+
+    script:
+    def fold_backend = params.presto?.fold_backend ?: 'pulsarx'
+    def threads = params.presto?.fold_threads ?: 16
+    """
+    python ${projectDir}/scripts/pulsarx_fold.py \\
+        -meta ${meta_file} \\
+        -cands ${sifted_csv} \\
+        -o . \\
+        --csv \\
+        --fold_backend ${fold_backend}
+    """
+}
+
+/*
+ * Generate meta file for CSV-based folding (PRESTO/peasoup candidates)
+ *
+ * This process creates a meta file with the necessary parameters for
+ * pulsarx_fold.py to fold candidates from a CSV file.
+ *
+ * For prepfold: Only needs filterbank_file, fft_size, tsamp, source_name, tstart
+ * For PulsarX: Also needs subint_length, nsubband, template, etc.
+ */
+process generate_fold_meta {
+    label 'short'
+
+    input:
+    tuple val(pointing), path(fil_file), val(cluster), val(beam_name), val(beam_id),
+          val(utc_start), val(ra), val(dec), val(cdm)
+    val(fft_size)
+    val(fold_backend)
+
+    output:
+    path "fold_meta.txt", emit: meta_file
+
+    script:
+    def telescope = params.telescope ?: 'meerkat'
+    def template_dir = params.template_dir ?: params.psrfold?.template_dir ?: "${projectDir}/templates"
+    def template = "${template_dir}/${telescope}_fold.template"
+    def subint_length = params.presto?.fold_subint_length ?: params.psrfold?.subintlength ?: 10.0
+    def nsubband = params.presto?.fold_nsub ?: params.psrfold?.nsub ?: 64
+    def clfd = params.presto?.fold_clfd ?: params.psrfold?.clfd ?: 2.0
+    def nbins = params.presto?.fold_nbins ?: params.psrfold?.nbins ?: 64
+    def binplan = params.presto?.fold_binplan ?: params.psrfold?.binplan ?: "0.005 32 0.01 64 0.1 128"
+    def threads = params.presto?.fold_threads ?: params.psrfold?.threads ?: 16
+    def coherent_dm = cdm ?: 0.0
+    """
+    # Read filterbank header to get tstart, tsamp, nsamples
+    python3 << 'PYEOF'
+import struct
+import os
+
+def read_fil_header(filepath):
+    header = {}
+    with open(filepath, 'rb') as f:
+        # Skip to find header keywords
+        f.seek(0)
+        content = f.read(4096)  # Read first 4KB
+
+        # Parse common keywords
+        if b'tstart' in content:
+            idx = content.find(b'tstart')
+            f.seek(idx + 6)
+            header['tstart'] = struct.unpack('d', f.read(8))[0]
+
+        if b'tsamp' in content:
+            idx = content.find(b'tsamp')
+            f.seek(idx + 5)
+            header['tsamp'] = struct.unpack('d', f.read(8))[0]
+
+        if b'nsamples' in content:
+            idx = content.find(b'nsamples')
+            f.seek(idx + 8)
+            header['nsamples'] = struct.unpack('i', f.read(4))[0]
+
+    return header
+
+# Try to read header, use defaults if fails
+try:
+    header = read_fil_header('${fil_file}')
+    tstart = header.get('tstart', 0.0)
+    tsamp = header.get('tsamp', 64e-6)
+    nsamples = header.get('nsamples', 0)
+except:
+    tstart = 0.0
+    tsamp = 64e-6
+    nsamples = 0
+
+# Write meta file
+with open('fold_meta.txt', 'w') as f:
+    f.write(f"filterbank_file: ${fil_file}\\n")
+    f.write(f"fft_size: ${fft_size}\\n")
+    f.write(f"tsamp: {tsamp}\\n")
+    f.write(f"tstart: {tstart}\\n")
+    f.write(f"nsamples: {nsamples}\\n")
+    f.write(f"source_name: ${cluster}\\n")
+    f.write(f"telescope: ${telescope}\\n")
+    f.write(f"beam_name: ${beam_name}\\n")
+    f.write(f"beam_id: ${beam_id}\\n")
+    f.write(f"utc_beam: ${utc_start}\\n")
+    f.write(f"ra: ${ra}\\n")
+    f.write(f"dec: ${dec}\\n")
+    f.write(f"cdm: ${coherent_dm}\\n")
+    f.write(f"subint_length: ${subint_length}\\n")
+    f.write(f"nsubband: ${nsubband}\\n")
+    f.write(f"clfd_q_value: ${clfd}\\n")
+    f.write(f"nbins: ${nbins}\\n")
+    f.write(f"binplan: ${binplan}\\n")
+    f.write(f"threads: ${threads}\\n")
+    f.write(f"template: ${template}\\n")
+    f.write("start_fraction: 0.0\\n")
+    f.write("end_fraction: 1.0\\n")
+    f.write("chunk_id: 0\\n")
+    f.write("cmask: \\n")
+    f.write("rfi_filter: \\n")
+
+print(f"Meta file created with tstart={tstart}, tsamp={tsamp}")
+PYEOF
     """
 }
