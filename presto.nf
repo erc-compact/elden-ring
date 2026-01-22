@@ -769,6 +769,10 @@ process presto_create_tarball {
         --snr-threshold ${snr_threshold} \\
         --verbose
 
+    # Script writes CSVs under tarball_work; copy to work dir for Nextflow outputs
+    cp tarball_work/candidates.csv candidates.csv
+    cp tarball_work/candidates_pics_above_threshold.csv candidates_pics_above_threshold.csv
+
     # The script creates candidates.csv and candidates_pics_above_threshold.csv
     # in the current directory as well as in the tarball
     """
