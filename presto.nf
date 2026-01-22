@@ -171,15 +171,10 @@ process presto_prepsubband {
         exit 1
     fi
 
-    # Stage zerodm .inf if available (optional; prepsubband can work without it for .fil)
-    if [ -f "${input_inf}" ]; then
-        ln -sf "${input_inf}" .
-    else
+    # Optional zerodm .inf file (prepsubband can operate without it for .fil)
+    if [ ! -f "${input_inf}" ]; then
         echo "WARNING: zerodm .inf file ${input_inf} not found; continuing without it"
     fi
-
-    # Stage rfifind stats alongside mask for PRESTO tools
-    ln -sf "${rfi_stats}" .
 
     # Run prepsubband with correct flags (-lodm/-dmstep/-numdms)
     prepsubband -lodm ${dm_low} -dmstep ${dm_step} -numdms ${ndm} \
