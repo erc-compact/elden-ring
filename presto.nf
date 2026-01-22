@@ -243,7 +243,6 @@ process presto_accelsearch {
     }
 
     if [ ${chunks} -le 1 ]; then
-        task.ext.segment_label="full"
         run_accel "${dat_file}" "${inf_file}" "${basename}"
     else
         # Segment timeseries using prepdata -start/-numout
@@ -260,7 +259,6 @@ print(f"{(idx-1)/chunks:.6f}")
 PY
  ${chunks} \$i)
             seg_base="${basename}_seg\$i"
-            task.ext.segment_label="seg\$i"
             prepdata -nobary -dm 0 -start \$start_frac -numout \$samples_per_chunk -o "\${seg_base}" ${dat_file}
             run_accel "\${seg_base}.dat" "\${seg_base}.inf" "\${seg_base}"
             # keep segment dat/inf for folding
