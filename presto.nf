@@ -1356,6 +1356,9 @@ workflow presto_pipeline {
         if (start_stage == 2) {
             input_ch = channel.fromPath(state.input_file)
             rfi_mask_ch = channel.fromPath(state.rfi_mask)
+            if (!state.rfi_stats || !state.rfi_inf) {
+                error "State file missing rfi_stats or rfi_inf; rerun stage 1 to regenerate rfifind outputs."
+            }
             rfi_stats_ch = channel.fromPath(state.rfi_stats)
             rfi_inf_ch = channel.fromPath(state.rfi_inf)
         }
