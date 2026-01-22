@@ -1553,7 +1553,7 @@ workflow presto_pipeline {
             input_ch = channel.fromPath(state.input_file)
             rfi_mask_ch = channel.fromPath(state.rfi_mask)
             accel_ch = channel.fromPath(state.accel_files).collect()
-            cand_ch = channel.fromPath(state.accel_files).filter { it.name.endsWith('.cand') }.collect()
+            cand_ch = channel.fromPath(state.accel_files).collect()
         }
 
         sift_fold_out = presto_sift_fold(input_ch, rfi_mask_ch, accel_ch, cand_ch)
