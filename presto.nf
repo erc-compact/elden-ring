@@ -306,15 +306,24 @@ process presto_sift_candidates {
     def low_dm_cutoff = params.presto?.sift_low_dm_cutoff ?: 2.0
     """
     shopt -s nullglob
-    cand_list=( *_ACCEL_*.cand )
+    # Collect only main ACCEL files (without extensions like .cand, .txtcand, .inf)
+    cand_list=()
+    for file in *_ACCEL_*; do
+        # Only include files that don't have common extensions
+        if [[ ! "\$file" =~ \.(cand|txtcand|inf)$ ]]; then
+            cand_list+=("\$file")
+        fi
+    done
     shopt -u nullglob
 
     if [ \${#cand_list[@]} -eq 0 ]; then
-        echo "No .cand files found; creating empty outputs"
+        echo "No ACCEL files found; creating empty outputs"
         echo "id,dm,period_ms,freq_hz,sigma,accel,z,num_harm,source_file" > sifted_candidates.csv
         echo "#id dm acc F0 F1 F2 S/N" > sifted_candidates.candfile
         exit 0
     fi
+
+    echo "Found \${#cand_list[@]} ACCEL files to sift"
 
     python3 ${projectDir}/scripts/presto_accel_sift.py \\
         --sigma-threshold ${sigma_threshold} \\
