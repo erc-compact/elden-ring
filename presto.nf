@@ -496,9 +496,51 @@ process presto_prepfold_batch {
 }
 
 /*
- * PRESTO PS to PNG conversion
- * Converts PostScript files (.pfd.ps) directly to PNG
- * prepfold outputs .pfd.ps files directly, so no need to run show_pfd
+ * PRESTO PFD to PNG conversion
+ * Uses show_pfd to render plots from .pfd files, then converts to PNG.
+ */
+process presto_pfd_to_png {
+    label 'presto'
+    label 'short'
+
+    publishDir "${params.output_dir}/${params.target_name}/presto/plots", mode: 'copy'
+
+    input:
+    path pfd_files
+
+    output:
+    path "*.png", emit: png_files
+
+    script:
+    """
+    set -euo pipefail
+
+    for pfd in ${pfd_files}; do
+        if [ -f "\$pfd" ]; then
+            show_pfd -noxwin "\$pfd"
+        else
+            echo "WARNING: PFD file not found: \$pfd" >&2
+        fi
+    done
+
+    shopt -s nullglob
+    for ps in *.ps; do
+        base="\${ps%.ps}"
+        if command -v gs >/dev/null 2>&1; then
+            gs -dSAFER -dBATCH -dNOPAUSE -sDEVICE=png16m -r150 \
+                -sOutputFile="\${base}.png" "\$ps"
+        elif command -v convert >/dev/null 2>&1; then
+            convert -density 150 "\$ps" "\${base}.png"
+        else
+            echo "WARNING: gs/convert not found; leaving \$ps" >&2
+        fi
+    done
+    """
+}
+
+/*
+ * PRESTO PS to PNG conversion (legacy)
+ * Converts PostScript files (.pfd.ps) directly to PNG.
  */
 process presto_ps_to_png {
     label 'presto'
@@ -1302,18 +1344,18 @@ workflow presto_sift_fold {
  * Input:  (input_file, sifted_csv, pfd_files, ps_files) OR params.state_file (sift_fold_state.json)
  * Output: Final tarball and CSV (tarball contains only PNG + CSV, no PFD files)
  *
- * Pipeline: PS -> PNG -> Merge -> PICS Classification (on PFD) -> Tarball
+ * Pipeline: PFD -> PNG -> Merge -> PICS Classification (on PFD) -> Tarball
  */
 workflow presto_postprocess {
     take:
     input_file   // Original filterbank
     sifted_csv   // Sifted candidates CSV
     pfd_files    // Folded profile files (.pfd) - needed for PICS
-    ps_files     // PostScript files (.pfd.ps) - for PNG conversion
+    ps_files     // PostScript files (.pfd.ps) - unused when using show_pfd
 
     main:
-    // Step 1: Convert PS files to PNG (prepfold outputs .pfd.ps directly)
-    presto_ps_to_png(ps_files)
+    // Step 1: Convert PFD to PNG using show_pfd
+    presto_pfd_to_png(pfd_files.collect())
         .set { png_out }
 
     // Collect bestprof files (may be empty)
@@ -1536,7 +1578,7 @@ workflow presto_pipeline {
             input_ch = channel.fromPath(state.input_file)
             rfi_mask_ch = channel.fromPath(state.rfi_mask)
             rfi_stats_ch = channel.fromPath(state.rfi_stats)
-            accel_ch = channel.fromPath(state.accel_files).collect()
+            accel_ch = channel.fromPath(state.accel_files)
             cand_ch = accel_ch
         }
 
@@ -1559,9 +1601,9 @@ workflow presto_pipeline {
         if (start_stage == 6) {
             input_ch = channel.fromPath(state.input_file)
             sifted_csv_ch = channel.fromPath(state.sifted_csv)
-            pfd_ch = channel.fromPath(state.pfd_files).collect()
+            pfd_ch = channel.fromPath(state.pfd_files)
             // PS files are in same directory as PFD files, just with .ps extension
-            ps_ch = channel.fromPath(state.pfd_files.collect { it + '.ps' }).collect()
+            ps_ch = channel.fromPath(state.pfd_files).map { file("${it}.ps") }
         }
 
         presto_postprocess(input_ch, sifted_csv_ch, pfd_ch, ps_ch)
@@ -1668,8 +1710,8 @@ workflow presto_full {
             rfi_out.rfi_stats
         ).set { fold_out }
 
-        // Post-processing: PNG conversion from PS files (prepfold outputs .pfd.ps directly)
-        presto_ps_to_png(fold_out.ps_files.collect())
+        // Post-processing: PNG conversion from PFD files using show_pfd
+        presto_pfd_to_png(fold_out.pfd_files.collect())
             .set { png_out }
 
         // Create merged results
@@ -1741,8 +1783,8 @@ workflow run_presto_search {
     presto_prepfold_batch(fil_ch, sifted_out.sifted_csv, rfi_out.rfi_mask, rfi_out.rfi_stats)
         .set { fold_out }
 
-    // Convert PS files to PNG (prepfold outputs .pfd.ps directly)
-    presto_ps_to_png(fold_out.ps_files.collect())
+    // Convert PFD files to PNG using show_pfd
+    presto_pfd_to_png(fold_out.pfd_files.collect())
         .set { png_out }
 
     // Merge fold results
@@ -1839,8 +1881,8 @@ workflow presto_on_peasoup_timeseries {
         presto_prepfold_batch(fil_channel, sifted_out.sifted_csv, file('NO_MASK'), file('NO_STATS'))
             .set { fold_out }
 
-        // Post-processing: PNG conversion from PS files
-        presto_ps_to_png(fold_out.ps_files.collect())
+        // Post-processing: PNG conversion from PFD files using show_pfd
+        presto_pfd_to_png(fold_out.pfd_files.collect())
             .set { png_out }
 
         // Merge fold results
@@ -1911,8 +1953,8 @@ workflow run_accelsearch_single {
         presto_prepfold_batch(fil_channel, sifted_out.sifted_csv, file('NO_MASK'), file('NO_STATS'))
             .set { fold_out }
 
-        // Post-processing: PNG conversion from PS files
-        presto_ps_to_png(fold_out.ps_files.collect())
+        // Post-processing: PNG conversion from PFD files using show_pfd
+        presto_pfd_to_png(fold_out.pfd_files.collect())
             .set { png_out }
 
         // Create merged results
