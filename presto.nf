@@ -736,8 +736,9 @@ MERGE_SCRIPT
  *       └── *.png
  */
 process presto_create_tarball {
-    label 'presto'
+    label 'pulsarx'
     label 'short'
+    container "${params.pulsarx_container}"
 
     publishDir "${params.output_dir}/${params.target_name}/presto/tarballs", mode: 'copy'
 
