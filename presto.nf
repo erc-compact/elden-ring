@@ -310,7 +310,7 @@ process presto_sift_candidates {
     cand_list=()
     for file in *_ACCEL_*; do
         # Only include files that don't have common extensions
-        if [[ ! "\$file" =~ \.(cand|txtcand|inf)$ ]]; then
+        if [[ ! "\$file" =~ \\.(cand|txtcand|inf)\$ ]]; then
             cand_list+=("\$file")
         fi
     done
