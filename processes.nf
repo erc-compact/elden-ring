@@ -819,7 +819,7 @@ process search_fold_merge {
                 final_cand_num=\$(echo "\${candidate_name}" | rev | cut -d'_' -f1 | cut -d'.' -f2 | rev)
                 # Convert to integer (remove leading zeros)
                 final_cand_num=\$(echo "\${final_cand_num}" | tr -d '[:space:]')
-                if [[ ! "\${final_cand_num}" =~ ^[0-9]+\\$ ]]; then
+                if ! echo "\${final_cand_num}" | grep -Eq '^[0-9]+$'; then
                     echo "WARNING: Could not parse candidate number from \${candidate_name}" >&2
                     continue
                 fi
