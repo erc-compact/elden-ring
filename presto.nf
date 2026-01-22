@@ -314,6 +314,8 @@ process presto_sift_candidates {
     def max_cands = params.presto?.sift_max_cands ?: 500
     def min_num_dms = params.presto?.sift_min_num_dms ?: 1
     def low_dm_cutoff = params.presto?.sift_low_dm_cutoff ?: 2.0
+    def zmax = params.presto?.zmax ?: 200
+    def wmax = params.presto?.wmax ?: 0
     """
     shopt -s nullglob
     # Collect only main ACCEL files (without extensions like .cand, .txtcand, .inf)
@@ -321,7 +323,15 @@ process presto_sift_candidates {
     for file in *_ACCEL_*; do
         # Only include files that don't have common extensions
         if [[ ! "\$file" =~ \\.(cand|txtcand|inf)\$ ]]; then
-            cand_list+=("\$file")
+            if [ ${wmax} -gt 0 ]; then
+                if [[ "\$file" == *_ACCEL_${zmax}_JERK_${wmax} ]]; then
+                    cand_list+=("\$file")
+                fi
+            else
+                if [[ "\$file" == *_ACCEL_${zmax} ]]; then
+                    cand_list+=("\$file")
+                fi
+            fi
         fi
     done
     shopt -u nullglob

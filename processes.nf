@@ -818,6 +818,11 @@ process search_fold_merge {
                 # This is computed from the candidate_name's last field (the 5-digit number)
                 final_cand_num=\$(echo "\${candidate_name}" | rev | cut -d'_' -f1 | cut -d'.' -f2 | rev)
                 # Convert to integer (remove leading zeros)
+                final_cand_num=\$(echo "\${final_cand_num}" | tr -d '[:space:]')
+                if [[ ! "\${final_cand_num}" =~ ^[0-9]+$ ]]; then
+                    echo "WARNING: Could not parse candidate number from \${candidate_name}" >&2
+                    continue
+                fi
                 final_cand_num=\$((10#\${final_cand_num}))
                 # Calculate original ID in candfile
                 candfile_id=\$(( (final_cand_num - 1) % ${params.psrfold.cands_per_node} + 1 ))
