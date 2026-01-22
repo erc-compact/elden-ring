@@ -325,7 +325,7 @@ process presto_sift_candidates {
         --max-cands-to-fold ${max_cands} \\
         --remove-duplicates \\
         --remove-harmonics \\
-        -o sifted_candidates \\
+        --output sifted_candidates \\
         \${cand_list[@]}
     """
 }
