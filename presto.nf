@@ -1032,7 +1032,7 @@ process peasoup_dump_timeseries {
 
     # Run peasoup with --nosearch and -d to dump time series
     # Peasoup generates both .dat and .inf files automatically
-    peasoup --nosearch -d timeseries_out \\
+    peasoup -d timeseries_out \\
         -i ${input_file} \\
         --dm_file ${dm_file} \\
         -z ${birdies_file} \\

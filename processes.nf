@@ -557,11 +557,11 @@ process peasoup {
     # Rename the output file
     mv **/*.xml ${beam_name}_cdm_${cdm}_${dm_file.baseName}_ck${segments}${segment_id}_overview.xml
 
-    # If dump_timeseries is enabled, run a second peasoup with --nosearch to dump .dat/.inf files
+    # If dump_timeseries is enabled, run a second peasoup to dump .dat/.inf files
     if [ "${dump_timeseries}" == "true" ]; then
-        echo "Dumping time series with peasoup --nosearch -d timeseries_dump"
+        echo "Dumping time series with peasoup -d timeseries_dump"
         mkdir -p timeseries_dump
-        peasoup -i ${fil_file} --cdm ${cdm} --fft_size ${fft_size} -t ${params.peasoup.ngpus} --ram_limit_gb ${params.peasoup.ram_limit_gb} --dm_file ${dm_file} --nosearch -d timeseries_dump --start_sample ${start_sample}
+        peasoup -i ${fil_file} --cdm ${cdm} --fft_size ${fft_size} -t ${params.peasoup.ngpus} --ram_limit_gb ${params.peasoup.ram_limit_gb} --dm_file ${dm_file} -d timeseries_dump --start_sample ${start_sample}
     fi
     """
 }

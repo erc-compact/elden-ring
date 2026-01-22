@@ -293,7 +293,9 @@ workflow search {
         }
         .set{ peasoup_input }
 
-    peasoup(peasoup_input).search_results
+    def peasoup_out = peasoup(peasoup_input)
+
+    peasoup_out.search_results
         .map { p,c,bn,bi,u,ra,dec,cdm,fft_size,seg,seg_id,dm_file,fil_file,xml_path,birds,ss,ns ->
             def fil_base = fil_file.getBaseName()
             tuple(p,c,bn,bi,u,ra,dec,cdm,fft_size,seg,seg_id,dm_file,fil_base,fil_file,xml_path,ss)
@@ -315,6 +317,7 @@ workflow search {
 
     emit:
     search_out
+    timeseries_data = peasoup_out.timeseries_data
 }
 
 // xml_parse: parse XML -> split candidates
@@ -439,7 +442,7 @@ workflow full {
     }
 
     def search_ch    = search(seg_ch)
-    def xml_ch       = xml_parse(search_ch)
+    def xml_ch       = xml_parse(search_ch.search_out)
     def fold_ch      = fold(xml_ch)
     def merged_ch    = fold_merge(fold_ch)
     def classify_ch  = classify(merged_ch)
@@ -470,7 +473,7 @@ workflow run_dada_search {
         seg_ch         = segmentation(cut_ch)
     }
     def search_ch    = search(seg_ch)
-    def xml_ch       = xml_parse(search_ch)
+    def xml_ch       = xml_parse(search_ch.search_out)
     def fold_ch      = fold(xml_ch)
     def merged_ch    = fold_merge(fold_ch)
     def classify_ch  = classify(merged_ch)
@@ -538,7 +541,7 @@ workflow run_search_fold {
     }
 
     def search_ch    = search(seg_ch)
-    def xml_ch       = xml_parse(search_ch)
+    def xml_ch       = xml_parse(search_ch.search_out)
     def fold_ch      = fold(xml_ch)
     def merged_ch    = fold_merge(fold_ch)
     def classify_ch  = classify(merged_ch)
@@ -622,28 +625,12 @@ workflow peasoup_with_presto_search {
 
     // Check if time series dumping is enabled
     if (params.peasoup?.dump_timeseries) {
-        // Prepare for time series dumping using segmented inputs (matches full workflow)
-        def bird_out = birdies(seg_ch)
-        def dm_out = dm(bird_out)
-
-        def dm_by_file = dm_out.map { p, fi, c, bn, bi, u, ra, dec, cdm, ts, ns, seg, seg_id, fft, start, birdies_file, dm_files ->
-            def dm_list = dm_files instanceof List ? dm_files : [dm_files]
-            tuple(fi, birdies_file, dm_list[0])
-        }.groupTuple(by: 0).map { fi, birdies_list, dm_list ->
-            tuple(fi, birdies_list[0], dm_list[0])
+        def ts_data = search_ch.timeseries_data.ifEmpty {
+            throw new IllegalStateException("No time series .dat files found. Re-run with --peasoup.dump_timeseries true.")
         }
 
-        def joined = seg_in_ch
-            .map { p, f, c, bn, bi, u, ra, dec, cdm -> tuple(f, tuple(p, f, c, bn, bi, u, ra, dec, cdm)) }
-            .join(dm_by_file, by: 0)
-
-        joined.map { f, meta, birdies_file, dm_file -> meta }.set { dump_meta_ch }
-        joined.map { f, meta, birdies_file, dm_file -> dm_file }.set { dump_dm_ch }
-        joined.map { f, meta, birdies_file, dm_file -> birdies_file }.set { dump_birdies_ch }
-
-        // Dump time series
-        peasoup_timeseries_dump(dump_meta_ch, dump_dm_ch, dump_birdies_ch)
-            .set { timeseries_out }
+        def dat_ch = ts_data.map { dats, infs -> dats }
+        def inf_ch = ts_data.map { dats, infs -> infs }
 
         // Run PRESTO search on dumped time series
         def fil_ch = seg_in_ch.map { p, f, c, bn, bi, u, ra, dec, cdm ->
@@ -651,15 +638,17 @@ workflow peasoup_with_presto_search {
         }
 
         presto_on_peasoup_timeseries(
-            timeseries_out.dat_files,
-            timeseries_out.inf_files,
+            dat_ch,
+            inf_ch,
             fil_ch,
             seg_in_ch
         ).set { presto_out }
+    } else {
+        throw new IllegalStateException("No time series .dat files found. Re-run with --peasoup.dump_timeseries true.")
     }
 
     // Continue with standard peasoup pipeline
-    def xml_ch = xml_parse(search_ch)
+    def xml_ch = xml_parse(search_ch.search_out)
     def fold_ch = fold(xml_ch)
     def merged_ch = fold_merge(fold_ch)
     def classify_ch = classify(merged_ch)
