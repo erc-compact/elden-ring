@@ -338,7 +338,7 @@ process presto_sift_candidates {
 
     if [ \${#cand_list[@]} -eq 0 ]; then
         echo "No ACCEL files found; creating empty outputs"
-        echo "id,dm,f0,f1,f2,snr,sigma,sn_fft,acc,accel,z,w,period_ms,file,cand_num,accel_file" > sifted_candidates.csv
+        echo "id,dm,period,f0,f1,f2,snr,sigma,sn_fft,acc,accel,z,w,period_ms,file,cand_num,accel_file" > sifted_candidates.csv
         echo "#id dm acc F0 F1 F2 S/N" > sifted_candidates.candfile
         echo "id,accel_file,cand_num,dm,f0,f1,f2,sigma,snr" > sifted_candidates.provenance.csv
         exit 0
