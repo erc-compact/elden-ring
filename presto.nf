@@ -1091,19 +1091,24 @@ import json
 import os
 import glob
 
-accel_files = sorted([os.path.abspath(f) for f in glob.glob("*_ACCEL_*")])
+accel_all = sorted([os.path.abspath(f) for f in glob.glob("*_ACCEL_*")])
+# Main ACCEL outputs (exclude sidecars like .cand/.txtcand/.inf)
+accel_files = [f for f in accel_all if not any(f.endswith(ext) for ext in [".cand", ".txtcand", ".inf"])]
+# Retain cand files if needed for compatibility
+cand_files = [f for f in accel_all if f.endswith(".cand")]
 
 state = {
     "stage": "search",
     "input_file": os.path.abspath("${input_file}"),
     "rfi_mask": os.path.abspath("${rfi_mask}"),
     "accel_files": accel_files,
+    "cand_files": cand_files,
     "next_workflow": "presto_sift_fold"
 }
 
 with open("search_state.json", "w") as f:
     json.dump(state, f, indent=2)
-print(f"Search state saved with {len(accel_files)} ACCEL files")
+print(f"Search state saved with {len(accel_files)} ACCEL files and {len(cand_files)} cand files")
 PYEOF
     """
 }
@@ -1537,7 +1542,7 @@ workflow presto_pipeline {
         search_out = presto_search(input_ch, rfi_mask_ch, dat_ch, inf_ch, zaplist_ch)
 
         accel_ch = search_out.accel_files
-        cand_ch = search_out.cand_files
+        cand_ch = search_out.accel_files  // use main ACCEL files for sifting
 
         if (end_stage == 4) {
             log.info "Pipeline complete. Acceleration search finished."
@@ -1553,7 +1558,7 @@ workflow presto_pipeline {
             input_ch = channel.fromPath(state.input_file)
             rfi_mask_ch = channel.fromPath(state.rfi_mask)
             accel_ch = channel.fromPath(state.accel_files).collect()
-            cand_ch = channel.fromPath(state.accel_files).collect()
+            cand_ch = accel_ch
         }
 
         sift_fold_out = presto_sift_fold(input_ch, rfi_mask_ch, accel_ch, cand_ch)
