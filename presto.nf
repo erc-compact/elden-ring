@@ -160,18 +160,20 @@ process presto_prepsubband {
         exit 1
     fi
 
-    if [ ! -f "${input_inf}" ]; then
-        echo "ERROR: Input .inf file ${input_inf} not found"
-        exit 1
-    fi
-
     if [ ! -f "${rfi_mask}" ]; then
         echo "ERROR: RFI mask ${rfi_mask} not found"
         exit 1
     fi
 
-    # Run prepsubband - it needs the .inf file to be present
-    prepsubband -dm ${dm_low} -dmstep ${dm_step} -ndm ${ndm} \
+    # Stage zerodm .inf if available (optional; prepsubband can work without it for .fil)
+    if [ -f "${input_inf}" ]; then
+        ln -sf "${input_inf}" .
+    else
+        echo "WARNING: zerodm .inf file ${input_inf} not found; continuing without it"
+    fi
+
+    # Run prepsubband with correct flags (-lodm/-dmstep/-numdms)
+    prepsubband -lodm ${dm_low} -dmstep ${dm_step} -numdms ${ndm} \
         -nsub ${nsub} -downsamp ${downsamp} \
         -mask ${rfi_mask} -o ${basename} ${input_file}
     """
