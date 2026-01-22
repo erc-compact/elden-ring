@@ -157,9 +157,8 @@ def normalize_presto_columns(df: pd.DataFrame, logger: logging.Logger) -> pd.Dat
 
         # Acceleration columns
         "acc": "acc_user",
-    "acc": "acc_user",
-    "accel": "acc_user",
-    "acceleration": "acc_user",
+        "accel": "acc_user",
+        "acceleration": "acc_user",
 
         # S/N columns
         "snr": "sn_fft",

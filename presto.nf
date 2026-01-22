@@ -767,6 +767,148 @@ process presto_fold_merge {
 }
 
 /*
+ * PRESTO merge for PulsarX folding (no .pfd/.bestprof)
+ */
+process presto_fold_merge_pulsarx {
+    label 'presto'
+    label 'short'
+
+    publishDir "${params.output_dir}/${params.target_name}/presto/merged", mode: 'copy'
+
+    input:
+    path png_files
+    path sifted_csv
+    path provenance_csv
+    val meta_info
+
+    output:
+    path "merged_results.csv", emit: merged_csv
+    path "png_files/*", emit: all_png
+
+    script:
+    def pointing = meta_info[0]
+    def cluster = meta_info[1]
+    def beam_name = meta_info[2]
+    def beam_id = meta_info[3]
+    def utc_start = meta_info[4]
+    def ra = meta_info[5]
+    def dec = meta_info[6]
+    def cdm = meta_info[7]
+    def filterbank_path = meta_info[8]
+    """
+    #!/usr/bin/env python3
+    import os
+    import csv
+    import glob
+    import shutil
+
+    os.makedirs("png_files", exist_ok=True)
+
+    # Copy png files (if any)
+    for png in glob.glob("*.png"):
+        shutil.copy(png, "png_files/")
+
+    if not glob.glob("png_files/*.png"):
+        open("png_files/NO_PNG", "w").close()
+
+    meta_defaults = {
+        "pointing_id": "${pointing}",
+        "beam_id": "${beam_id}",
+        "beam_name": "${beam_name}",
+        "utc_start": "${utc_start}",
+        "ra": "${ra}",
+        "dec": "${dec}",
+        "cdm": "${cdm}",
+        "filterbank_path": "${filterbank_path}",
+        "cluster": "${cluster}",
+        "segment_id": "0",
+        "source_name": "",
+    }
+
+    if meta_defaults["utc_start"]:
+        meta_defaults["metafile_path"] = "meta/%s.meta" % meta_defaults["utc_start"]
+    else:
+        meta_defaults["metafile_path"] = ""
+
+    # Read sifted candidates
+    sifted_rows = []
+    with open("${sifted_csv}", 'r') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            sifted_rows.append(row)
+
+    # Read provenance data
+    prov_data = {}
+    with open("${provenance_csv}", 'r') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            prov_id = row.get('id', '')
+            if prov_id:
+                prov_data[str(prov_id)] = row
+
+    pngs = sorted(glob.glob("*.png"))
+    results = []
+
+    for idx, row in enumerate(sifted_rows):
+        cand_id = row.get('cand_id') or row.get('id') or row.get('cand_num', '')
+        basename = f"cand_{cand_id}" if cand_id else f"cand_{idx}"
+        png_file = ""
+        if idx < len(pngs):
+            png_file = os.path.basename(pngs[idx])
+            basename = os.path.splitext(png_file)[0]
+
+        result = {
+            'basename': basename,
+            'cand_id': cand_id,
+            'pfd_file': '',
+            'png_file': png_file,
+        }
+
+        result.update(meta_defaults)
+        result.update(row)
+
+        if cand_id in prov_data:
+            result["accel_file"] = prov_data[cand_id].get("accel_file", "")
+            result["cand_num"] = prov_data[cand_id].get("cand_num", "")
+            result["sn_fft"] = prov_data[cand_id].get("sn_fft", prov_data[cand_id].get("sigma", ""))
+            if result.get("sn_fft") not in (None, ""):
+                try:
+                    result["sn_fft"] = float(result["sn_fft"])
+                except Exception:
+                    pass
+
+        sigma_val = result.get("sigma") or result.get("snr") or result.get("sn_fft")
+        if sigma_val not in (None, ""):
+            try:
+                result["sn_fold"] = float(sigma_val)
+            except Exception:
+                result["sn_fold"] = sigma_val
+
+        if "dm" in result and "dm_user" not in result:
+            result["dm_user"] = result.get("dm")
+        if "dm_opt" not in result and "dm" in result:
+            result["dm_opt"] = result.get("dm")
+
+        if "f0" in result and "f0_user" not in result:
+            result["f0_user"] = result.get("f0")
+        if "f1" in result and "f1_user" not in result:
+            result["f1_user"] = result.get("f1")
+
+        results.append(result)
+
+    if results:
+        fieldnames = list(results[0].keys())
+        with open("merged_results.csv", 'w', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(results)
+    else:
+        with open("merged_results.csv", 'w') as f:
+            f.write("basename,cand_id,pfd_file,png_file\\n")
+    """
+}
+
+/*
  * PRESTO PICS classifier
  * Runs PICS classification on PRESTO .pfd files
  */
@@ -1883,8 +2025,20 @@ workflow presto_full {
             meta_out.meta_file
         ).set { fold_out }
 
-        // Note: PulsarX folding produces .ar and .png files directly
-        // No additional tarball creation needed for PulsarX output
+        // Merge and create tarball from PulsarX outputs
+        presto_fold_merge_pulsarx(
+            fold_out.png_files.collect(),
+            sifted_out.sifted_csv,
+            sifted_out.provenance_csv,
+            meta_info_ch
+        ).set { merged_out }
+
+        def tarball_prefix = params.tarball_prefix ?: params.target_name ?: "presto_full"
+        presto_create_tarball(
+            merged_out.merged_csv,
+            merged_out.all_png,
+            tarball_prefix
+        ).set { tarball_out }
     } else {
         // Default: Fold with PRESTO prepfold
         // prepfold doesn't need a meta file - it uses command-line parameters
@@ -2068,10 +2222,19 @@ workflow presto_on_peasoup_timeseries {
         presto_fold_pulsarx(fil_channel, sifted_out.sifted_csv, meta_out.meta_file)
             .set { fold_out }
 
-        // For PulsarX fold output, we need to run PICS on .ar files
-        // and create a separate PRESTO tarball
-        // Note: PulsarX outputs .ar files, not .pfd files
-        log.info "PRESTO candidates folded with PulsarX. Output: .ar files in publishDir"
+        // Merge and create tarball from PulsarX outputs
+        presto_fold_merge_pulsarx(
+            fold_out.png_files.collect(),
+            sifted_out.sifted_csv,
+            sifted_out.provenance_csv,
+            meta_info_ch
+        ).set { merged_out }
+
+        presto_create_tarball(
+            merged_out.merged_csv,
+            merged_out.all_png,
+            tarball_prefix
+        ).set { tarball_out }
 
     } else {
         // Fold with prepfold (creates .pfd, .pfd.ps, .pfd.bestprof files)
@@ -2149,7 +2312,20 @@ workflow run_accelsearch_single {
         presto_fold_pulsarx(fil_channel, sifted_out.sifted_csv, meta_out.meta_file)
             .set { fold_out }
 
-        log.info "Folding complete with PulsarX. Output files are in the publishDir."
+        // Merge and create tarball from PulsarX outputs
+        def tarball_prefix = params.tarball_prefix ?: params.target_name ?: "accelsearch"
+        presto_fold_merge_pulsarx(
+            fold_out.png_files.collect(),
+            sifted_out.sifted_csv,
+            sifted_out.provenance_csv,
+            meta_info_ch
+        ).set { merged_out }
+
+        presto_create_tarball(
+            merged_out.merged_csv,
+            merged_out.all_png,
+            tarball_prefix
+        ).set { tarball_out }
 
     } else {
         // Fold with prepfold (creates .pfd, .pfd.ps, .pfd.bestprof files)
