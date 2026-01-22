@@ -600,22 +600,53 @@ workflow peasoup_with_presto_search {
     def rfi_ch = rfi_filter(intake_ch)
     def cleaned_ch = rfi_clean(rfi_ch)
 
+    // Match the full workflow input handling
+    def cut_ch
+    if (params.split_fil) {
+        cut_ch = split_filterbank(cleaned_ch)
+    } else {
+        cut_ch = cleaned_ch
+    }
+
+    def seg_in_ch
+    if (params.stack_by_cdm) {
+        def stacked_ch = stack_by_cdm(cut_ch)
+        seg_in_ch = stacked_ch
+    } else {
+        seg_in_ch = cut_ch
+    }
+
     // Run standard peasoup search
-    def seg_ch = segmentation(cleaned_ch)
+    def seg_ch = segmentation(seg_in_ch)
     def search_ch = search(seg_ch)
 
     // Check if time series dumping is enabled
     if (params.peasoup?.dump_timeseries) {
-        // Prepare for time series dumping
-        def dm_file = generateDMFiles(cleaned_ch.first()).dm_file
-        def birdies_file = birdies(cleaned_ch.first()).birdies_file
+        // Prepare for time series dumping using segmented inputs (matches full workflow)
+        def bird_out = birdies(seg_ch)
+        def dm_out = dm(bird_out)
+
+        def dm_by_file = dm_out.map { p, fi, c, bn, bi, u, ra, dec, cdm, ts, ns, seg, seg_id, fft, start, birdies_file, dm_files ->
+            def dm_list = dm_files instanceof List ? dm_files : [dm_files]
+            tuple(fi, birdies_file, dm_list[0])
+        }.groupTuple(by: 0).map { fi, birdies_list, dm_list ->
+            tuple(fi, birdies_list[0], dm_list[0])
+        }
+
+        def joined = seg_in_ch
+            .map { p, f, c, bn, bi, u, ra, dec, cdm -> tuple(f, tuple(p, f, c, bn, bi, u, ra, dec, cdm)) }
+            .join(dm_by_file, by: 0)
+
+        joined.map { f, meta, birdies_file, dm_file -> meta }.set { dump_meta_ch }
+        joined.map { f, meta, birdies_file, dm_file -> dm_file }.set { dump_dm_ch }
+        joined.map { f, meta, birdies_file, dm_file -> birdies_file }.set { dump_birdies_ch }
 
         // Dump time series
-        peasoup_timeseries_dump(cleaned_ch, dm_file, birdies_file)
+        peasoup_timeseries_dump(dump_meta_ch, dump_dm_ch, dump_birdies_ch)
             .set { timeseries_out }
 
         // Run PRESTO search on dumped time series
-        def fil_ch = cleaned_ch.map { p, f, c, bn, bi, u, ra, dec, cdm ->
+        def fil_ch = seg_in_ch.map { p, f, c, bn, bi, u, ra, dec, cdm ->
             file(f)
         }
 
@@ -623,7 +654,7 @@ workflow peasoup_with_presto_search {
             timeseries_out.dat_files,
             timeseries_out.inf_files,
             fil_ch,
-            cleaned_ch
+            seg_in_ch
         ).set { presto_out }
     }
 
