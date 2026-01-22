@@ -290,7 +290,7 @@ process presto_sift_candidates {
     publishDir "${params.output_dir}/${params.target_name}/presto/sifted", mode: 'copy'
 
     input:
-    path accel_files
+    path cand_files
     path input_file
 
     output:
@@ -298,19 +298,35 @@ process presto_sift_candidates {
     path "sifted_candidates.candfile", emit: candfile
 
     script:
-    def basename = input_file.baseName
-    def min_dm = params.presto?.sift_min_dm ?: 2.0
-    def r_err = params.presto?.sift_r_err ?: 1.1
     def short_period = params.presto?.sift_short_period ?: 0.0005
     def long_period = params.presto?.sift_long_period ?: 15.0
     def sigma_threshold = params.presto?.sift_sigma_threshold ?: 4.0
+    def max_cands = params.presto?.sift_max_cands ?: 500
+    def min_num_dms = params.presto?.sift_min_num_dms ?: 1
+    def low_dm_cutoff = params.presto?.sift_low_dm_cutoff ?: 2.0
     """
-    python3 ${projectDir}/scripts/presto_accel_sift.py \
-        -i ${accel_files} \
-        -o sifted_candidates \
-        --min-sigma ${sigma_threshold} \
-        --min-period ${short_period} \
-        --max-period ${long_period}
+    shopt -s nullglob
+    cand_list=( *_ACCEL_*.cand )
+    shopt -u nullglob
+
+    if [ \${#cand_list[@]} -eq 0 ]; then
+        echo "No .cand files found; creating empty outputs"
+        echo "id,dm,period_ms,freq_hz,sigma,accel,z,num_harm,source_file" > sifted_candidates.csv
+        echo "#id dm acc F0 F1 F2 S/N" > sifted_candidates.candfile
+        exit 0
+    fi
+
+    python3 ${projectDir}/scripts/presto_accel_sift.py \\
+        --sigma-threshold ${sigma_threshold} \\
+        --min-period ${short_period} \\
+        --max-period ${long_period} \\
+        --min-num-dms ${min_num_dms} \\
+        --low-dm-cutoff ${low_dm_cutoff} \\
+        --max-cands-to-fold ${max_cands} \\
+        --remove-duplicates \\
+        --remove-harmonics \\
+        -o sifted_candidates \\
+        \${cand_list[@]}
     """
 }
 
@@ -1265,9 +1281,12 @@ workflow presto_sift_fold {
     input_file   // Original filterbank
     rfi_mask     // RFI mask
     accel_files  // ACCEL search results
+    cand_files   // ACCEL cand files
 
     main:
-    presto_sift_candidates(accel_files, input_file)
+    cand_files.collect().set { cand_files_all }
+
+    presto_sift_candidates(cand_files_all, input_file)
         .set { sifted_out }
 
     presto_prepfold_batch(input_file, sifted_out.sifted_csv, rfi_mask)
@@ -1509,6 +1528,7 @@ workflow presto_pipeline {
         search_out = presto_search(input_ch, rfi_mask_ch, dat_ch, inf_ch, zaplist_ch)
 
         accel_ch = search_out.accel_files
+        cand_ch = search_out.cand_files
 
         if (end_stage == 4) {
             log.info "Pipeline complete. Acceleration search finished."
@@ -1524,9 +1544,10 @@ workflow presto_pipeline {
             input_ch = channel.fromPath(state.input_file)
             rfi_mask_ch = channel.fromPath(state.rfi_mask)
             accel_ch = channel.fromPath(state.accel_files).collect()
+            cand_ch = channel.fromPath(state.accel_files).filter { it.name.endsWith('.cand') }.collect()
         }
 
-        sift_fold_out = presto_sift_fold(input_ch, rfi_mask_ch, accel_ch)
+        sift_fold_out = presto_sift_fold(input_ch, rfi_mask_ch, accel_ch, cand_ch)
 
         sifted_csv_ch = sift_fold_out.sifted_csv
         pfd_ch = sift_fold_out.pfd_files

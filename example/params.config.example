@@ -211,20 +211,23 @@ params {
 
         // Acceleration search parameters
         use_gpu             = true      // Use GPU acceleration (requires PRESTO with CUDA)
+        accelsearch_cuda_bin = "accelsearch_cu" // CUDA binary name when use_gpu=true
         zmax                = 200       // Maximum z (acceleration) to search
         wmax                = 0         // Maximum w (jerk) to search (0 = no jerk search)
         numharm             = 8         // Number of harmonics to sum
         sigma_threshold     = 2.0       // Sigma threshold for candidate detection
+        segment_chunks      = 1         // >1 to split timeseries into chunks before accelsearch
 
         // Birdie detection (zero-DM) parameters
         birdie_zmax         = 0         // z value for birdie detection (usually 0)
 
         // Candidate sifting parameters
-        sift_min_dm         = 2.0       // Minimum DM for real candidates
-        sift_r_err          = 1.1       // Fourier frequency error for matching
         sift_short_period   = 0.0005    // Shortest period to consider (seconds)
         sift_long_period    = 15.0      // Longest period to consider (seconds)
         sift_sigma_threshold = 4.0      // Minimum sigma for sifted candidates
+        sift_max_cands      = 500       // Max candidates to keep
+        sift_min_num_dms    = 1         // Minimum DMs for detection (DM problem filter)
+        sift_low_dm_cutoff  = 2.0       // Lowest DM considered as real pulsar
 
         // Folding parameters
         fold_backend        = 'presto'  // Folding backend: 'presto' (prepfold) or 'pulsarx' (psrfold_fil2)
