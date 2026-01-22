@@ -112,7 +112,7 @@ workflow intake {
         }
 
     // Copy from tape? 
-    orig_fits_channel = params.copy_from_tape.run_copy
+    orig_fits_channel = params.copy_from_tape?.run_copy ?: false
     ? syncFiles(fits_file_channel_and_meta)
     : fits_file_channel_and_meta
     
