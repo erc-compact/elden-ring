@@ -242,28 +242,41 @@ process presto_accelsearch {
         rm -f "\${outbase}.fft" "\${outbase}.inf"
     }
 
-    if [ ${chunks} -le 1 ]; then
-        run_accel "${dat_file}" "${inf_file}" "${basename}"
-    else
-        # Segment timeseries using prepdata -start/-numout
-        nsamples=\$(grep "Number of bins in the time series" ${inf_file} | awk -F'=' '{print \$2}' | tr -d ' ')
-        samples_per_chunk=\$(( nsamples / ${chunks} ))
-        if [ \$((samples_per_chunk % 2)) -ne 0 ]; then
-            samples_per_chunk=\$((samples_per_chunk - 1))
-        fi
-        for i in \$(seq 1 ${chunks}); do
-            start_frac=\$(python - << 'PY'
+    # Handle possibly multiple dat/inf pairs (one per DM)
+    dat_files=( ${dat_file} )
+    inf_files=( ${inf_file} )
+
+    if [ \${#dat_files[@]} -ne \${#inf_files[@]} ]; then
+        echo "ERROR: dat/inf count mismatch: \${#dat_files[@]} vs \${#inf_files[@]}"
+        exit 1
+    fi
+
+    for idx in "\${!dat_files[@]}"; do
+        dat=\${dat_files[\$idx]}
+        inf=\${inf_files[\$idx]}
+        base=\$(basename "\${dat}" .dat)
+
+        if [ ${chunks} -le 1 ]; then
+            run_accel "\${dat}" "\${inf}" "\${base}"
+        else
+            nsamples=\$(grep "Number of bins in the time series" "\${inf}" | awk -F'=' '{print \$2}' | tr -d ' ')
+            samples_per_chunk=\$(( nsamples / ${chunks} ))
+            if [ \$((samples_per_chunk % 2)) -ne 0 ]; then
+                samples_per_chunk=\$((samples_per_chunk - 1))
+            fi
+            for i in \$(seq 1 ${chunks}); do
+                start_frac=\$(python - << 'PY'
 import sys
 chunks=int(sys.argv[1]); idx=int(sys.argv[2])
 print(f"{(idx-1)/chunks:.6f}")
 PY
  ${chunks} \$i)
-            seg_base="${basename}_seg\$i"
-            prepdata -nobary -dm 0 -start \$start_frac -numout \$samples_per_chunk -o "\${seg_base}" ${dat_file}
-            run_accel "\${seg_base}.dat" "\${seg_base}.inf" "\${seg_base}"
-            # keep segment dat/inf for folding
-        done
-    fi
+                seg_base="\${base}_seg\$i"
+                prepdata -nobary -dm 0 -start \$start_frac -numout \$samples_per_chunk -o "\${seg_base}" "\${dat}"
+                run_accel "\${seg_base}.dat" "\${seg_base}.inf" "\${seg_base}"
+            done
+        fi
+    done
     """
 }
 
