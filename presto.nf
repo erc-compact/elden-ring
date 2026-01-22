@@ -191,7 +191,7 @@ process presto_accelsearch {
     label 'presto_gpu'
     label 'long'
 
-    publishDir "${params.output_dir}/${params.target_name}/presto/accelsearch", mode: 'symlink'
+    publishDir "${params.output_dir}/${params.target_name}/presto/accelsearch/${(params.presto?.segment_chunks ?: 1) > 1 ? 'segmented' : 'full'}", mode: 'symlink'
 
     input:
     path dat_file
@@ -200,8 +200,8 @@ process presto_accelsearch {
 
     output:
     path "*_ACCEL_*", emit: accel_files
-    path "*.cand", emit: cand_files, optional: true
-    path "*.fft", emit: fft_files
+    path "*_ACCEL_*.cand", emit: cand_files, optional: true
+    path "*_ACCEL_*.inf", emit: accel_inf, optional: true
 
     script:
     def basename = dat_file.baseName
@@ -210,12 +210,62 @@ process presto_accelsearch {
     def numharm = params.presto?.numharm ?: 8
     def sigma = params.presto?.sigma_threshold ?: 2.0
     def use_gpu = params.presto?.use_gpu ?: false
-    def gpu_flag = use_gpu ? "-cuda" : ""
+    def accel_bin = (use_gpu ? (params.presto?.accelsearch_cuda_bin ?: 'accelsearch_cu') : 'accelsearch')
     def zap_flag = zaplist.name != 'NO_ZAPLIST' ? "-zaplist ${zaplist}" : ""
+    def chunks = params.presto?.segment_chunks ?: 1
     """
-    realfft ${dat_file}
-    accelsearch ${gpu_flag} -zmax ${zmax} -wmax ${wmax} -numharm ${numharm} \
-        -sigma ${sigma} ${zap_flag} ${basename}.fft
+    set -euo pipefail
+
+    run_accel () {
+        local dat="\$1"
+        local inf="\$2"
+        local outbase="\$3"
+
+        realfft "\${dat}"
+        rednoise "\${outbase}.fft"
+        cp "\${inf}" "\${outbase}_red.inf"
+        rm -f "\${outbase}.fft"
+
+        if [ -f "${zaplist}" ] && [ -s "${zaplist}" ]; then
+            zapbirds -zap -zapfile ${zaplist} "\${outbase}_red.fft"
+            mv "\${outbase}_red.fft" "\${outbase}.fft"
+            mv "\${outbase}_red.inf" "\${outbase}.inf"
+        else
+            mv "\${outbase}_red.fft" "\${outbase}.fft"
+            mv "\${outbase}_red.inf" "\${outbase}.inf"
+        fi
+
+        ${accel_bin} -zmax ${zmax} -wmax ${wmax} -numharm ${numharm} -sigma ${sigma} ${zap_flag} "\${outbase}.fft"
+
+        # Keep matching inf with ACCEL output for downstream
+        cp "\${outbase}.inf" "\${outbase}_ACCEL_${zmax}${wmax > 0 ? "_JERK_${wmax}" : ""}.inf"
+        rm -f "\${outbase}.fft" "\${outbase}.inf"
+    }
+
+    if [ ${chunks} -le 1 ]; then
+        task.ext.segment_label="full"
+        run_accel "${dat_file}" "${inf_file}" "${basename}"
+    else
+        # Segment timeseries using prepdata -start/-numout
+        nsamples=\$(grep "Number of bins in the time series" ${inf_file} | awk -F'=' '{print \$2}' | tr -d ' ')
+        samples_per_chunk=\$(( nsamples / ${chunks} ))
+        if [ \$((samples_per_chunk % 2)) -ne 0 ]; then
+            samples_per_chunk=\$((samples_per_chunk - 1))
+        fi
+        for i in \$(seq 1 ${chunks}); do
+            start_frac=\$(python - << 'PY'
+import sys
+chunks=int(sys.argv[1]); idx=int(sys.argv[2])
+print(f"{(idx-1)/chunks:.6f}")
+PY
+ ${chunks} \$i)
+            seg_base="${basename}_seg\$i"
+            task.ext.segment_label="seg\$i"
+            prepdata -nobary -dm 0 -start \$start_frac -numout \$samples_per_chunk -o "\${seg_base}" ${dat_file}
+            run_accel "\${seg_base}.dat" "\${seg_base}.inf" "\${seg_base}"
+            # keep segment dat/inf for folding
+        done
+    fi
     """
 }
 
