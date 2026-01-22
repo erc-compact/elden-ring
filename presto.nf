@@ -1288,7 +1288,13 @@ workflow presto_pipeline {
     }
 
     // Create DM ranges channel at workflow level (outside conditionals)
-    dm_ranges_ch = channel.of(params.presto?.dm_ranges ?: []).flatten().map { range ->
+    // Parse dm_ranges if it's a string (from command line), otherwise use as-is
+    def dm_ranges_list = params.presto?.dm_ranges ?: []
+    if (dm_ranges_list instanceof String) {
+        dm_ranges_list = new groovy.json.JsonSlurper().parseText(dm_ranges_list)
+    }
+
+    dm_ranges_ch = channel.from(dm_ranges_list).map { range ->
         tuple(range.dm_low, range.dm_high, range.dm_step, range.downsamp)
     }
 
