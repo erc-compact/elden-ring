@@ -1326,7 +1326,7 @@ workflow presto_sift_fold {
         .set { fold_out }
 
     // Collect pfd files for state
-    pfd_collected = fold_out.pfd_files.collect()
+    pfd_collected = fold_out.pfd_files.flatten().collect()
 
     // Save state file for chaining
     save_presto_sift_fold_state(input_file, sifted_out.sifted_csv, pfd_collected)
@@ -1354,18 +1354,21 @@ workflow presto_postprocess {
     ps_files     // PostScript files (.pfd.ps) - unused when using show_pfd
 
     main:
+    // Normalize PFD channel (process outputs are lists)
+    def pfd_flat = pfd_files.flatten()
+
     // Step 1: Convert PFD to PNG using show_pfd
-    presto_pfd_to_png(pfd_files.collect())
+    presto_pfd_to_png(pfd_flat.collect())
         .set { png_out }
 
     // Collect bestprof files (may be empty)
-    bestprof_ch = pfd_files.map { pfd ->
+    bestprof_ch = pfd_flat.map { pfd ->
         file("${pfd}.bestprof")
     }.filter { it.exists() }.collect().ifEmpty([])
 
     // Step 2: Merge fold results with search candidates
     presto_fold_merge(
-        pfd_files.collect(),
+        pfd_flat.collect(),
         png_out.png_files.collect(),
         bestprof_ch,
         sifted_csv
@@ -1601,9 +1604,9 @@ workflow presto_pipeline {
         if (start_stage == 6) {
             input_ch = channel.fromPath(state.input_file)
             sifted_csv_ch = channel.fromPath(state.sifted_csv)
-            pfd_ch = channel.fromPath(state.pfd_files)
+            pfd_ch = Channel.from(state.pfd_files).map { file(it) }
             // PS files are in same directory as PFD files, just with .ps extension
-            ps_ch = channel.fromPath(state.pfd_files).map { file("${it}.ps") }
+            ps_ch = Channel.from(state.pfd_files).map { file("${it}.ps") }
         }
 
         presto_postprocess(input_ch, sifted_csv_ch, pfd_ch, ps_ch)
@@ -1711,14 +1714,14 @@ workflow presto_full {
         ).set { fold_out }
 
         // Post-processing: PNG conversion from PFD files using show_pfd
-        presto_pfd_to_png(fold_out.pfd_files.collect())
+        presto_pfd_to_png(fold_out.pfd_files.flatten().collect())
             .set { png_out }
 
         // Create merged results
         presto_fold_merge(
-            fold_out.pfd_files.collect(),
+            fold_out.pfd_files.flatten().collect(),
             png_out.png_files.collect(),
-            fold_out.bestprof_files.collect().ifEmpty([]),
+            fold_out.bestprof_files.flatten().collect().ifEmpty([]),
             sifted_out.sifted_csv
         ).set { merged_out }
 
@@ -1784,14 +1787,14 @@ workflow run_presto_search {
         .set { fold_out }
 
     // Convert PFD files to PNG using show_pfd
-    presto_pfd_to_png(fold_out.pfd_files.collect())
+    presto_pfd_to_png(fold_out.pfd_files.flatten().collect())
         .set { png_out }
 
     // Merge fold results
     presto_fold_merge(
-        fold_out.pfd_files.collect(),
+        fold_out.pfd_files.flatten().collect(),
         png_out.png_files.collect(),
-        fold_out.bestprof_files.collect().ifEmpty([]),
+        fold_out.bestprof_files.flatten().collect().ifEmpty([]),
         sifted_out.sifted_csv
     ).set { merged_out }
 
@@ -1882,14 +1885,14 @@ workflow presto_on_peasoup_timeseries {
             .set { fold_out }
 
         // Post-processing: PNG conversion from PFD files using show_pfd
-        presto_pfd_to_png(fold_out.pfd_files.collect())
+        presto_pfd_to_png(fold_out.pfd_files.flatten().collect())
             .set { png_out }
 
         // Merge fold results
         presto_fold_merge(
-            fold_out.pfd_files.collect(),
+            fold_out.pfd_files.flatten().collect(),
             png_out.png_files.collect(),
-            fold_out.bestprof_files.collect().ifEmpty([]),
+            fold_out.bestprof_files.flatten().collect().ifEmpty([]),
             sifted_out.sifted_csv
         ).set { merged_out }
 
@@ -1954,14 +1957,14 @@ workflow run_accelsearch_single {
             .set { fold_out }
 
         // Post-processing: PNG conversion from PFD files using show_pfd
-        presto_pfd_to_png(fold_out.pfd_files.collect())
+        presto_pfd_to_png(fold_out.pfd_files.flatten().collect())
             .set { png_out }
 
         // Create merged results
         presto_fold_merge(
-            fold_out.pfd_files.collect(),
+            fold_out.pfd_files.flatten().collect(),
             png_out.png_files.collect(),
-            fold_out.bestprof_files.collect().ifEmpty([]),
+            fold_out.bestprof_files.flatten().collect().ifEmpty([]),
             sifted_out.sifted_csv
         ).set { merged_out }
 
