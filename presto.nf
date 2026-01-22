@@ -306,13 +306,11 @@ process presto_sift_candidates {
     def sigma_threshold = params.presto?.sift_sigma_threshold ?: 4.0
     """
     python3 ${projectDir}/scripts/presto_accel_sift.py \
-        --glob_pattern "*.cand" \
-        --min_dm ${min_dm} \
-        --r_err ${r_err} \
-        --short_period ${short_period} \
-        --long_period ${long_period} \
-        --sigma_threshold ${sigma_threshold} \
-        --output_prefix sifted_candidates
+        -i ${accel_files} \
+        -o sifted_candidates \
+        --min-sigma ${sigma_threshold} \
+        --min-period ${short_period} \
+        --max-period ${long_period}
     """
 }
 
