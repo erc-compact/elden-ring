@@ -1,3 +1,23 @@
+// Define container image paths specific to Hercules cluster
+params {
+    // Container images for Hercules
+    singularity_image_dir = "/hercules/scratch/fkareem/singularity_img"
+    pulsarx_image         = "${singularity_image_dir}/pulsarx_latest.sif"
+    presto_image          = "${singularity_image_dir}/presto4.sif"
+    peasoup_image         = "${singularity_image_dir}/peasoup_latest.sif"
+    psrchive_image        = "${singularity_image_dir}/trapum_pulsarx_fold_docker_20220411.sif"
+    rfi_mitigation_image  = "/hercules/scratch/fkareem/singularity_img/rfi-mitigation-nextflow_amd64.sif"
+    presto5_image         = "${singularity_image_dir}/presto5_pddot.sif"
+    pics_classifier_image = "/hercules/scratch/fkareem/singularity_img/trapum_pulsarx_fold_docker_20220411.sif"
+    filtools_sig_image    = "${singularity_image_dir}/filtools-image_sig.sif"
+    rusty_candypicker     = "${singularity_image_dir}/rusty_candypicker_latest.sif"
+    // PrestoZL GPU-accelerated container (pull from zjlabastro/prestozl:v1.0)
+    prestozl_image        = "/hercules/scratch/vishnu/singularity_images/prestozl_v1.0.sif"
+    // Number of threads for processes used in filtool
+    threads = 48  // Adjust as per the cluster's CPU availability
+}
+
+
 process {
     executor = 'slurm'
     cache = 'lenient'
@@ -220,25 +240,6 @@ process {
         errorStrategy  = { task.exitStatus in (137..140) ? 'retry' : 'finish' }
         maxRetries     = 2
     }
-}
-
-// Define container image paths specific to Hercules cluster
-params {
-    // Container images for Hercules
-    singularity_image_dir = "/hercules/scratch/fkareem/singularity_img"
-    pulsarx_image         = "${singularity_image_dir}/pulsarx_latest.sif"
-    presto_image          = "${singularity_image_dir}/presto4.sif"
-    peasoup_image         = "${singularity_image_dir}/peasoup_latest.sif"
-    psrchive_image        = "${singularity_image_dir}/trapum_pulsarx_fold_docker_20220411.sif"
-    rfi_mitigation_image  = "/hercules/scratch/fkareem/singularity_img/rfi-mitigation-nextflow_amd64.sif"
-    presto5_image         = "${singularity_image_dir}/presto5_pddot.sif"
-    pics_classifier_image = "/hercules/scratch/fkareem/singularity_img/trapum_pulsarx_fold_docker_20220411.sif"
-    filtools_sig_image    = "${singularity_image_dir}/filtools-image_sig.sif"
-    rusty_candypicker     = "${singularity_image_dir}/rusty_candypicker_latest.sif"
-    // PrestoZL GPU-accelerated container (pull from zjlabastro/prestozl:v1.0)
-    prestozl_image        = "${singularity_image_dir}/prestozl_v1.0.sif"
-    // Number of threads for processes used in filtool
-    threads = 48  // Adjust as per the cluster's CPU availability
 }
 
 // Apptainer/Singularity configuration for Hercules

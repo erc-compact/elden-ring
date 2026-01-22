@@ -57,7 +57,7 @@ process presto_rfifind {
     path "*_rfifind.stats", emit: rfi_stats
     path "*_rfifind.inf", emit: rfi_inf
     path "*_rfifind.out", emit: rfi_outfile
-    path "*.rfifind*", emit: rfi_files
+    path "*rfifind*", emit: rfi_files
 
     script:
     def basename = input_file.baseName
@@ -94,8 +94,6 @@ process presto_prepdata_zerodm {
     def basename = input_file.baseName
     """
     # Ensure rfifind sidecars are available for prepdata
-    ln -s ${rfi_stats} .
-    ln -s ${rfi_inf} .
     prepdata -dm 0 -mask ${rfi_mask} -o ${basename}_DM0 ${input_file}
     """
 }
