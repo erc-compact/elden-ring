@@ -140,6 +140,7 @@ process presto_prepsubband {
 
     input:
     path input_file
+    path input_inf
     path rfi_mask
     tuple val(dm_low), val(dm_high), val(dm_step), val(downsamp)
 
@@ -151,8 +152,26 @@ process presto_prepsubband {
     script:
     def basename = input_file.baseName
     def nsub = params.presto?.nsub ?: 128
+    def ndm = Math.max(1, ((dm_high.toFloat() - dm_low.toFloat()) / dm_step.toFloat()).toInteger() + 1)
     """
-    prepsubband -dm ${dm_low} -dmstep ${dm_step} -ndm ${((dm_high.toFloat() - dm_low.toFloat()) / dm_step.toFloat()).toInteger()} \
+    # Verify input files exist
+    if [ ! -f "${input_file}" ]; then
+        echo "ERROR: Input file ${input_file} not found"
+        exit 1
+    fi
+
+    if [ ! -f "${input_inf}" ]; then
+        echo "ERROR: Input .inf file ${input_inf} not found"
+        exit 1
+    fi
+
+    if [ ! -f "${rfi_mask}" ]; then
+        echo "ERROR: RFI mask ${rfi_mask} not found"
+        exit 1
+    fi
+
+    # Run prepsubband - it needs the .inf file to be present
+    prepsubband -dm ${dm_low} -dmstep ${dm_step} -ndm ${ndm} \
         -nsub ${nsub} -downsamp ${downsamp} \
         -mask ${rfi_mask} -o ${basename} ${input_file}
     """
@@ -874,6 +893,7 @@ process save_presto_birdies_state {
     path zaplist
     path rfi_stats
     path rfi_inf
+    path zerodm_inf
 
     output:
     path "birdies_state.json", emit: state_file
@@ -897,6 +917,7 @@ state = {
     "rfi_mask": os.path.abspath("${rfi_mask}"),
     "rfi_stats": os.path.abspath("${rfi_stats}"),
     "rfi_inf": os.path.abspath("${rfi_inf}"),
+    "zerodm_inf": os.path.abspath("${zerodm_inf}"),
     "zaplist": zaplist_path,
     "next_workflow": "presto_dedisperse"
 }
@@ -1089,7 +1110,7 @@ workflow presto_birdies {
     zaplist_ch = birdie_out.zaplist.ifEmpty(file('NO_ZAPLIST'))
 
     // Save state file for chaining
-    save_presto_birdies_state(input_file, rfi_mask, zaplist_ch, rfi_stats, rfi_inf)
+    save_presto_birdies_state(input_file, rfi_mask, zaplist_ch, rfi_stats, rfi_inf, zerodm_out.inf_file)
         .set { state_out }
 
     emit:
@@ -1098,22 +1119,24 @@ workflow presto_birdies {
     rfi_mask_passthrough = rfi_mask
     rfi_stats_passthrough = rfi_stats
     rfi_inf_passthrough = rfi_inf
+    zerodm_inf = zerodm_out.inf_file  // .inf file from prepdata zero-DM for prepsubband
 }
 
 /*
  * PRESTO Dedispersion workflow
- * Input:  (input_file, rfi_mask, zaplist, dm_ranges) OR params.state_file (birdies_state.json)
+ * Input:  (input_file, input_inf, rfi_mask, zaplist, dm_ranges) OR params.state_file (birdies_state.json)
  * Output: dedisperse_state.json -> presto_search
  */
 workflow presto_dedisperse {
     take:
     input_file  // Filterbank file
+    input_inf   // .inf file from prepdata zero-DM
     rfi_mask    // RFI mask
     zaplist     // Birdie zaplist (or NO_ZAPLIST)
     dm_ranges   // Channel of tuples: (dm_low, dm_high, dm_step, downsamp)
 
     main:
-    presto_prepsubband(input_file, rfi_mask, dm_ranges)
+    presto_prepsubband(input_file, input_inf, rfi_mask, dm_ranges)
         .set { subband_out }
 
     // Collect all dat/inf files for state
@@ -1359,11 +1382,16 @@ workflow presto_pipeline {
             }
             rfi_stats_ch = channel.fromPath(state.rfi_stats)
             rfi_inf_ch = channel.fromPath(state.rfi_inf)
+            if (!state.zerodm_inf) {
+                error "State file missing zerodm_inf; rerun stage 2 to regenerate prepdata outputs."
+            }
+            zerodm_inf_ch = channel.fromPath(state.zerodm_inf)
         }
 
         birdie_out = presto_birdies(input_ch, rfi_mask_ch, rfi_stats_ch, rfi_inf_ch)
 
         zaplist_ch = birdie_out.zaplist
+        zerodm_inf_ch = birdie_out.zerodm_inf
 
         if (end_stage == 2) {
             log.info "Pipeline complete. Birdie detection finished."
@@ -1379,9 +1407,13 @@ workflow presto_pipeline {
             input_ch = channel.fromPath(state.input_file)
             rfi_mask_ch = channel.fromPath(state.rfi_mask)
             zaplist_ch = state.zaplist ? channel.fromPath(state.zaplist) : channel.value(file('NO_ZAPLIST'))
+            if (!state.zerodm_inf) {
+                error "State file missing zerodm_inf; rerun stage 2 to regenerate prepdata outputs."
+            }
+            zerodm_inf_ch = channel.fromPath(state.zerodm_inf)
         }
 
-        dedisperse_out = presto_dedisperse(input_ch, rfi_mask_ch, zaplist_ch, dm_ranges_ch)
+        dedisperse_out = presto_dedisperse(input_ch, zerodm_inf_ch, rfi_mask_ch, zaplist_ch, dm_ranges_ch)
 
         dat_ch = dedisperse_out.dat_files
         inf_ch = dedisperse_out.inf_files
@@ -1493,13 +1525,17 @@ workflow presto_full {
         tuple(range.dm_low, range.dm_high, range.dm_step, range.downsamp)
     }
 
-    // Combine input file with rfi_mask for dedispersion
-    def dedisperse_input = fil_channel.combine(rfi_out.rfi_mask)
+    // Combine input file, zerodm inf, and rfi_mask for dedispersion
+    def dedisperse_input = fil_channel
+        .zip(birdie_out.zerodm_inf)
+        .zip(rfi_out.rfi_mask)
+        .map { pair, mask -> tuple(pair[0], pair[1], mask) }
 
     // Run dedispersion for each DM range
     presto_prepsubband(
-        dedisperse_input.map { it[0] },
-        dedisperse_input.map { it[1] },
+        dedisperse_input.map { it[0] },   // input file
+        dedisperse_input.map { it[1] },   // zerodm inf
+        dedisperse_input.map { it[2] },   // rfi mask
         dm_ranges
     ).set { subband_out }
 
@@ -1600,7 +1636,7 @@ workflow run_presto_search {
     }
 
     // Run dedispersion
-    presto_prepsubband(fil_ch, rfi_out.rfi_mask, dm_ranges)
+    presto_prepsubband(fil_ch, birdie_out.zerodm_inf, rfi_out.rfi_mask, dm_ranges)
         .set { subband_out }
 
     // Run acceleration search
