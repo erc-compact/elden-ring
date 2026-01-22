@@ -305,9 +305,18 @@ def create_tarball(
         shutil.rmtree(work_dir)
     os.makedirs(work_dir)
 
+    # Determine metafile subdir (prefer existing metafile_path prefix)
+    meta_subdir = "metafiles"
+    if "metafile_path" in candidates_df.columns:
+        try:
+            if candidates_df["metafile_path"].astype(str).str.startswith("meta/").any():
+                meta_subdir = "meta"
+        except Exception:
+            pass
+
     # Create subdirectories
     plots_dir = os.path.join(work_dir, "plots")
-    meta_dir = os.path.join(work_dir, "metafiles")
+    meta_dir = os.path.join(work_dir, meta_subdir)
     os.makedirs(plots_dir, exist_ok=True)
     os.makedirs(meta_dir, exist_ok=True)
 
@@ -320,10 +329,15 @@ def create_tarball(
         axis=1,
     )
 
-    # Update metafile_path
+    # Update metafile_path only if missing/blank
     if "utc_start" in candidates_df.columns:
-        candidates_df["metafile_path"] = candidates_df["utc_start"].apply(
-            lambda x: f"metafiles/{x}.meta" if pd.notna(x) and str(x) else "metafiles/unknown.meta"
+        if "metafile_path" not in candidates_df.columns:
+            candidates_df["metafile_path"] = ""
+        candidates_df["metafile_path"] = candidates_df.apply(
+            lambda row: row.get("metafile_path")
+            if str(row.get("metafile_path", "")).strip()
+            else (f"{meta_subdir}/{row['utc_start']}.meta" if pd.notna(row.get("utc_start")) and str(row.get("utc_start")) else f"{meta_subdir}/unknown.meta"),
+            axis=1,
         )
 
     # Define required columns in order (matching CandyJar)
@@ -401,6 +415,10 @@ def create_tarball(
     pics_csv = os.path.join(work_dir, "candidates_pics_above_threshold.csv")
     pics_df.to_csv(pics_csv, index=False)
     logger.info(f"Saved {len(pics_df)} PICS-filtered candidates (threshold: {pics_threshold})")
+
+    # Emit CSVs to current working directory for workflow outputs
+    final_df.to_csv(os.path.join(os.getcwd(), "candidates.csv"), index=False)
+    pics_df.to_csv(os.path.join(os.getcwd(), "candidates_pics_above_threshold.csv"), index=False)
 
     # Copy PNG files
     png_count = 0

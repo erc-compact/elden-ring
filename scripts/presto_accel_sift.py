@@ -8,6 +8,7 @@ from operator import attrgetter
 import glob
 import os
 import sifting
+import re
 
 SOL = 299792458.0
 
@@ -102,10 +103,38 @@ def main():
 
     candfile = f"{args.output}.candfile"
     csvfile = f"{args.output}.csv"
+    provfile = f"{args.output}.provenance.csv"
 
-    with open(candfile, 'w') as cf, open(csvfile, 'w') as csvf:
+    accel_sigma_cache = {}
+
+    def load_accel_sigma(accel_path):
+        if accel_path in accel_sigma_cache:
+            return accel_sigma_cache[accel_path]
+        sigma_map = {}
+        try:
+            with open(accel_path, 'r') as af:
+                for line in af:
+                    line = line.strip()
+                    if not line or not line[0].isdigit():
+                        continue
+                    parts = re.split(r"\s+", line)
+                    if len(parts) < 2:
+                        continue
+                    try:
+                        candnum = int(parts[0])
+                        sigma = float(parts[1])
+                        sigma_map[candnum] = sigma
+                    except ValueError:
+                        continue
+        except IOError:
+            pass
+        accel_sigma_cache[accel_path] = sigma_map
+        return sigma_map
+
+    with open(candfile, 'w') as cf, open(csvfile, 'w') as csvf, open(provfile, 'w') as pf:
         cf.write("#id dm acc F0 F1 F2 S/N\n")
-        csvf.write("id,dm,f0,f1,f2,snr,sigma,accel,z,w,period_ms,file\n")
+        csvf.write("id,dm,f0,f1,f2,snr,sigma,sn_fft,accel,z,w,period_ms,file,cand_num,accel_file\n")
+        pf.write("id,accel_file,cand_num,dm,f0,f1,f2,sigma,snr,sn_fft\n")
         for k, cand in enumerate(cands, 1):
             z0 = cand.z - 0.5 * cand.w
             r0 = cand.r - 0.5 * z0 - cand.w / 6.0
@@ -114,7 +143,12 @@ def main():
             fdd = cand.w / (cand.T * cand.T * cand.T)
             period_ms = (1.0 / f) * 1000.0 if f != 0 else 0.0
             cf.write("%d\t%.3f\t%.15f\t%.15f\t%.15f\t%.15f\t%.2f\n" % (k, cand.DM, 0., f, fd, fdd, cand.snr))
-            csvf.write(f"{k},{cand.DM:.3f},{f:.15f},{fd:.15e},{fdd:.15e},{cand.snr:.2f},{cand.sigma:.2f},{0.0:.6f},{cand.z:.2f},{cand.w:.2f},{period_ms:.3f},{os.path.basename(cand.filename)}\n")
+            accel_base = os.path.basename(cand.filename)
+            sigma_map = load_accel_sigma(cand.filename)
+            sn_fft = sigma_map.get(cand.candnum, cand.sigma)
+            snr_val = cand.sigma
+            csvf.write(f"{k},{cand.DM:.3f},{f:.15f},{fd:.15e},{fdd:.15e},{snr_val:.2f},{cand.sigma:.2f},{sn_fft:.2f},{0.0:.6f},{cand.z:.2f},{cand.w:.2f},{period_ms:.3f},{accel_base},{cand.candnum},{accel_base}\n")
+            pf.write(f"{k},{accel_base},{cand.candnum},{cand.DM:.3f},{f:.15f},{fd:.15e},{fdd:.15e},{cand.sigma:.2f},{snr_val:.2f},{sn_fft:.2f}\n")
 
 if __name__ == '__main__':
     main()

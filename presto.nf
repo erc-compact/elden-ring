@@ -296,6 +296,7 @@ process presto_sift_candidates {
     output:
     path "sifted_candidates.csv", emit: sifted_csv
     path "sifted_candidates.candfile", emit: candfile
+    path "sifted_candidates.provenance.csv", emit: provenance_csv
 
     script:
     def short_period = params.presto?.sift_short_period ?: 0.0005
@@ -318,8 +319,9 @@ process presto_sift_candidates {
 
     if [ \${#cand_list[@]} -eq 0 ]; then
         echo "No ACCEL files found; creating empty outputs"
-        echo "id,dm,period_ms,freq_hz,sigma,accel,z,num_harm,source_file" > sifted_candidates.csv
+        echo "id,dm,f0,f1,f2,snr,sigma,sn_fft,accel,z,w,period_ms,file,cand_num,accel_file" > sifted_candidates.csv
         echo "#id dm acc F0 F1 F2 S/N" > sifted_candidates.candfile
+        echo "id,accel_file,cand_num,dm,f0,f1,f2,sigma,snr" > sifted_candidates.provenance.csv
         exit 0
     fi
 
@@ -580,6 +582,8 @@ process presto_fold_merge {
     path png_files
     path bestprof_files
     path sifted_csv
+    path provenance_csv
+    val meta_info
 
     output:
     path "merged_results.csv", emit: merged_csv
@@ -587,6 +591,15 @@ process presto_fold_merge {
     path "png_files/*", emit: all_png
 
     script:
+    def pointing = meta_info[0]
+    def cluster = meta_info[1]
+    def beam_name = meta_info[2]
+    def beam_id = meta_info[3]
+    def utc_start = meta_info[4]
+    def ra = meta_info[5]
+    def dec = meta_info[6]
+    def cdm = meta_info[7]
+    def filterbank_path = meta_info[8]
     """
     #!/usr/bin/env python3
     import os
@@ -603,25 +616,67 @@ process presto_fold_merge {
     for png in glob.glob("*.png"):
         shutil.copy(png, "png_files/")
 
-    # Parse bestprof files and merge with candidate info
-    results = []
-    sifted_data = {}
+    meta_defaults = {
+        "pointing_id": "${pointing}",
+        "beam_id": "${beam_id}",
+        "beam_name": "${beam_name}",
+        "utc_start": "${utc_start}",
+        "ra": "${ra}",
+        "dec": "${dec}",
+        "cdm": "${cdm}",
+        "filterbank_path": "${filterbank_path}",
+        "cluster": "${cluster}",
+        "segment_id": "0",
+        "source_name": "",
+    }
+
+    if meta_defaults["utc_start"]:
+        meta_defaults["metafile_path"] = "meta/%s.meta" % meta_defaults["utc_start"]
+    else:
+        meta_defaults["metafile_path"] = ""
 
     # Read sifted candidates
+    sifted_data = {}
     with open("${sifted_csv}", 'r') as f:
         reader = csv.DictReader(f)
         for row in reader:
-            sifted_data[row.get('cand_id', row.get('cand_num', ''))] = row
+            cand_key = row.get('cand_id') or row.get('id') or row.get('cand_num', '')
+            sifted_data[str(cand_key)] = row
 
-    # Parse bestprof files
+    # Read provenance data
+    prov_data = {}
+    with open("${provenance_csv}", 'r') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            prov_data[str(row.get('id', ''))] = row
+
+    def parse_bestprof(path):
+        info = {}
+        try:
+            with open(path, 'r') as f:
+                for line in f:
+                    if line.startswith("# Epoch_bary (MJD)"):
+                        val = line.split("=", 1)[1].strip()
+                        try:
+                            info["mjd_start"] = float(val)
+                        except ValueError:
+                            pass
+                    elif line.startswith("# Best DM"):
+                        val = line.split("=", 1)[1].strip()
+                        try:
+                            info["dm_opt"] = float(val)
+                        except ValueError:
+                            pass
+        except IOError:
+            pass
+        return info
+
+    results = []
+
     for bp in glob.glob("*.bestprof"):
         cand_id = bp.split('_cand_')[1].replace('.pfd.bestprof', '') if '_cand_' in bp else ''
         basename = os.path.basename(bp).replace('.pfd.bestprof', '')
 
-        with open(bp, 'r') as f:
-            content = f.read()
-
-        # Extract key parameters
         result = {
             'basename': basename,
             'cand_id': cand_id,
@@ -629,13 +684,45 @@ process presto_fold_merge {
             'png_file': basename + '.png' if os.path.exists(basename + '.png') else ''
         }
 
-        # Add sifted data if available
+        result.update(meta_defaults)
+
         if cand_id in sifted_data:
             result.update(sifted_data[cand_id])
 
+        if cand_id in prov_data:
+            result["accel_file"] = prov_data[cand_id].get("accel_file", "")
+            result["cand_num"] = prov_data[cand_id].get("cand_num", "")
+            result["sn_fft"] = prov_data[cand_id].get("sn_fft", prov_data[cand_id].get("sigma", ""))
+            if result.get("sn_fft") not in (None, ""):
+                try:
+                    result["sn_fft"] = float(result["sn_fft"])
+                except Exception:
+                    pass
+
+        bp_info = parse_bestprof(bp)
+        result.update(bp_info)
+        if (not result.get("utc_start")) and ("mjd_start" in result):
+            result["utc_start"] = str(result.get("mjd_start"))
+
+        sigma_val = result.get("sigma") or result.get("snr") or result.get("sn_fft")
+        if sigma_val not in (None, ""):
+            try:
+                result["sn_fold"] = float(sigma_val)
+            except Exception:
+                result["sn_fold"] = sigma_val
+
+        if "dm" in result and "dm_user" not in result:
+            result["dm_user"] = result.get("dm")
+        if "dm_opt" not in result and "dm" in result:
+            result["dm_opt"] = result.get("dm")
+
+        if "f0" in result and "f0_user" not in result:
+            result["f0_user"] = result.get("f0")
+        if "f1" in result and "f1_user" not in result:
+            result["f1_user"] = result.get("f1")
+
         results.append(result)
 
-    # Write merged results
     if results:
         fieldnames = list(results[0].keys())
         with open("merged_results.csv", 'w', newline='') as f:
@@ -756,7 +843,7 @@ process presto_create_tarball {
     def tarball_name = "${tarball_prefix}_presto"
     def metafile_dir = params.metafile_source_path ?: ""
     def pics_threshold = params.presto?.pics_threshold ?: 0.1
-    def snr_threshold = params.presto?.snr_threshold ?: 6.0
+    def snr_threshold = params.presto?.snr_threshold ?: 4.0
     """
     # Create tarball using the CandyJar-compatible script
     python3 ${projectDir}/scripts/create_presto_tarball.py \\
@@ -769,12 +856,8 @@ process presto_create_tarball {
         --snr-threshold ${snr_threshold} \\
         --verbose
 
-    # Script writes CSVs under tarball_work; copy to work dir for Nextflow outputs
-    cp tarball_work/candidates.csv candidates.csv
-    cp tarball_work/candidates_pics_above_threshold.csv candidates_pics_above_threshold.csv
-
-    # The script creates candidates.csv and candidates_pics_above_threshold.csv
-    # in the current directory as well as in the tarball
+    # The script emits candidates.csv and candidates_pics_above_threshold.csv
+    # in the work directory as well as in the tarball
     """
 }
 
@@ -1149,6 +1232,7 @@ process save_presto_sift_fold_state {
     path input_file
     path sifted_csv
     path pfd_files
+    path provenance_csv
 
     output:
     path "sift_fold_state.json", emit: state_file
@@ -1166,6 +1250,7 @@ state = {
     "stage": "sift_fold",
     "input_file": os.path.abspath("${input_file}"),
     "sifted_csv": os.path.abspath("${sifted_csv}"),
+    "provenance_csv": os.path.abspath("${provenance_csv}"),
     "pfd_files": pfd_files,
     "next_workflow": "presto_postprocess"
 }
@@ -1337,7 +1422,7 @@ workflow presto_sift_fold {
     pfd_collected = fold_out.pfd_files.flatten().collect()
 
     // Save state file for chaining
-    save_presto_sift_fold_state(input_file, sifted_out.sifted_csv, pfd_collected)
+    save_presto_sift_fold_state(input_file, sifted_out.sifted_csv, pfd_collected, sifted_out.provenance_csv)
         .set { state_out }
 
     emit:
@@ -1345,6 +1430,7 @@ workflow presto_sift_fold {
     pfd_files = fold_out.pfd_files
     ps_files = fold_out.ps_files       // PostScript files for PNG conversion
     sifted_csv = sifted_out.sifted_csv
+    provenance_csv = sifted_out.provenance_csv
 }
 
 /*
@@ -1360,6 +1446,8 @@ workflow presto_postprocess {
     sifted_csv   // Sifted candidates CSV
     pfd_files    // Folded profile files (.pfd) - needed for PICS
     ps_files     // PostScript files (.pfd.ps) - unused when using show_pfd
+    provenance_csv // Candidate -> ACCEL provenance
+    meta_info   // Metadata tuple for candidates.csv
 
     main:
     // Normalize PFD channel (process outputs are lists)
@@ -1379,7 +1467,9 @@ workflow presto_postprocess {
         pfd_flat.collect(),
         png_out.png_files.collect(),
         bestprof_ch,
-        sifted_csv
+        sifted_csv,
+        provenance_csv,
+        meta_info
     ).set { merged_out }
 
     // Step 3: Run PICS classification on PFD files
@@ -1476,6 +1566,45 @@ workflow presto_pipeline {
         state = new groovy.json.JsonSlurper().parse(file(params.state_file))
     } else {
         state = null
+    }
+
+    // Build metadata tuple for candidates.csv
+    def input_fil_path = params.input_fil ?: (state ? state.input_file : null)
+    def default_meta = tuple(
+        params.get('pointing_id', "0"),
+        params.runID ?: "",
+        params.target_name ?: (input_fil_path ? new File(input_fil_path).name.replaceFirst(/\\.fil$/, "") : ""),
+        params.get('beam_id', "0"),
+        params.get('utc_start', ""),
+        params.get('ra', ""),
+        params.get('dec', ""),
+        params.get('cdm', "0.0"),
+        input_fil_path ?: ""
+    )
+
+    meta_ch = Channel.value(default_meta)
+    if (params.files_list && input_fil_path) {
+        def input_base = new File(input_fil_path).name
+        meta_ch = channel.fromPath(params.files_list)
+            .splitCsv(header: true, sep: ',')
+            .filter { row ->
+                def row_path = row.fits_files?.trim()
+                row_path == input_fil_path || (row_path && new File(row_path).name == input_base)
+            }
+            .map { row ->
+                tuple(
+                    row.pointing.trim(),
+                    row.cluster.trim(),
+                    row.beam_name.trim(),
+                    row.beam_id.trim(),
+                    row.utc_start.trim().replace(" ", "-"),
+                    row.ra.trim(),
+                    row.dec.trim(),
+                    row.cdm.trim(),
+                    row.fits_files.trim()
+                )
+            }
+            .ifEmpty(Channel.value(default_meta))
     }
 
     // Stage 1: RFI Detection
@@ -1596,6 +1725,7 @@ workflow presto_pipeline {
         sift_fold_out = presto_sift_fold(input_ch, rfi_mask_ch, rfi_stats_ch, accel_ch, cand_ch)
 
         sifted_csv_ch = sift_fold_out.sifted_csv
+        provenance_ch = sift_fold_out.provenance_csv
         pfd_ch = sift_fold_out.pfd_files
         ps_ch = sift_fold_out.ps_files
 
@@ -1612,12 +1742,13 @@ workflow presto_pipeline {
         if (start_stage == 6) {
             input_ch = channel.fromPath(state.input_file)
             sifted_csv_ch = channel.fromPath(state.sifted_csv)
+            provenance_ch = channel.fromPath(state.provenance_csv)
             pfd_ch = Channel.from(state.pfd_files).map { file(it) }
             // PS files are in same directory as PFD files, just with .ps extension
             ps_ch = Channel.from(state.pfd_files).map { file("${it}.ps") }
         }
 
-        presto_postprocess(input_ch, sifted_csv_ch, pfd_ch, ps_ch)
+        presto_postprocess(input_ch, sifted_csv_ch, pfd_ch, ps_ch, provenance_ch, meta_ch)
 
         log.info "Pipeline complete. All stages finished."
     }
@@ -1647,6 +1778,9 @@ workflow presto_full {
     // Also keep the full metadata for PulsarX folding
     def meta_channel = intake_ch.map { p, f, c, bn, bi, u, ra, dec, cdm, fname ->
         tuple(p, f, c, bn, bi, u, ra, dec, cdm)
+    }
+    def meta_info_ch = meta_channel.map { p, f, c, bn, bi, u, ra, dec, cdm ->
+        tuple(p, c, bn, bi, u, ra, dec, cdm, f)
     }
 
     // Run RFI detection
@@ -1730,7 +1864,9 @@ workflow presto_full {
             fold_out.pfd_files.flatten().collect(),
             png_out.png_files.collect(),
             fold_out.bestprof_files.flatten().collect().ifEmpty([]),
-            sifted_out.sifted_csv
+            sifted_out.sifted_csv,
+            sifted_out.provenance_csv,
+            meta_info_ch
         ).set { merged_out }
 
         // Run PICS classification on PFD files (PICS requires .pfd files)
@@ -1760,6 +1896,9 @@ workflow run_presto_search {
     main:
     def fil_ch = cleaned_ch.map { p, f, c, bn, bi, u, ra, dec, cdm, fname ->
         file(f)
+    }
+    def meta_info_ch = cleaned_ch.map { p, f, c, bn, bi, u, ra, dec, cdm, fname ->
+        tuple(p, c, bn, bi, u, ra, dec, cdm, f)
     }
 
     // Run RFI detection
@@ -1803,7 +1942,9 @@ workflow run_presto_search {
         fold_out.pfd_files.flatten().collect(),
         png_out.png_files.collect(),
         fold_out.bestprof_files.flatten().collect().ifEmpty([]),
-        sifted_out.sifted_csv
+        sifted_out.sifted_csv,
+        sifted_out.provenance_csv,
+        meta_info_ch
     ).set { merged_out }
 
     // Run PICS classification on PFD files (PICS requires .pfd files)
@@ -1872,6 +2013,10 @@ workflow presto_on_peasoup_timeseries {
     def fold_backend = params.presto?.fold_backend ?: 'pulsarx'
     def tarball_prefix = params.tarball_prefix ?: params.target_name ?: "hybrid"
 
+    def meta_info_ch = meta_channel.map { p, f, c, bn, bi, u, ra, dec, cdm ->
+        tuple(p, c, bn, bi, u, ra, dec, cdm, f)
+    }
+
     if (fold_backend == 'pulsarx') {
         // Generate meta file for PulsarX folding
         def fft_size = params.peasoup?.fft_size ?: 134217728
@@ -1901,7 +2046,9 @@ workflow presto_on_peasoup_timeseries {
             fold_out.pfd_files.flatten().collect(),
             png_out.png_files.collect(),
             fold_out.bestprof_files.flatten().collect().ifEmpty([]),
-            sifted_out.sifted_csv
+            sifted_out.sifted_csv,
+            sifted_out.provenance_csv,
+            meta_info_ch
         ).set { merged_out }
 
         // Run PICS classification on PFD files (PICS requires .pfd files)
@@ -1947,6 +2094,10 @@ workflow run_accelsearch_single {
     // Choose folding backend
     def fold_backend = params.presto?.fold_backend ?: 'pulsarx'
 
+    def meta_info_ch = meta_channel.map { p, f, c, bn, bi, u, ra, dec, cdm ->
+        tuple(p, c, bn, bi, u, ra, dec, cdm, f)
+    }
+
     if (fold_backend == 'pulsarx') {
         // Generate meta file for PulsarX folding
         def fft_size = params.presto?.fft_size ?: params.peasoup?.fft_size ?: 134217728
@@ -1973,7 +2124,9 @@ workflow run_accelsearch_single {
             fold_out.pfd_files.flatten().collect(),
             png_out.png_files.collect(),
             fold_out.bestprof_files.flatten().collect().ifEmpty([]),
-            sifted_out.sifted_csv
+            sifted_out.sifted_csv,
+            sifted_out.provenance_csv,
+            meta_info_ch
         ).set { merged_out }
 
         // Run PICS classification on PFD files (PICS requires .pfd files)
