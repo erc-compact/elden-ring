@@ -305,7 +305,7 @@ process presto_sift_candidates {
     def long_period = params.presto?.sift_long_period ?: 15.0
     def sigma_threshold = params.presto?.sift_sigma_threshold ?: 4.0
     """
-    python ${projectDir}/scripts/presto_accel_sift.py \
+    python3 ${projectDir}/scripts/presto_accel_sift.py \
         --glob_pattern "*.cand" \
         --min_dm ${min_dm} \
         --r_err ${r_err} \
