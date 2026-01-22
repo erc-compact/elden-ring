@@ -758,7 +758,7 @@ process presto_create_tarball {
     def snr_threshold = params.presto?.snr_threshold ?: 6.0
     """
     # Create tarball using the CandyJar-compatible script
-    python ${projectDir}/scripts/create_presto_tarball.py \\
+    python3 ${projectDir}/scripts/create_presto_tarball.py \\
         -i ${classified_csv} \\
         -o ${tarball_name}.tar.gz \\
         --png-dir . \\
