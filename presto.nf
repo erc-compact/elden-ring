@@ -481,7 +481,7 @@ process presto_prepfold_batch {
     fft_size = ${params.presto?.fft_size ?: 134217728}
 
     # Read candidates from CSV
-    # Expected columns: file, cand_id, dm, period, f0, f1, accel, sigma
+    # Expected columns: file, cand_id, dm, period, f0, f1, accel, sigma (period_ms also supported)
     candidates = []
     with open("${candidate_csv}", 'r') as f:
         reader = csv.DictReader(f)
@@ -490,7 +490,19 @@ process presto_prepfold_batch {
                 break
 
             try:
-                period = float(row.get('period', row.get('P', 0)))
+                period_val = row.get('period', row.get('P', None))
+                f0_val = row.get('f0', None)
+                period_ms_val = row.get('period_ms', None)
+
+                if period_val not in (None, ''):
+                    period = float(period_val)
+                elif period_ms_val not in (None, ''):
+                    period = float(period_ms_val) / 1000.0
+                elif f0_val not in (None, '') and float(f0_val) != 0.0:
+                    period = 1.0 / float(f0_val)
+                else:
+                    period = 0.0
+
                 accel = float(row.get('accel', row.get('acc', 0)))
                 dm = float(row.get('dm', row.get('DM', 0)))
                 cand_id = row.get('cand_id', row.get('id', i))
