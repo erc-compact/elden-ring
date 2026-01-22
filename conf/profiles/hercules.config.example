@@ -4,7 +4,7 @@ params {
     singularity_image_dir = "/hercules/scratch/fkareem/singularity_img"
     pulsarx_image         = "${singularity_image_dir}/pulsarx_latest.sif"
     presto_image          = "${singularity_image_dir}/presto4.sif"
-    peasoup_image         = "${singularity_image_dir}/peasoup_latest.sif"
+    peasoup_image         = "${singularity_image_dir}/peasoup_keplerian.sif"
     psrchive_image        = "${singularity_image_dir}/trapum_pulsarx_fold_docker_20220411.sif"
     rfi_mitigation_image  = "/hercules/scratch/fkareem/singularity_img/rfi-mitigation-nextflow_amd64.sif"
     presto5_image         = "${singularity_image_dir}/presto5_pddot.sif"
