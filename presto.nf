@@ -421,50 +421,29 @@ process presto_prepfold_batch {
 
     script:
     def basename = input_file.baseName
-    def nsub = params.presto?.fold_nsub ?: 128
     def npart = params.presto?.fold_npart ?: 64
     def max_cands = params.presto?.max_fold_cands ?: 100
     def mask_opt = rfi_mask.name != 'NO_MASK' ? "-mask ${rfi_mask}" : ""
+    def start_frac = params.presto?.fold_start_frac ?: 0.0
+    def end_frac = params.presto?.fold_end_frac ?: 1.0
+    def extra_flags = params.presto?.fold_extra_flags ?: ""
     """
     #!/usr/bin/env python3
     import subprocess
     import csv
-    import os
-    import struct
-    import sys
     from concurrent.futures import ProcessPoolExecutor, as_completed
 
-    # Add project scripts to path
-    sys.path.insert(0, '${projectDir}/scripts')
-
-    # Import period correction functions from central module
-    from period_corrections import a_to_pdot, period_correction_for_prepfold
-
-    def read_fil_tsamp(filepath):
-        \"\"\"Read tsamp from filterbank header.\"\"\"
-        try:
-            with open(filepath, 'rb') as f:
-                content = f.read(4096)
-                if b'tsamp' in content:
-                    idx = content.find(b'tsamp')
-                    f.seek(idx + 5)
-                    return struct.unpack('d', f.read(8))[0]
-        except:
-            pass
-        return 64e-6  # Default tsamp
-
     def fold_candidate(args):
-        fold_period, pdot, dm, cand_id, basename, input_file, mask_opt = args
+        f0, f1, f2, dm, cand_id, basename, input_file, mask_opt = args
         outname = f"{basename}_cand_{cand_id}"
-
-        # Use -topo for topocentric folding (period already corrected to tobs start)
-        # Add -slow flag for slow pulsars
-        slow_flag = "-slow" if fold_period > 0.1 else ""
-
-        cmd = f"prepfold -fixchi -noxwin -topo {slow_flag} " \
-              f"-p {fold_period:.16f} -dm {dm:.6f} -pd {pdot:.16e} " \
-              f"{mask_opt} -nsub ${nsub} -npart ${npart} " \
-              f"-o {outname} {input_file}"
+        cmd = (
+            f"prepfold -noxwin "
+            f"-f {f0:.15f} -fd {f1:.15f} -fdd {f2:.15f} "
+            f"-dm {dm:.6f} -npart ${npart} {mask_opt} "
+            f"-start ${start_frac} -end ${end_frac} "
+            f"${extra_flags} "
+            f"-o {outname} {input_file}"
+        )
 
         try:
             subprocess.run(cmd, shell=True, check=True, capture_output=True)
@@ -472,16 +451,8 @@ process presto_prepfold_batch {
         except Exception as e:
             return False, str(e)
 
-    # Read tsamp from filterbank
-    tsamp = read_fil_tsamp("${input_file}")
-    print(f"Using tsamp = {tsamp}")
-
-    # Estimate fft_size (will be refined from actual search parameters)
-    # For now, use a reasonable default based on observation length
-    fft_size = ${params.presto?.fft_size ?: 134217728}
-
     # Read candidates from CSV
-    # Expected columns: file, cand_id, dm, period, f0, f1, accel, sigma (period_ms also supported)
+    # Expected columns: f0,f1,f2,dm (from sifter output)
     candidates = []
     with open("${candidate_csv}", 'r') as f:
         reader = csv.DictReader(f)
@@ -490,30 +461,16 @@ process presto_prepfold_batch {
                 break
 
             try:
-                period_val = row.get('period', row.get('P', None))
-                f0_val = row.get('f0', None)
-                period_ms_val = row.get('period_ms', None)
-
-                if period_val not in (None, ''):
-                    period = float(period_val)
-                elif period_ms_val not in (None, ''):
-                    period = float(period_ms_val) / 1000.0
-                elif f0_val not in (None, '') and float(f0_val) != 0.0:
-                    period = 1.0 / float(f0_val)
-                else:
-                    period = 0.0
-
-                accel = float(row.get('accel', row.get('acc', 0)))
+                f0 = float(row.get('f0', 0.0))
+                f1 = float(row.get('f1', 0.0))
+                f2 = float(row.get('f2', 0.0))
                 dm = float(row.get('dm', row.get('DM', 0)))
                 cand_id = row.get('cand_id', row.get('id', i))
 
-                # Calculate pdot and corrected period
-                pdot = a_to_pdot(period, accel)
-                fold_period = period_correction_for_prepfold(period, pdot, tsamp, fft_size)
-
                 candidates.append((
-                    fold_period,
-                    pdot,
+                    f0,
+                    f1,
+                    f2,
                     dm,
                     cand_id,
                     "${basename}",
