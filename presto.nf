@@ -338,7 +338,7 @@ process presto_sift_candidates {
 
     if [ \${#cand_list[@]} -eq 0 ]; then
         echo "No ACCEL files found; creating empty outputs"
-        echo "id,dm,f0,f1,f2,snr,sigma,sn_fft,accel,z,w,period_ms,file,cand_num,accel_file" > sifted_candidates.csv
+        echo "id,dm,f0,f1,f2,snr,sigma,sn_fft,acc,accel,z,w,period_ms,file,cand_num,accel_file" > sifted_candidates.csv
         echo "#id dm acc F0 F1 F2 S/N" > sifted_candidates.candfile
         echo "id,accel_file,cand_num,dm,f0,f1,f2,sigma,snr" > sifted_candidates.provenance.csv
         exit 0
@@ -438,7 +438,7 @@ process presto_prepfold_batch {
     path rfi_stats
 
     output:
-    path "*.pfd", emit: pfd_files
+    path "*.pfd", emit: pfd_files, optional: true
     path "*.pfd.bestprof", emit: bestprof_files, optional: true
     path "*.pfd.ps", emit: ps_files, optional: true
 
@@ -505,6 +505,8 @@ process presto_prepfold_batch {
                 continue
 
     print(f"Folding {len(candidates)} candidates with prepfold")
+    if not candidates:
+        raise SystemExit(0)
 
     # Fold in parallel
     with ProcessPoolExecutor(max_workers=min(8, len(candidates))) as executor:
@@ -530,7 +532,7 @@ process presto_pfd_to_png {
     path pfd_files
 
     output:
-    path "*.png", emit: png_files
+    path "*.png", emit: png_files, optional: true
 
     script:
     """
@@ -597,17 +599,17 @@ process presto_fold_merge {
     publishDir "${params.output_dir}/${params.target_name}/presto/merged", mode: 'copy'
 
     input:
-    path pfd_files
-    path png_files
-    path bestprof_files
+    path pfd_files, optional: true
+    path png_files, optional: true
+    path bestprof_files, optional: true
     path sifted_csv
     path provenance_csv
     val meta_info
 
     output:
     path "merged_results.csv", emit: merged_csv
-    path "pfd_files/*", emit: all_pfd
-    path "png_files/*", emit: all_png
+    path "pfd_files/*", emit: all_pfd, optional: true
+    path "png_files/*", emit: all_png, optional: true
 
     script:
     def pointing = meta_info[0]
@@ -785,6 +787,16 @@ process presto_pics_classifier {
     script:
     """
     #!/bin/bash
+    shopt -s nullglob
+    pfd_list=( *.pfd )
+    shopt -u nullglob
+    if [ \${#pfd_list[@]} -eq 0 ]; then
+        echo "No PFD files found; creating empty classification outputs"
+        cp "${merged_csv}" presto_classified.csv
+        echo "filename" > pics_scored.csv
+        exit 0
+    fi
+
     # Run PICS classifier on PFD files
     python2 ${projectDir}/scripts/pics_classifier_multiple_models.py \
         -i . \
@@ -905,7 +917,7 @@ process presto_fold_pulsarx {
     path meta_file
 
     output:
-    path "*.png", emit: png_files
+    path "*.png", emit: png_files, optional: true
     path "*.ar", emit: ar_files, optional: true
 
     script:

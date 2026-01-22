@@ -133,7 +133,7 @@ def main():
 
     with open(candfile, 'w') as cf, open(csvfile, 'w') as csvf, open(provfile, 'w') as pf:
         cf.write("#id dm acc F0 F1 F2 S/N\n")
-        csvf.write("id,dm,f0,f1,f2,snr,sigma,sn_fft,accel,z,w,period_ms,file,cand_num,accel_file\n")
+        csvf.write("id,dm,f0,f1,f2,snr,sigma,sn_fft,acc,accel,z,w,period_ms,file,cand_num,accel_file\n")
         pf.write("id,accel_file,cand_num,dm,f0,f1,f2,sigma,snr,sn_fft\n")
         for k, cand in enumerate(cands, 1):
             z0 = cand.z - 0.5 * cand.w
@@ -147,7 +147,7 @@ def main():
             sigma_map = load_accel_sigma(cand.filename)
             sn_fft = sigma_map.get(cand.candnum, cand.sigma)
             snr_val = cand.sigma
-            csvf.write(f"{k},{cand.DM:.3f},{f:.15f},{fd:.15e},{fdd:.15e},{snr_val:.2f},{cand.sigma:.2f},{sn_fft:.2f},{0.0:.6f},{cand.z:.2f},{cand.w:.2f},{period_ms:.3f},{accel_base},{cand.candnum},{accel_base}\n")
+            csvf.write(f"{k},{cand.DM:.3f},{f:.15f},{fd:.15e},{fdd:.15e},{snr_val:.2f},{cand.sigma:.2f},{sn_fft:.2f},{0.0:.6f},{0.0:.6f},{cand.z:.2f},{cand.w:.2f},{period_ms:.3f},{accel_base},{cand.candnum},{accel_base}\n")
             pf.write(f"{k},{accel_base},{cand.candnum},{cand.DM:.3f},{f:.15f},{fd:.15e},{fdd:.15e},{cand.sigma:.2f},{snr_val:.2f},{sn_fft:.2f}\n")
 
 if __name__ == '__main__':
