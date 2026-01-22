@@ -352,6 +352,7 @@ process presto_prepfold {
     path input_file
     path candidate_csv
     path rfi_mask
+    path rfi_stats
     val candidate_line
 
     output:
@@ -413,6 +414,7 @@ process presto_prepfold_batch {
     path input_file
     path candidate_csv
     path rfi_mask
+    path rfi_stats
 
     output:
     path "*.pfd", emit: pfd_files
@@ -998,6 +1000,7 @@ process save_presto_dedisperse_state {
     input:
     path input_file
     path rfi_mask
+    path rfi_stats
     path zaplist
     path dat_files
     path inf_files
@@ -1025,6 +1028,7 @@ state = {
     "stage": "dedisperse",
     "input_file": os.path.abspath("${input_file}"),
     "rfi_mask": os.path.abspath("${rfi_mask}"),
+    "rfi_stats": os.path.abspath("${rfi_stats}"),
     "zaplist": zaplist_path,
     "dat_files": dat_files,
     "inf_files": inf_files,
@@ -1048,6 +1052,7 @@ process save_presto_search_state {
     input:
     path input_file
     path rfi_mask
+    path rfi_stats
     path accel_files
 
     output:
@@ -1070,6 +1075,7 @@ state = {
     "stage": "search",
     "input_file": os.path.abspath("${input_file}"),
     "rfi_mask": os.path.abspath("${rfi_mask}"),
+    "rfi_stats": os.path.abspath("${rfi_stats}"),
     "accel_files": accel_files,
     "cand_files": cand_files,
     "next_workflow": "presto_sift_fold"
@@ -1210,7 +1216,7 @@ workflow presto_dedisperse {
 
     // Save state file for chaining
     save_presto_dedisperse_state(
-        input_file, rfi_mask, zaplist.ifEmpty(file('NO_ZAPLIST')),
+        input_file, rfi_mask, rfi_stats, zaplist.ifEmpty(file('NO_ZAPLIST')),
         dat_collected, inf_collected
     ).set { state_out }
 
@@ -1230,6 +1236,7 @@ workflow presto_search {
     take:
     input_file  // Original filterbank (for state tracking)
     rfi_mask    // RFI mask (for state tracking)
+    rfi_stats   // RFI stats (for state tracking)
     dat_files   // Dedispersed time series
     inf_files   // Info files
     zaplist     // Birdie zaplist
@@ -1245,7 +1252,7 @@ workflow presto_search {
     accel_collected = accel_out.accel_files.collect()
 
     // Save state file for chaining
-    save_presto_search_state(input_file, rfi_mask, accel_collected)
+    save_presto_search_state(input_file, rfi_mask, rfi_stats, accel_collected)
         .set { state_out }
 
     emit:
@@ -1263,6 +1270,7 @@ workflow presto_sift_fold {
     take:
     input_file   // Original filterbank
     rfi_mask     // RFI mask
+    rfi_stats    // RFI stats
     accel_files  // ACCEL search results
     cand_files   // ACCEL cand files
 
@@ -1272,7 +1280,7 @@ workflow presto_sift_fold {
     presto_sift_candidates(cand_files_all, input_file)
         .set { sifted_out }
 
-    presto_prepfold_batch(input_file, sifted_out.sifted_csv, rfi_mask)
+    presto_prepfold_batch(input_file, sifted_out.sifted_csv, rfi_mask, rfi_stats)
         .set { fold_out }
 
     // Collect pfd files for state
@@ -1503,12 +1511,13 @@ workflow presto_pipeline {
         if (start_stage == 4) {
             input_ch = channel.fromPath(state.input_file)
             rfi_mask_ch = channel.fromPath(state.rfi_mask)
+            rfi_stats_ch = channel.fromPath(state.rfi_stats)
             zaplist_ch = state.zaplist ? channel.fromPath(state.zaplist) : channel.value(file('NO_ZAPLIST'))
             dat_ch = channel.fromPath(state.dat_files).flatten()
             inf_ch = channel.fromPath(state.inf_files).flatten()
         }
 
-        search_out = presto_search(input_ch, rfi_mask_ch, dat_ch, inf_ch, zaplist_ch)
+        search_out = presto_search(input_ch, rfi_mask_ch, rfi_stats_ch, dat_ch, inf_ch, zaplist_ch)
 
         accel_ch = search_out.accel_files
         cand_ch = search_out.accel_files  // use main ACCEL files for sifting
@@ -1526,11 +1535,12 @@ workflow presto_pipeline {
         if (start_stage == 5) {
             input_ch = channel.fromPath(state.input_file)
             rfi_mask_ch = channel.fromPath(state.rfi_mask)
+            rfi_stats_ch = channel.fromPath(state.rfi_stats)
             accel_ch = channel.fromPath(state.accel_files).collect()
             cand_ch = accel_ch
         }
 
-        sift_fold_out = presto_sift_fold(input_ch, rfi_mask_ch, accel_ch, cand_ch)
+        sift_fold_out = presto_sift_fold(input_ch, rfi_mask_ch, rfi_stats_ch, accel_ch, cand_ch)
 
         sifted_csv_ch = sift_fold_out.sifted_csv
         pfd_ch = sift_fold_out.pfd_files
@@ -1654,7 +1664,8 @@ workflow presto_full {
         presto_prepfold_batch(
             fil_channel,
             sifted_out.sifted_csv,
-            rfi_out.rfi_mask
+            rfi_out.rfi_mask,
+            rfi_out.rfi_stats
         ).set { fold_out }
 
         // Post-processing: PNG conversion from PS files (prepfold outputs .pfd.ps directly)
@@ -1727,7 +1738,7 @@ workflow run_presto_search {
         .set { sifted_out }
 
     // Fold candidates
-    presto_prepfold_batch(fil_ch, sifted_out.sifted_csv, rfi_out.rfi_mask)
+    presto_prepfold_batch(fil_ch, sifted_out.sifted_csv, rfi_out.rfi_mask, rfi_out.rfi_stats)
         .set { fold_out }
 
     // Convert PS files to PNG (prepfold outputs .pfd.ps directly)
@@ -1825,7 +1836,7 @@ workflow presto_on_peasoup_timeseries {
 
     } else {
         // Fold with prepfold (creates .pfd, .pfd.ps, .pfd.bestprof files)
-        presto_prepfold_batch(fil_channel, sifted_out.sifted_csv, file('NO_MASK'))
+        presto_prepfold_batch(fil_channel, sifted_out.sifted_csv, file('NO_MASK'), file('NO_STATS'))
             .set { fold_out }
 
         // Post-processing: PNG conversion from PS files
@@ -1897,7 +1908,7 @@ workflow run_accelsearch_single {
 
     } else {
         // Fold with prepfold (creates .pfd, .pfd.ps, .pfd.bestprof files)
-        presto_prepfold_batch(fil_channel, sifted_out.sifted_csv, file('NO_MASK'))
+        presto_prepfold_batch(fil_channel, sifted_out.sifted_csv, file('NO_MASK'), file('NO_STATS'))
             .set { fold_out }
 
         // Post-processing: PNG conversion from PS files
