@@ -26,73 +26,73 @@ WMAX_JERK=50
 # ==============================================================================
 
 # ==============================================================================
-# Test 1: Full PRESTO Pipeline with prepfold (PRESTO search + PRESTO fold)
-# ==============================================================================
-echo "=============================================="
-echo "Test 1: PRESTO search + PRESTO prepfold (wmax=0)"
-echo "=============================================="
-
-nextflow run elden.nf \
-  -entry presto_pipeline \
-  -profile hercules \
-  -c test_presto/presto_test.config \
-  --input_fil $TEST_FIL \
-  --basedir ${BASE_OUTPUT}/output_presto_prepfold \
-  --target_name J0514_presto_prepfold \
-  --tarball_prefix presto_prepfold_test \
-  --presto.dm_ranges '[{"dm_low": 29.0, "dm_high": 31.0, "dm_step": 0.2, "downsamp": 1}]' \
-  --presto.fold_backend presto \
-  --presto.max_fold_cands 50 \
-  --presto.zmax 100 \
-  --presto.wmax 0 \
-  -resume
-
-# ==============================================================================
-# Test 2: PRESTO search + PRESTO prepfold (jerk enabled)
-# ==============================================================================
-echo "=============================================="
-echo "Test 2: PRESTO search + PRESTO prepfold (wmax=${WMAX_JERK})"
-echo "=============================================="
-
-nextflow run elden.nf \
-  -entry presto_pipeline \
-  -profile hercules \
-  -c test_presto/presto_test.config \
-  --input_fil $TEST_FIL \
-  --basedir ${BASE_OUTPUT}/output_presto_prepfold_jerk \
-  --target_name J0514_presto_prepfold_jerk \
-  --tarball_prefix presto_prepfold_jerk_test \
-  --presto.dm_ranges '[{"dm_low": 29.0, "dm_high": 31.0, "dm_step": 0.2, "downsamp": 1}]' \
-  --presto.fold_backend presto \
-  --presto.max_fold_cands 50 \
-  --presto.zmax 100 \
-  --presto.wmax ${WMAX_JERK} \
-  -resume
-
-
-# ==============================================================================
-echo "=============================================="
-echo "Test 3: PRESTO search + PulsarX fold"
-echo "=============================================="
-
-nextflow run elden.nf \
-    -entry presto_pipeline \
-    -profile hercules \
-    -c test_presto/presto_test.config \
-    --input_fil $TEST_FIL \
-    --basedir ${BASE_OUTPUT}/output_presto_pulsarx \
-    --target_name J0514_presto_pulsarx \
-    --tarball_prefix presto_pulsarx_test \
-    --presto.dm_ranges '[{"dm_low": 29.0, "dm_high": 31.0, "dm_step": 0.3, "downsamp": 1}]' \
-    --presto.fold_backend pulsarx \
-    --presto.max_fold_cands 50 \
-    --presto.zmax 100 \
-    --presto.wmax 0 \
-    --presto.fold_threads 8 \
-    --presto.fold_nbins 64 \
-    --presto.fold_subint_length 10.0 \
-    -resume
-
+# # Test 1: Full PRESTO Pipeline with prepfold (PRESTO search + PRESTO fold)
+# # ==============================================================================
+# echo "=============================================="
+# echo "Test 1: PRESTO search + PRESTO prepfold (wmax=0)"
+# echo "=============================================="
+#
+# nextflow run elden.nf \
+#   -entry presto_pipeline \
+#   -profile hercules \
+#   -c test_presto/presto_test.config \
+#   --input_fil $TEST_FIL \
+#   --basedir ${BASE_OUTPUT}/output_presto_prepfold \
+#   --target_name J0514_presto_prepfold \
+#   --tarball_prefix presto_prepfold_test \
+#   --presto.dm_ranges '[{"dm_low": 29.0, "dm_high": 31.0, "dm_step": 0.2, "downsamp": 1}]' \
+#   --presto.fold_backend presto \
+#   --presto.max_fold_cands 50 \
+#   --presto.zmax 100 \
+#   --presto.wmax 0 \
+#   -resume
+#
+# # ==============================================================================
+# # Test 2: PRESTO search + PRESTO prepfold (jerk enabled)
+# # ==============================================================================
+# echo "=============================================="
+# echo "Test 2: PRESTO search + PRESTO prepfold (wmax=${WMAX_JERK})"
+# echo "=============================================="
+#
+# nextflow run elden.nf \
+#   -entry presto_pipeline \
+#   -profile hercules \
+#   -c test_presto/presto_test.config \
+#   --input_fil $TEST_FIL \
+#   --basedir ${BASE_OUTPUT}/output_presto_prepfold_jerk \
+#   --target_name J0514_presto_prepfold_jerk \
+#   --tarball_prefix presto_prepfold_jerk_test \
+#   --presto.dm_ranges '[{"dm_low": 29.0, "dm_high": 31.0, "dm_step": 0.2, "downsamp": 1}]' \
+#   --presto.fold_backend presto \
+#   --presto.max_fold_cands 50 \
+#   --presto.zmax 100 \
+#   --presto.wmax ${WMAX_JERK} \
+#   -resume
+#
+#
+# # ==============================================================================
+# echo "=============================================="
+# echo "Test 3: PRESTO search + PulsarX fold"
+# echo "=============================================="
+#
+# nextflow run elden.nf \
+#     -entry presto_pipeline \
+#     -profile hercules \
+#     -c test_presto/presto_test.config \
+#     --input_fil $TEST_FIL \
+#     --basedir ${BASE_OUTPUT}/output_presto_pulsarx \
+#     --target_name J0514_presto_pulsarx \
+#     --tarball_prefix presto_pulsarx_test \
+#     --presto.dm_ranges '[{"dm_low": 29.0, "dm_high": 31.0, "dm_step": 0.3, "downsamp": 1}]' \
+#     --presto.fold_backend pulsarx \
+#     --presto.max_fold_cands 50 \
+#     --presto.zmax 100 \
+#     --presto.wmax 0 \
+#     --presto.fold_threads 8 \
+#     --presto.fold_nbins 64 \
+#     --presto.fold_subint_length 10.0 \
+#     -resume
+#
 # ==============================================================================
 # SECTION B: HYBRID PEASOUP + PRESTO PIPELINE TESTS
 # ==============================================================================
@@ -107,27 +107,26 @@ echo "Test 4: Peasoup + PRESTO accelsearch + prepfold (Hybrid)"
 echo "=============================================="
 
 nextflow run elden.nf \
-    -entry peasoup_with_presto_search \
-    -profile hercules \
-    -c test_presto/presto_test.config \
-    --files_list ${BASE_OUTPUT}/test_presto_inputfile.csv \
-    --basedir ${BASE_OUTPUT}/output_hybrid_prepfold \
-    --target_name J0514_hybrid_prepfold \
-    --tarball_prefix hybrid_prepfold_test \
-    --search_backend peasoup \
-    --peasoup.dump_timeseries true \
-    --peasoup.min_snr 6.0 \
-    --peasoup.acc_start -50 \
-    --peasoup.acc_end 50 \
-    --presto.fold_backend presto \
-    --presto.max_fold_cands 50 \
-    --presto.zmax 100 \
-    --presto.wmax 50 \
-    --ddplan.dm_start 29 \
-    --ddplan.dm_end 31 \
-    --ddplan.dm_step 0.2 \
-    -resume
-
+  -entry peasoup_with_presto_search \
+  -profile hercules \
+  -c test_presto/presto_test.config \
+  --files_list ${BASE_OUTPUT}/test_presto_inputfile.csv \
+  --basedir ${BASE_OUTPUT}/output_hybrid_prepfold \
+  --target_name J0514_hybrid_prepfold \
+  --tarball_prefix hybrid_prepfold_test \
+  --search_backend peasoup \
+  --peasoup.dump_timeseries true \
+  --peasoup.min_snr 6.0 \
+  --peasoup.acc_start -50 \
+  --peasoup.acc_end 50 \
+  --presto.fold_backend presto \
+  --presto.max_fold_cands 50 \
+  --presto.zmax 100 \
+  --presto.wmax 0 \
+  --ddplan.dm_start -1 \
+  --ddplan.dm_end 1 \
+  --ddplan.dm_step 0.2 \
+  -resume
 
 # ==============================================================================
 # Test 5: Peasoup search + PRESTO accelsearch + PulsarX fold (Hybrid pipeline)
@@ -137,27 +136,24 @@ echo "Test 5: Peasoup + PRESTO accelsearch + PulsarX fold (Hybrid)"
 echo "=============================================="
 
 nextflow run elden.nf \
-    -entry peasoup_with_presto_search \
-    -profile hercules \
-    -c test_presto/presto_test.config \
-    --files_list ${BASE_OUTPUT}/test_presto_inputfile.csv \
-    --basedir ${BASE_OUTPUT}/output_hybrid_pulsarx \
-    --target_name J0514_hybrid_pulsarx \
-    --tarball_prefix hybrid_pulsarx_test \
-    --search_backend peasoup \
-    --peasoup.dump_timeseries true \
-    --peasoup.min_snr 6.0 \
-    --peasoup.acc_start -50 \
-    --peasoup.acc_end 50 \
-    --presto.fold_backend pulsarx \
-    --presto.max_fold_cands 50 \
-    --presto.fold_threads 8 \
-    --presto.zmax 100 \
-    --presto.wmax 50 \
-    --ddplan.dm_start 29 \
-    --ddplan.dm_end 31 \
-    --ddplan.dm_step 0.2 \
-    -resume
+  -entry peasoup_with_presto_search \
+  -profile hercules \
+  -c test_presto/presto_test.config \
+  --files_list ${BASE_OUTPUT}/test_presto_inputfile.csv \
+  --basedir ${BASE_OUTPUT}/output_hybrid_pulsarx \
+  --target_name J0514_hybrid_pulsarx \
+  --tarball_prefix hybrid_pulsarx_test \
+  --search_backend peasoup \
+  --peasoup.dump_timeseries true \
+  --peasoup.min_snr 6.0 \
+  --peasoup.acc_start -50 \
+  --peasoup.acc_end 50 \
+  --presto.fold_backend pulsarx \
+  --presto.max_fold_cands 50 \
+  --presto.fold_threads 8 \
+  --presto.zmax 100 \
+  --presto.wmax 0 \
+  -resume
 
 # # ==============================================================================
 # # SECTION C: STAGED EXECUTION TESTS

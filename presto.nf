@@ -599,9 +599,9 @@ process presto_fold_merge {
     publishDir "${params.output_dir}/${params.target_name}/presto/merged", mode: 'copy'
 
     input:
-    path pfd_files, optional: true
-    path png_files, optional: true
-    path bestprof_files, optional: true
+    path pfd_files
+    path png_files
+    path bestprof_files
     path sifted_csv
     path provenance_csv
     val meta_info
