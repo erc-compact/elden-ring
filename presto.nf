@@ -54,8 +54,10 @@ process presto_rfifind {
 
     output:
     path "*.mask", emit: rfi_mask
+    path "*_rfifind.stats", emit: rfi_stats
+    path "*_rfifind.inf", emit: rfi_inf
+    path "*_rfifind.out", emit: rfi_outfile
     path "*.rfifind*", emit: rfi_files
-    path "*_rfifind.out", emit: rfi_stats
 
     script:
     def basename = input_file.baseName
@@ -81,6 +83,8 @@ process presto_prepdata_zerodm {
     input:
     path input_file
     path rfi_mask
+    path rfi_stats
+    path rfi_inf
 
     output:
     path "*.dat", emit: dat_file
@@ -89,6 +93,9 @@ process presto_prepdata_zerodm {
     script:
     def basename = input_file.baseName
     """
+    # Ensure rfifind sidecars are available for prepdata
+    ln -s ${rfi_stats} .
+    ln -s ${rfi_inf} .
     prepdata -dm 0 -mask ${rfi_mask} -o ${basename}_DM0 ${input_file}
     """
 }
@@ -829,6 +836,7 @@ process save_presto_rfi_state {
     path input_file
     path rfi_mask
     path rfi_stats
+    path rfi_inf
 
     output:
     path "rfi_state.json", emit: state_file
@@ -844,6 +852,7 @@ state = {
     "input_file": os.path.abspath("${input_file}"),
     "rfi_mask": os.path.abspath("${rfi_mask}"),
     "rfi_stats": os.path.abspath("${rfi_stats}"),
+    "rfi_inf": os.path.abspath("${rfi_inf}"),
     "next_workflow": "presto_birdies"
 }
 
@@ -865,6 +874,8 @@ process save_presto_birdies_state {
     path input_file
     path rfi_mask
     path zaplist
+    path rfi_stats
+    path rfi_inf
 
     output:
     path "birdies_state.json", emit: state_file
@@ -886,6 +897,8 @@ state = {
     "stage": "birdies",
     "input_file": os.path.abspath("${input_file}"),
     "rfi_mask": os.path.abspath("${rfi_mask}"),
+    "rfi_stats": os.path.abspath("${rfi_stats}"),
+    "rfi_inf": os.path.abspath("${rfi_inf}"),
     "zaplist": zaplist_path,
     "next_workflow": "presto_dedisperse"
 }
@@ -1044,7 +1057,7 @@ workflow presto_rfi {
         .set { rfi_out }
 
     // Save state file for chaining
-    save_presto_rfi_state(input_files, rfi_out.rfi_mask, rfi_out.rfi_stats)
+    save_presto_rfi_state(input_files, rfi_out.rfi_mask, rfi_out.rfi_stats, rfi_out.rfi_inf)
         .set { state_out }
 
     emit:
@@ -1052,6 +1065,7 @@ workflow presto_rfi {
     rfi_mask = rfi_out.rfi_mask
     rfi_files = rfi_out.rfi_files
     rfi_stats = rfi_out.rfi_stats
+    rfi_inf = rfi_out.rfi_inf
 }
 
 /*
@@ -1063,9 +1077,11 @@ workflow presto_birdies {
     take:
     input_file  // Filterbank file
     rfi_mask    // RFI mask from presto_rfi
+    rfi_stats   // rfifind stats from presto_rfi
+    rfi_inf     // rfifind inf from presto_rfi
 
     main:
-    presto_prepdata_zerodm(input_file, rfi_mask)
+    presto_prepdata_zerodm(input_file, rfi_mask, rfi_stats, rfi_inf)
         .set { zerodm_out }
 
     presto_accelsearch_zerodm(zerodm_out.dat_file, zerodm_out.inf_file)
@@ -1075,12 +1091,15 @@ workflow presto_birdies {
     zaplist_ch = birdie_out.zaplist.ifEmpty(file('NO_ZAPLIST'))
 
     // Save state file for chaining
-    save_presto_birdies_state(input_file, rfi_mask, zaplist_ch)
+    save_presto_birdies_state(input_file, rfi_mask, zaplist_ch, rfi_stats, rfi_inf)
         .set { state_out }
 
     emit:
     state_file = state_out.state_file  // birdies_state.json -> presto_dedisperse
     zaplist = birdie_out.zaplist
+    rfi_mask_passthrough = rfi_mask
+    rfi_stats_passthrough = rfi_stats
+    rfi_inf_passthrough = rfi_inf
 }
 
 /*
@@ -1321,6 +1340,8 @@ workflow presto_pipeline {
         rfi_out = presto_rfi(input_ch)
 
         rfi_mask_ch = rfi_out.rfi_mask
+        rfi_stats_ch = rfi_out.rfi_stats
+        rfi_inf_ch = rfi_out.rfi_inf
 
         if (end_stage == 1) {
             log.info "Pipeline complete. RFI detection finished."
@@ -1335,9 +1356,11 @@ workflow presto_pipeline {
         if (start_stage == 2) {
             input_ch = channel.fromPath(state.input_file)
             rfi_mask_ch = channel.fromPath(state.rfi_mask)
+            rfi_stats_ch = channel.fromPath(state.rfi_stats)
+            rfi_inf_ch = channel.fromPath(state.rfi_inf)
         }
 
-        birdie_out = presto_birdies(input_ch, rfi_mask_ch)
+        birdie_out = presto_birdies(input_ch, rfi_mask_ch, rfi_stats_ch, rfi_inf_ch)
 
         zaplist_ch = birdie_out.zaplist
 
@@ -1461,7 +1484,7 @@ workflow presto_full {
         .set { rfi_out }
 
     // Run birdie detection
-    presto_birdies(fil_channel, rfi_out.rfi_mask)
+    presto_birdies(fil_channel, rfi_out.rfi_mask, rfi_out.rfi_stats, rfi_out.rfi_inf)
         .set { birdie_out }
 
     // Generate DM ranges from params
@@ -1567,7 +1590,7 @@ workflow run_presto_search {
         .set { rfi_out }
 
     // Run birdie detection
-    presto_birdies(fil_ch, rfi_out.rfi_mask)
+    presto_birdies(fil_ch, rfi_out.rfi_mask, rfi_out.rfi_stats, rfi_out.rfi_inf)
         .set { birdie_out }
 
     // Generate DM ranges
