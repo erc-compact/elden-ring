@@ -256,6 +256,21 @@ process presto_accelsearch {
         inf=\${inf_files[\$idx]}
         base=\$(basename "\${dat}" .dat)
 
+        # Stage timeseries inputs into the working directory to keep rednoise outputs local
+        work_dat="\${base}.dat"
+        work_inf="\${base}.inf"
+        if [ "\${dat}" != "\${work_dat}" ] || [ -L "\${dat}" ]; then
+            cp -L "\${dat}" "\${work_dat}"
+            dat="\${work_dat}"
+        fi
+        if [ "\${inf}" != "\${work_inf}" ] || [ -L "\${inf}" ]; then
+            cp -Lf "\${inf}" "\${work_inf}"
+            inf="\${work_inf}"
+        fi
+        if grep -q "timeseries_dump/" "\${inf}"; then
+            sed -i 's#timeseries_dump/##g' "\${inf}"
+        fi
+
         if [ ${chunks} -le 1 ]; then
             run_accel "\${dat}" "\${inf}" "\${base}"
         else
