@@ -641,14 +641,20 @@ process presto_fold_merge {
         reader = csv.DictReader(f)
         for row in reader:
             cand_key = row.get('cand_id') or row.get('id') or row.get('cand_num', '')
-            sifted_data[str(cand_key)] = row
+            if cand_key:
+                sifted_data[str(cand_key)] = row
+            cand_num = row.get('cand_num', '')
+            if cand_num:
+                sifted_data[str(cand_num)] = row
 
     # Read provenance data
     prov_data = {}
     with open("${provenance_csv}", 'r') as f:
         reader = csv.DictReader(f)
         for row in reader:
-            prov_data[str(row.get('id', ''))] = row
+            prov_id = row.get('id', '')
+            if prov_id:
+                prov_data[str(prov_id)] = row
 
     def parse_bestprof(path):
         info = {}
@@ -674,12 +680,16 @@ process presto_fold_merge {
     results = []
 
     for bp in glob.glob("*.bestprof"):
-        cand_id = bp.split('_cand_')[1].replace('.pfd.bestprof', '') if '_cand_' in bp else ''
+        raw_cand_id = bp.split('_cand_')[1].replace('.pfd.bestprof', '') if '_cand_' in bp else ''
+        cand_id = raw_cand_id
+        if raw_cand_id:
+            cand_id = raw_cand_id.split('_')[0]
         basename = os.path.basename(bp).replace('.pfd.bestprof', '')
 
         result = {
             'basename': basename,
             'cand_id': cand_id,
+            'cand_label': raw_cand_id,
             'pfd_file': basename + '.pfd',
             'png_file': basename + '.png' if os.path.exists(basename + '.png') else ''
         }
