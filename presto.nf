@@ -527,10 +527,13 @@ process presto_pfd_to_png {
     for ps in *.ps; do
         base="\${ps%.ps}"
         if command -v gs >/dev/null 2>&1; then
-            gs -dSAFER -dBATCH -dNOPAUSE -sDEVICE=png16m -r150 \
-                -sOutputFile="\${base}.png" "\$ps"
+            gs -dSAFER -dBATCH -dNOPAUSE -dAutoRotatePages=/None \
+                -sDEVICE=png16m -r150 \
+                -sOutputFile="\${base}.png" \
+                -c "<</Orientation 3>> setpagedevice" \
+                -f "\$ps"
         elif command -v convert >/dev/null 2>&1; then
-            convert -density 150 "\$ps" "\${base}.png"
+            convert -density 150 -rotate 90 "\$ps" "\${base}.png"
         else
             echo "WARNING: gs/convert not found; leaving \$ps" >&2
         fi
@@ -672,8 +675,8 @@ process presto_pics_classifier {
         -m ${params.pics_model_dir} \
         -o pics_scored.csv
 
-    # Merge PICS scores with search results
-    python3 << 'MERGE_SCRIPT'
+    # Merge PICS scores with search results (python2-only container)
+    python2 << 'MERGE_SCRIPT'
 import pandas as pd
 import os
 
@@ -713,7 +716,7 @@ if 'filename' in merged.columns:
 
 # Save classified results
 merged.to_csv("presto_classified.csv", index=False)
-print(f"Merged {len(merged)} candidates with PICS scores")
+print("Merged %d candidates with PICS scores" % len(merged))
 MERGE_SCRIPT
     """
 }
