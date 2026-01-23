@@ -560,6 +560,10 @@ process presto_pfd_to_png {
         else
             echo "WARNING: gs/convert not found; leaving \$ps" >&2
         fi
+
+        if [ -f "\${base}.png" ] && [[ "\${base}" == *.pfd ]]; then
+            mv "\${base}.png" "\${base%.pfd}.png"
+        fi
     done
     """
 }
@@ -715,12 +719,18 @@ process presto_fold_merge {
             cand_id = raw_cand_id.split('_')[0]
         basename = os.path.basename(bp).replace('.pfd.bestprof', '')
 
+        png_file = ''
+        if os.path.exists(basename + '.png'):
+            png_file = basename + '.png'
+        elif os.path.exists(basename + '.pfd.png'):
+            png_file = basename + '.pfd.png'
+
         result = {
             'basename': basename,
             'cand_id': cand_id,
             'cand_label': raw_cand_id,
             'pfd_file': basename + '.pfd',
-            'png_file': basename + '.png' if os.path.exists(basename + '.png') else ''
+            'png_file': png_file
         }
 
         result.update(meta_defaults)

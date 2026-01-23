@@ -324,11 +324,18 @@ def create_tarball(
     # Set paths in dataframe
     candidates_df["candidate_tarball_path"] = output_tarball
 
-    # Update png_path to be relative to tarball
-    candidates_df["png_path"] = candidates_df.apply(
-        lambda row: os.path.join("plots", os.path.basename(str(row.get("png_path", ""))) or f"cand_{row.name}.png"),
-        axis=1,
-    )
+    # Update png_path to be relative to tarball (avoid NaN/None placeholders)
+    def normalize_png_path(row):
+        raw = str(row.get("png_path", "")).strip()
+        if not raw or raw.lower() in ("nan", "none"):
+            basename = str(row.get("basename", "")).strip()
+            if basename:
+                return os.path.join("plots", f"{basename}.png")
+            cand_id = row.get("id", row.name)
+            return os.path.join("plots", f"cand_{cand_id}.png")
+        return os.path.join("plots", os.path.basename(raw))
+
+    candidates_df["png_path"] = candidates_df.apply(normalize_png_path, axis=1)
 
     # Update metafile_path only if missing/blank
     if "utc_start" in candidates_df.columns:
