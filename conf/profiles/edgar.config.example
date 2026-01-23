@@ -135,6 +135,7 @@ process {
         memory         = '64 GB'
         time           = '4h'
     }
+}
 
 // Define container image paths specific to Edgar cluster
 params {
