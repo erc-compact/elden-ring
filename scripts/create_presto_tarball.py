@@ -431,15 +431,33 @@ def create_tarball(
                 png_count += 1
     logger.info(f"Copied {png_count} PNG files")
 
-    # Copy metafiles
+    # Copy metafiles (or create placeholders if missing)
     meta_count = 0
-    if metafile_dir and os.path.isdir(metafile_dir):
-        unique_utc = final_df["utc_start"].dropna().unique()
-        for utc in unique_utc:
-            meta_file = os.path.join(metafile_dir, f"{utc}.meta")
-            if os.path.isfile(meta_file):
-                shutil.copy2(meta_file, meta_dir)
+    unique_utc = []
+    if "utc_start" in final_df.columns:
+        unique_utc = [u for u in final_df["utc_start"].dropna().unique() if str(u).strip()]
+
+    for utc in unique_utc:
+        meta_file = os.path.join(metafile_dir, f"{utc}.meta") if metafile_dir else ""
+        if metafile_dir and os.path.isfile(meta_file):
+            shutil.copy2(meta_file, meta_dir)
+            meta_count += 1
+        else:
+            placeholder = os.path.join(meta_dir, f"{utc}.meta")
+            if not os.path.exists(placeholder):
+                with open(placeholder, "w") as pf:
+                    pf.write("# placeholder meta file\n")
+                    pf.write(f"utc_start={utc}\n")
                 meta_count += 1
+
+    if not unique_utc:
+        placeholder = os.path.join(meta_dir, "unknown.meta")
+        if not os.path.exists(placeholder):
+            with open(placeholder, "w") as pf:
+                pf.write("# placeholder meta file\n")
+                pf.write("utc_start=\n")
+            meta_count += 1
+
     logger.info(f"Copied {meta_count} metafiles")
 
     # Create tarball
