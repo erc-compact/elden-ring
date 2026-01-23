@@ -631,6 +631,7 @@ process presto_fold_merge {
     import csv
     import shutil
     import glob
+    import re
 
     os.makedirs("pfd_files", exist_ok=True)
     os.makedirs("png_files", exist_ok=True)
@@ -706,6 +707,13 @@ process presto_fold_merge {
                             info["dm_opt"] = float(val)
                         except ValueError:
                             pass
+                    elif line.startswith("# Prob(Noise)"):
+                        match = re.search(r"([0-9.]+)\\s*sigma", line)
+                        if match:
+                            try:
+                                info["sn_fold"] = float(match.group(1))
+                            except ValueError:
+                                pass
         except IOError:
             pass
         return info
@@ -755,12 +763,13 @@ process presto_fold_merge {
         if "pepoch" not in result and "mjd_start" in result:
             result["pepoch"] = result.get("mjd_start")
 
-        sigma_val = result.get("sigma") or result.get("snr") or result.get("sn_fft")
-        if sigma_val not in (None, ""):
-            try:
-                result["sn_fold"] = float(sigma_val)
-            except Exception:
-                result["sn_fold"] = sigma_val
+        if result.get("sn_fold") in (None, ""):
+            sigma_val = result.get("sigma") or result.get("snr") or result.get("sn_fft")
+            if sigma_val not in (None, ""):
+                try:
+                    result["sn_fold"] = float(sigma_val)
+                except Exception:
+                    result["sn_fold"] = sigma_val
 
         if "dm" in result and "dm_user" not in result:
             result["dm_user"] = result.get("dm")

@@ -446,12 +446,17 @@ def create_tarball(
         unique_utc = [u for u in final_df["utc_start"].dropna().unique() if str(u).strip()]
 
     for utc in unique_utc:
-        meta_file = os.path.join(metafile_dir, f"{utc}.meta") if metafile_dir else ""
-        if metafile_dir and os.path.isfile(meta_file):
-            shutil.copy2(meta_file, meta_dir)
+        placeholder = os.path.join(meta_dir, f"{utc}.meta")
+        src = ""
+        if metafile_dir:
+            cand_path = os.path.join(metafile_dir, f"{utc}.meta")
+            if os.path.isfile(cand_path):
+                src = cand_path
+
+        if src:
+            shutil.copy2(src, placeholder)
             meta_count += 1
         else:
-            placeholder = os.path.join(meta_dir, f"{utc}.meta")
             if not os.path.exists(placeholder):
                 with open(placeholder, "w") as pf:
                     pf.write("# placeholder meta file\n")
