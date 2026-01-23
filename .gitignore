@@ -26,6 +26,7 @@ Thumbs.db
 .vscode/
 .idea/
 *~
+*CLAUDE.md
 
 # Python envs
 __pycache__/
