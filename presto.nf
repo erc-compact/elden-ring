@@ -685,7 +685,15 @@ process presto_fold_merge {
                     if line.startswith("# Epoch_bary (MJD)"):
                         val = line.split("=", 1)[1].strip()
                         try:
+                            info["pepoch"] = float(val)
                             info["mjd_start"] = float(val)
+                        except ValueError:
+                            pass
+                    elif line.startswith("# Epoch_topo"):
+                        val = line.split("=", 1)[1].strip()
+                        try:
+                            if "pepoch" not in info:
+                                info["pepoch"] = float(val)
                         except ValueError:
                             pass
                     elif line.startswith("# Best DM"):
@@ -734,6 +742,8 @@ process presto_fold_merge {
         result.update(bp_info)
         if (not result.get("utc_start")) and ("mjd_start" in result):
             result["utc_start"] = str(result.get("mjd_start"))
+        if "pepoch" not in result and "mjd_start" in result:
+            result["pepoch"] = result.get("mjd_start")
 
         sigma_val = result.get("sigma") or result.get("snr") or result.get("sn_fft")
         if sigma_val not in (None, ""):
@@ -780,6 +790,7 @@ process presto_fold_merge_pulsarx {
     path sifted_csv
     path provenance_csv
     val meta_info
+    path meta_file
 
     output:
     path "merged_results.csv", emit: merged_csv
@@ -830,6 +841,23 @@ process presto_fold_merge_pulsarx {
     else:
         meta_defaults["metafile_path"] = ""
 
+    pepoch = ""
+    try:
+        with open("${meta_file}", "r") as mf:
+            for line in mf:
+                if line.startswith("xml_segment_pepoch:"):
+                    pepoch = line.split(":", 1)[1].strip()
+                    break
+                if line.startswith("tstart:"):
+                    pepoch = line.split(":", 1)[1].strip()
+        if pepoch:
+            try:
+                pepoch = float(pepoch)
+            except Exception:
+                pass
+    except Exception:
+        pepoch = ""
+
     # Read sifted candidates
     sifted_rows = []
     with open("${sifted_csv}", 'r') as f:
@@ -865,6 +893,8 @@ process presto_fold_merge_pulsarx {
         }
 
         result.update(meta_defaults)
+        if pepoch != "":
+            result["pepoch"] = pepoch
         result.update(row)
 
         if cand_id in prov_data:
@@ -2030,7 +2060,8 @@ workflow presto_full {
             fold_out.png_files.collect(),
             sifted_out.sifted_csv,
             sifted_out.provenance_csv,
-            meta_info_ch
+            meta_info_ch,
+            meta_out.meta_file
         ).set { merged_out }
 
         def tarball_prefix = params.tarball_prefix ?: params.target_name ?: "presto_full"
@@ -2227,7 +2258,8 @@ workflow presto_on_peasoup_timeseries {
             fold_out.png_files.collect(),
             sifted_out.sifted_csv,
             sifted_out.provenance_csv,
-            meta_info_ch
+            meta_info_ch,
+            meta_out.meta_file
         ).set { merged_out }
 
         presto_create_tarball(
@@ -2318,7 +2350,8 @@ workflow run_accelsearch_single {
             fold_out.png_files.collect(),
             sifted_out.sifted_csv,
             sifted_out.provenance_csv,
-            meta_info_ch
+            meta_info_ch,
+            meta_out.meta_file
         ).set { merged_out }
 
         presto_create_tarball(

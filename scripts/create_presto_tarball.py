@@ -219,6 +219,7 @@ def normalize_presto_columns(df: pd.DataFrame, logger: logging.Logger) -> pd.Dat
         "sn_fold": 0.0,
         "maxdm_ymw16": 0.0,
         "dist_ymw16": 0.0,
+        "pepoch": "",
         "cdm": 0.0,
         "png_path": "",
         "metafile_path": "",
