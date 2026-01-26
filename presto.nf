@@ -3,8 +3,8 @@
  * PRESTO Pipeline - Processes and Workflows
  * ============================================================================
  *
- * This file contains all PRESTO-related processes and workflows for pulsar
- * searching. The pipeline consists of 6 stages that can be run together or
+ * This file contains all PRESTO-related processes and workflows 
+ * The pipeline consists of 6 stages that can be run together or
  * independently using the unified presto_pipeline entry point.
  *
  * Pipeline Stages:
@@ -31,13 +31,10 @@
  *   # Run with CSV input (multiple files):
  *   nextflow run elden.nf -entry presto_full_entry --files_list input.csv
  *
- * State files are saved to: ${params.output_dir}/${params.target_name}/presto/state/
+ * State files are saved to: ${params.basedir}/${params.runID}/PRESTO_STATE/
  * ============================================================================
  */
 
-// ============================================================================
-// PRESTO PROCESSES
-// ============================================================================
 
 /*
  * PRESTO RFI Detection - rfifind
@@ -47,7 +44,8 @@ process presto_rfifind {
     label 'presto'
     label 'short'
 
-    publishDir "${params.output_dir}/${params.target_name}/presto/rfi", mode: 'copy', pattern: "*.mask"
+    publishDir "${params.basedir}/${params.runID}/sharedcache/presto/rfi", mode: 'copy', pattern: "*.mask"
+    publishDir "${params.basedir}/${params.runID}/PRESTO_RFI", mode: 'copy', pattern: "*_rfifind.{stats,inf,out}"
 
     input:
     path input_file
@@ -136,7 +134,7 @@ process presto_prepsubband {
     label 'presto'
     label 'long'
 
-    publishDir "${params.output_dir}/${params.target_name}/presto/subbands/${dm_low}_${dm_high}", mode: 'symlink'
+    publishDir "${params.basedir}/${params.runID}/sharedcache/presto/subbands/${dm_low}_${dm_high}", mode: 'symlink'
 
     input:
     path input_file
@@ -191,7 +189,7 @@ process presto_accelsearch {
     label 'presto_gpu'
     label 'long'
 
-    publishDir "${params.output_dir}/${params.target_name}/presto/accelsearch/${(params.presto?.segment_chunks ?: 1) > 1 ? 'segmented' : 'full'}", mode: 'symlink'
+    publishDir "${params.basedir}/${params.runID}/PRESTO_SEARCH/${(params.presto?.segment_chunks ?: 1) > 1 ? 'segmented' : 'full'}", mode: 'symlink'
 
     input:
     path dat_file
@@ -296,7 +294,7 @@ process presto_sift_candidates {
     label 'presto'
     label 'short'
 
-    publishDir "${params.output_dir}/${params.target_name}/presto/sifted", mode: 'copy'
+    publishDir "${params.basedir}/${params.runID}/PRESTO_SIFTED", mode: 'copy'
 
     input:
     path cand_files
@@ -361,62 +359,6 @@ process presto_sift_candidates {
 }
 
 /*
- * PRESTO prepfold - fold single candidate
- */
-process presto_prepfold {
-    label 'presto'
-    label 'medium'
-
-    publishDir "${params.output_dir}/${params.target_name}/presto/folded", mode: 'copy'
-
-    input:
-    path input_file
-    path candidate_csv
-    path rfi_mask
-    path rfi_stats
-    val candidate_line
-
-    output:
-    path "*.pfd", emit: pfd_files
-    path "*.pfd.bestprof", emit: bestprof_files
-    path "*.pfd.ps", emit: ps_files
-
-    script:
-    def basename = input_file.baseName
-    def nsub = params.presto?.fold_nsub ?: 128
-    def npart = params.presto?.fold_npart ?: 64
-    def pstep = params.presto?.fold_pstep ?: 1
-    def pdstep = params.presto?.fold_pdstep ?: 2
-    def dmstep = params.presto?.fold_dmstep ?: 2
-    """
-    #!/usr/bin/env python3
-    import subprocess
-    import os
-
-    line = "${candidate_line}".strip()
-    parts = line.split(',')
-
-    # Expected CSV format: filename,cand_num,dm,period,f0,f1,accel,sigma
-    if len(parts) >= 5:
-        dm = parts[2]
-        period = parts[3]
-        f0 = parts[4]
-        f1 = parts[5] if len(parts) > 5 else "0"
-        accel = parts[6] if len(parts) > 6 else "0"
-        cand_id = parts[1]
-
-        outname = f"${basename}_cand_{cand_id}"
-
-        cmd = f"prepfold -dm {dm} -p {period} -pd {f1} " \
-              f"-mask ${rfi_mask} -nsub ${nsub} -npart ${npart} " \
-              f"-pstep ${pstep} -pdstep ${pdstep} -dmstep ${dmstep} " \
-              f"-o {outname} ${input_file}"
-
-        subprocess.run(cmd, shell=True, check=True)
-    """
-}
-
-/*
  * PRESTO prepfold batch - fold multiple candidates
  *
  * This process applies period correction using the formulas from foldx.py:
@@ -429,7 +371,8 @@ process presto_prepfold_batch {
     label 'presto'
     label 'long'
 
-    publishDir "${params.presto?.output_dir ?: params.basedir}/presto/folded", mode: 'copy'
+    publishDir "${params.basedir}/${params.runID}/PRESTO_FOLDING/PFD", mode: 'copy', pattern: "*.pfd"
+    publishDir "${params.basedir}/${params.runID}/PRESTO_FOLDING/BESTPROF", mode: 'copy', pattern: "*.bestprof"
 
     input:
     path input_file
@@ -451,70 +394,16 @@ process presto_prepfold_batch {
     def end_frac = params.presto?.fold_end_frac ?: 1.0
     def extra_flags = params.presto?.fold_extra_flags ?: ""
     """
-    #!/usr/bin/env python3
-    import subprocess
-    import csv
-    from concurrent.futures import ProcessPoolExecutor, as_completed
-
-    def fold_candidate(args):
-        f0, f1, f2, dm, cand_id, basename, input_file, mask_opt = args
-        outname = f"{basename}_cand_{cand_id}"
-        cmd = (
-            f"prepfold -noxwin "
-            f"-f {f0:.15f} -fd {f1:.15f} -fdd {f2:.15f} "
-            f"-dm {dm:.6f} -npart ${npart} {mask_opt} "
-            f"-start ${start_frac} -end ${end_frac} "
-            f"${extra_flags} "
-            f"-o {outname} {input_file}"
-        )
-
-        try:
-            subprocess.run(cmd, shell=True, check=True, capture_output=True)
-            return True, cand_id
-        except Exception as e:
-            return False, str(e)
-
-    # Read candidates from CSV
-    # Expected columns: f0,f1,f2,dm (from sifter output)
-    candidates = []
-    with open("${candidate_csv}", 'r') as f:
-        reader = csv.DictReader(f)
-        for i, row in enumerate(reader):
-            if i >= ${max_cands}:
-                break
-
-            try:
-                f0 = float(row.get('f0', 0.0))
-                f1 = float(row.get('f1', 0.0))
-                f2 = float(row.get('f2', 0.0))
-                dm = float(row.get('dm', row.get('DM', 0)))
-                cand_id = row.get('cand_id', row.get('id', i))
-
-                candidates.append((
-                    f0,
-                    f1,
-                    f2,
-                    dm,
-                    cand_id,
-                    "${basename}",
-                    "${input_file}",
-                    "${mask_opt}"
-                ))
-            except (KeyError, ValueError) as e:
-                print(f"Warning: Could not parse candidate row: {e}")
-                continue
-
-    print(f"Folding {len(candidates)} candidates with prepfold")
-    if not candidates:
-        raise SystemExit(0)
-
-    # Fold in parallel
-    with ProcessPoolExecutor(max_workers=min(8, len(candidates))) as executor:
-        futures = [executor.submit(fold_candidate, c) for c in candidates]
-        for future in as_completed(futures):
-            success, result = future.result()
-            if not success:
-                print(f"Warning: Folding failed: {result}")
+    python3 ${projectDir}/scripts/presto_prepfold_batch.py \\
+        --candidate-csv ${candidate_csv} \\
+        --input-file ${input_file} \\
+        --basename ${basename} \\
+        --npart ${npart} \\
+        --max-cands ${max_cands} \\
+        --mask-opt "${mask_opt}" \\
+        --start-frac ${start_frac} \\
+        --end-frac ${end_frac} \\
+        --extra-flags "${extra_flags}"
     """
 }
 
@@ -526,7 +415,7 @@ process presto_pfd_to_png {
     label 'presto'
     label 'short'
 
-    publishDir "${params.output_dir}/${params.target_name}/presto/plots", mode: 'copy'
+    publishDir "${params.basedir}/${params.runID}/PRESTO_FOLDING/PNG", mode: 'copy'
 
     input:
     path pfd_files
@@ -569,38 +458,13 @@ process presto_pfd_to_png {
 }
 
 /*
- * PRESTO PS to PNG conversion (legacy)
- * Converts PostScript files (.pfd.ps) directly to PNG.
- */
-process presto_ps_to_png {
-    label 'presto'
-    label 'short'
-
-    publishDir "${params.output_dir}/${params.target_name}/presto/plots", mode: 'copy'
-
-    input:
-    path ps_files
-
-    output:
-    path "*.png", emit: png_files
-
-    script:
-    """
-    python ${projectDir}/scripts/presto_ps_to_png.py \
-        --input_dir . \
-        --output_dir . \
-        --workers 4
-    """
-}
-
-/*
  * PRESTO merge folded results
  */
 process presto_fold_merge {
     label 'presto'
     label 'short'
 
-    publishDir "${params.output_dir}/${params.target_name}/presto/merged", mode: 'copy'
+    publishDir "${params.basedir}/${params.runID}/PRESTO_FOLDING/MERGED", mode: 'copy'
 
     input:
     path pfd_files
@@ -626,172 +490,18 @@ process presto_fold_merge {
     def cdm = meta_info[7]
     def filterbank_path = meta_info[8]
     """
-    #!/usr/bin/env python3
-    import os
-    import csv
-    import shutil
-    import glob
-    import re
-
-    os.makedirs("pfd_files", exist_ok=True)
-    os.makedirs("png_files", exist_ok=True)
-
-    # Copy pfd and png files
-    for pfd in glob.glob("*.pfd"):
-        shutil.copy(pfd, "pfd_files/")
-    for png in glob.glob("*.png"):
-        shutil.copy(png, "png_files/")
-
-    meta_defaults = {
-        "pointing_id": "${pointing}",
-        "beam_id": "${beam_id}",
-        "beam_name": "${beam_name}",
-        "utc_start": "${utc_start}",
-        "ra": "${ra}",
-        "dec": "${dec}",
-        "cdm": "${cdm}",
-        "filterbank_path": "${filterbank_path}",
-        "cluster": "${cluster}",
-        "segment_id": "0",
-        "source_name": "",
-    }
-
-    if meta_defaults["utc_start"]:
-        meta_defaults["metafile_path"] = "meta/%s.meta" % meta_defaults["utc_start"]
-    else:
-        meta_defaults["metafile_path"] = ""
-
-    # Read sifted candidates
-    sifted_data = {}
-    with open("${sifted_csv}", 'r') as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            cand_key = row.get('cand_id') or row.get('id') or row.get('cand_num', '')
-            if cand_key:
-                sifted_data[str(cand_key)] = row
-            cand_num = row.get('cand_num', '')
-            if cand_num:
-                sifted_data[str(cand_num)] = row
-
-    # Read provenance data
-    prov_data = {}
-    with open("${provenance_csv}", 'r') as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            prov_id = row.get('id', '')
-            if prov_id:
-                prov_data[str(prov_id)] = row
-
-    def parse_bestprof(path):
-        info = {}
-        try:
-            with open(path, 'r') as f:
-                for line in f:
-                    if line.startswith("# Epoch_bary (MJD)"):
-                        val = line.split("=", 1)[1].strip()
-                        try:
-                            info["pepoch"] = float(val)
-                            info["mjd_start"] = float(val)
-                        except ValueError:
-                            pass
-                    elif line.startswith("# Epoch_topo"):
-                        val = line.split("=", 1)[1].strip()
-                        try:
-                            if "pepoch" not in info:
-                                info["pepoch"] = float(val)
-                        except ValueError:
-                            pass
-                    elif line.startswith("# Best DM"):
-                        val = line.split("=", 1)[1].strip()
-                        try:
-                            info["dm_opt"] = float(val)
-                        except ValueError:
-                            pass
-                    elif line.startswith("# Prob(Noise)"):
-                        match = re.search(r"([0-9.]+)\\s*sigma", line)
-                        if match:
-                            try:
-                                info["sn_fold"] = float(match.group(1))
-                            except ValueError:
-                                pass
-        except IOError:
-            pass
-        return info
-
-    results = []
-
-    for bp in glob.glob("*.bestprof"):
-        raw_cand_id = bp.split('_cand_')[1].replace('.pfd.bestprof', '') if '_cand_' in bp else ''
-        cand_id = raw_cand_id
-        if raw_cand_id:
-            cand_id = raw_cand_id.split('_')[0]
-        basename = os.path.basename(bp).replace('.pfd.bestprof', '')
-
-        png_file = ''
-        if os.path.exists(basename + '.png'):
-            png_file = basename + '.png'
-        elif os.path.exists(basename + '.pfd.png'):
-            png_file = basename + '.pfd.png'
-
-        result = {
-            'basename': basename,
-            'cand_id': cand_id,
-            'cand_label': raw_cand_id,
-            'pfd_file': basename + '.pfd',
-            'png_file': png_file
-        }
-
-        result.update(meta_defaults)
-
-        if cand_id in sifted_data:
-            result.update(sifted_data[cand_id])
-
-        if cand_id in prov_data:
-            result["accel_file"] = prov_data[cand_id].get("accel_file", "")
-            result["cand_num"] = prov_data[cand_id].get("cand_num", "")
-            result["sn_fft"] = prov_data[cand_id].get("sn_fft", prov_data[cand_id].get("sigma", ""))
-            if result.get("sn_fft") not in (None, ""):
-                try:
-                    result["sn_fft"] = float(result["sn_fft"])
-                except Exception:
-                    pass
-
-        bp_info = parse_bestprof(bp)
-        result.update(bp_info)
-        if (not result.get("utc_start")) and ("mjd_start" in result):
-            result["utc_start"] = str(result.get("mjd_start"))
-        if "pepoch" not in result and "mjd_start" in result:
-            result["pepoch"] = result.get("mjd_start")
-
-        if result.get("sn_fold") in (None, ""):
-            sigma_val = result.get("sigma") or result.get("snr") or result.get("sn_fft")
-            if sigma_val not in (None, ""):
-                try:
-                    result["sn_fold"] = float(sigma_val)
-                except Exception:
-                    result["sn_fold"] = sigma_val
-
-        if "dm" in result and "dm_user" not in result:
-            result["dm_user"] = result.get("dm")
-        if "dm_opt" not in result and "dm" in result:
-            result["dm_opt"] = result.get("dm")
-
-        if "f0" in result and "f0_user" not in result:
-            result["f0_user"] = result.get("f0")
-        if "f1" in result and "f1_user" not in result:
-            result["f1_user"] = result.get("f1")
-
-        results.append(result)
-
-    if results:
-        fieldnames = list(results[0].keys())
-        with open("merged_results.csv", 'w', newline='') as f:
-            writer = csv.DictWriter(f, fieldnames=fieldnames)
-            writer.writeheader()
-            writer.writerows(results)
-    else:
-        with open("merged_results.csv", 'w') as f:
-            f.write("basename,cand_id,pfd_file,png_file\\n")
+    python3 ${projectDir}/scripts/presto_fold_merge.py --backend presto \\
+        --sifted-csv ${sifted_csv} \\
+        --provenance-csv ${provenance_csv} \\
+        --pointing "${pointing}" \\
+        --cluster "${cluster}" \\
+        --beam-name "${beam_name}" \\
+        --beam-id "${beam_id}" \\
+        --utc-start "${utc_start}" \\
+        --ra "${ra}" \\
+        --dec "${dec}" \\
+        --cdm "${cdm}" \\
+        --filterbank-path "${filterbank_path}"
     """
 }
 
@@ -802,7 +512,7 @@ process presto_fold_merge_pulsarx {
     label 'presto'
     label 'short'
 
-    publishDir "${params.output_dir}/${params.target_name}/presto/merged", mode: 'copy'
+    publishDir "${params.basedir}/${params.runID}/PRESTO_FOLDING/MERGED", mode: 'copy'
 
     input:
     path png_files
@@ -826,134 +536,19 @@ process presto_fold_merge_pulsarx {
     def cdm = meta_info[7]
     def filterbank_path = meta_info[8]
     """
-    #!/usr/bin/env python3
-    import os
-    import csv
-    import glob
-    import shutil
-
-    os.makedirs("png_files", exist_ok=True)
-
-    # Copy png files (if any)
-    for png in glob.glob("*.png"):
-        shutil.copy(png, "png_files/")
-
-    if not glob.glob("png_files/*.png"):
-        open("png_files/NO_PNG", "w").close()
-
-    meta_defaults = {
-        "pointing_id": "${pointing}",
-        "beam_id": "${beam_id}",
-        "beam_name": "${beam_name}",
-        "utc_start": "${utc_start}",
-        "ra": "${ra}",
-        "dec": "${dec}",
-        "cdm": "${cdm}",
-        "filterbank_path": "${filterbank_path}",
-        "cluster": "${cluster}",
-        "segment_id": "0",
-        "source_name": "",
-    }
-
-    if meta_defaults["utc_start"]:
-        meta_defaults["metafile_path"] = "meta/%s.meta" % meta_defaults["utc_start"]
-    else:
-        meta_defaults["metafile_path"] = ""
-
-    pepoch = ""
-    try:
-        with open("${meta_file}", "r") as mf:
-            for line in mf:
-                if line.startswith("xml_segment_pepoch:"):
-                    pepoch = line.split(":", 1)[1].strip()
-                    break
-                if line.startswith("tstart:"):
-                    pepoch = line.split(":", 1)[1].strip()
-        if pepoch:
-            try:
-                pepoch = float(pepoch)
-            except Exception:
-                pass
-    except Exception:
-        pepoch = ""
-
-    # Read sifted candidates
-    sifted_rows = []
-    with open("${sifted_csv}", 'r') as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            sifted_rows.append(row)
-
-    # Read provenance data
-    prov_data = {}
-    with open("${provenance_csv}", 'r') as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            prov_id = row.get('id', '')
-            if prov_id:
-                prov_data[str(prov_id)] = row
-
-    pngs = sorted(glob.glob("*.png"))
-    results = []
-
-    for idx, row in enumerate(sifted_rows):
-        cand_id = row.get('cand_id') or row.get('id') or row.get('cand_num', '')
-        basename = f"cand_{cand_id}" if cand_id else f"cand_{idx}"
-        png_file = ""
-        if idx < len(pngs):
-            png_file = os.path.basename(pngs[idx])
-            basename = os.path.splitext(png_file)[0]
-
-        result = {
-            'basename': basename,
-            'cand_id': cand_id,
-            'pfd_file': '',
-            'png_file': png_file,
-        }
-
-        result.update(meta_defaults)
-        if pepoch != "":
-            result["pepoch"] = pepoch
-        result.update(row)
-
-        if cand_id in prov_data:
-            result["accel_file"] = prov_data[cand_id].get("accel_file", "")
-            result["cand_num"] = prov_data[cand_id].get("cand_num", "")
-            result["sn_fft"] = prov_data[cand_id].get("sn_fft", prov_data[cand_id].get("sigma", ""))
-            if result.get("sn_fft") not in (None, ""):
-                try:
-                    result["sn_fft"] = float(result["sn_fft"])
-                except Exception:
-                    pass
-
-        sigma_val = result.get("sigma") or result.get("snr") or result.get("sn_fft")
-        if sigma_val not in (None, ""):
-            try:
-                result["sn_fold"] = float(sigma_val)
-            except Exception:
-                result["sn_fold"] = sigma_val
-
-        if "dm" in result and "dm_user" not in result:
-            result["dm_user"] = result.get("dm")
-        if "dm_opt" not in result and "dm" in result:
-            result["dm_opt"] = result.get("dm")
-
-        if "f0" in result and "f0_user" not in result:
-            result["f0_user"] = result.get("f0")
-        if "f1" in result and "f1_user" not in result:
-            result["f1_user"] = result.get("f1")
-
-        results.append(result)
-
-    if results:
-        fieldnames = list(results[0].keys())
-        with open("merged_results.csv", 'w', newline='') as f:
-            writer = csv.DictWriter(f, fieldnames=fieldnames)
-            writer.writeheader()
-            writer.writerows(results)
-    else:
-        with open("merged_results.csv", 'w') as f:
-            f.write("basename,cand_id,pfd_file,png_file\\n")
+    python3 ${projectDir}/scripts/presto_fold_merge.py --backend pulsarx \\
+        --sifted-csv ${sifted_csv} \\
+        --provenance-csv ${provenance_csv} \\
+        --meta-file ${meta_file} \\
+        --pointing "${pointing}" \\
+        --cluster "${cluster}" \\
+        --beam-name "${beam_name}" \\
+        --beam-id "${beam_id}" \\
+        --utc-start "${utc_start}" \\
+        --ra "${ra}" \\
+        --dec "${dec}" \\
+        --cdm "${cdm}" \\
+        --filterbank-path "${filterbank_path}"
     """
 }
 
@@ -965,7 +560,7 @@ process presto_pics_classifier {
     label 'pics_classifier'
     container "${params.pics_classifier_image}"
 
-    publishDir "${params.output_dir}/${params.target_name}/presto/classification", mode: 'copy', pattern: "*.csv"
+    publishDir "${params.basedir}/${params.runID}/PRESTO_CLASSIFICATION", mode: 'copy', pattern: "*.csv"
 
     input:
     path pfd_files
@@ -1059,7 +654,7 @@ process presto_create_tarball {
     label 'short'
     container "${params.pulsarx_container}"
 
-    publishDir "${params.output_dir}/${params.target_name}/presto/tarballs", mode: 'copy'
+    publishDir "${params.basedir}/${params.runID}/PRESTO_TARBALLS", mode: 'copy'
 
     input:
     path classified_csv
@@ -1100,7 +695,7 @@ process presto_fold_pulsarx {
     label 'pulsarx'
     label 'long'
 
-    publishDir "${params.presto?.output_dir ?: params.basedir}/pulsarx_fold", mode: 'copy'
+    publishDir "${params.basedir}/${params.runID}/PRESTO_FOLDING/PULSARX", mode: 'copy'
 
     input:
     path input_file
@@ -1151,77 +746,25 @@ process generate_fold_meta {
     def threads = params.presto?.fold_threads ?: params.psrfold?.threads ?: 16
     def coherent_dm = cdm ?: 0.0
     """
-    # Read filterbank header to get tstart, tsamp, nsamples
-    python3 << 'PYEOF'
-import struct
-import os
-
-def read_fil_header(filepath):
-    header = {}
-    with open(filepath, 'rb') as f:
-        # Skip to find header keywords
-        f.seek(0)
-        content = f.read(4096)  # Read first 4KB
-
-        # Parse common keywords
-        if b'tstart' in content:
-            idx = content.find(b'tstart')
-            f.seek(idx + 6)
-            header['tstart'] = struct.unpack('d', f.read(8))[0]
-
-        if b'tsamp' in content:
-            idx = content.find(b'tsamp')
-            f.seek(idx + 5)
-            header['tsamp'] = struct.unpack('d', f.read(8))[0]
-
-        if b'nsamples' in content:
-            idx = content.find(b'nsamples')
-            f.seek(idx + 8)
-            header['nsamples'] = struct.unpack('i', f.read(4))[0]
-
-    return header
-
-# Try to read header, use defaults if fails
-try:
-    header = read_fil_header('${fil_file}')
-    tstart = header.get('tstart', 0.0)
-    tsamp = header.get('tsamp', 64e-6)
-    nsamples = header.get('nsamples', 0)
-except:
-    tstart = 0.0
-    tsamp = 64e-6
-    nsamples = 0
-
-# Write meta file
-with open('fold_meta.txt', 'w') as f:
-    f.write(f"filterbank_file: ${fil_file}\\n")
-    f.write(f"fft_size: ${fft_size}\\n")
-    f.write(f"tsamp: {tsamp}\\n")
-    f.write(f"tstart: {tstart}\\n")
-    f.write(f"nsamples: {nsamples}\\n")
-    f.write(f"source_name: ${cluster}\\n")
-    f.write(f"telescope: ${telescope}\\n")
-    f.write(f"beam_name: ${beam_name}\\n")
-    f.write(f"beam_id: ${beam_id}\\n")
-    f.write(f"utc_beam: ${utc_start}\\n")
-    f.write(f"ra: ${ra}\\n")
-    f.write(f"dec: ${dec}\\n")
-    f.write(f"cdm: ${coherent_dm}\\n")
-    f.write(f"subint_length: ${subint_length}\\n")
-    f.write(f"nsubband: ${nsubband}\\n")
-    f.write(f"clfd_q_value: ${clfd}\\n")
-    f.write(f"nbins: ${nbins}\\n")
-    f.write(f"binplan: ${binplan}\\n")
-    f.write(f"threads: ${threads}\\n")
-    f.write(f"template: ${template}\\n")
-    f.write("start_fraction: 0.0\\n")
-    f.write("end_fraction: 1.0\\n")
-    f.write("chunk_id: 0\\n")
-    f.write("cmask: \\n")
-    f.write("rfi_filter: \\n")
-
-print(f"Meta file created with tstart={tstart}, tsamp={tsamp}")
-PYEOF
+    python3 ${projectDir}/scripts/presto_generate_fold_meta.py \\
+        --fil-file ${fil_file} \\
+        --output fold_meta.txt \\
+        --fft-size ${fft_size} \\
+        --telescope "${telescope}" \\
+        --source-name "${cluster}" \\
+        --beam-name "${beam_name}" \\
+        --beam-id "${beam_id}" \\
+        --utc-start "${utc_start}" \\
+        --ra "${ra}" \\
+        --dec "${dec}" \\
+        --cdm ${coherent_dm} \\
+        --subint-length ${subint_length} \\
+        --nsubband ${nsubband} \\
+        --clfd ${clfd} \\
+        --nbins ${nbins} \\
+        --binplan "${binplan}" \\
+        --threads ${threads} \\
+        --template "${template}"
     """
 }
 
@@ -1232,7 +775,7 @@ process peasoup_dump_timeseries {
     label 'peasoup'
     label 'long'
 
-    publishDir "${params.output_dir}/${params.target_name}/timeseries/${dm_low}_${dm_high}", mode: 'symlink', saveAs: { filename -> filename.split('/').last() }
+    publishDir "${params.basedir}/${params.runID}/sharedcache/presto/timeseries/${dm_low}_${dm_high}", mode: 'symlink', saveAs: { filename -> filename.split('/').last() }
 
     input:
     path input_file
@@ -1273,7 +816,7 @@ process peasoup_dump_timeseries {
  */
 process save_presto_rfi_state {
     label 'short'
-    publishDir "${params.output_dir}/${params.target_name}/presto/state", mode: 'copy'
+    publishDir "${params.basedir}/${params.runID}/PRESTO_STATE", mode: 'copy'
 
     input:
     path input_file
@@ -1286,23 +829,11 @@ process save_presto_rfi_state {
 
     script:
     """
-    python3 << 'PYEOF'
-import json
-import os
-
-state = {
-    "stage": "rfi",
-    "input_file": os.path.abspath("${input_file}"),
-    "rfi_mask": os.path.abspath("${rfi_mask}"),
-    "rfi_stats": os.path.abspath("${rfi_stats}"),
-    "rfi_inf": os.path.abspath("${rfi_inf}"),
-    "next_workflow": "presto_birdies"
-}
-
-with open("rfi_state.json", "w") as f:
-    json.dump(state, f, indent=2)
-print(f"RFI state saved: {state}")
-PYEOF
+    python3 ${projectDir}/scripts/presto_save_state.py --stage rfi \\
+        --input-file ${input_file} \\
+        --rfi-mask ${rfi_mask} \\
+        --rfi-stats ${rfi_stats} \\
+        --rfi-inf ${rfi_inf}
     """
 }
 
@@ -1311,7 +842,7 @@ PYEOF
  */
 process save_presto_birdies_state {
     label 'short'
-    publishDir "${params.output_dir}/${params.target_name}/presto/state", mode: 'copy'
+    publishDir "${params.basedir}/${params.runID}/PRESTO_STATE", mode: 'copy'
 
     input:
     path input_file
@@ -1326,32 +857,13 @@ process save_presto_birdies_state {
 
     script:
     """
-    python3 << 'PYEOF'
-import json
-import os
-
-zaplist_path = "${zaplist}"
-# Handle NO_ZAPLIST case
-if zaplist_path == "NO_ZAPLIST" or not os.path.exists(zaplist_path):
-    zaplist_path = None
-else:
-    zaplist_path = os.path.abspath(zaplist_path)
-
-state = {
-    "stage": "birdies",
-    "input_file": os.path.abspath("${input_file}"),
-    "rfi_mask": os.path.abspath("${rfi_mask}"),
-    "rfi_stats": os.path.abspath("${rfi_stats}"),
-    "rfi_inf": os.path.abspath("${rfi_inf}"),
-    "zerodm_inf": os.path.abspath("${zerodm_inf}"),
-    "zaplist": zaplist_path,
-    "next_workflow": "presto_dedisperse"
-}
-
-with open("birdies_state.json", "w") as f:
-    json.dump(state, f, indent=2)
-print(f"Birdies state saved: {state}")
-PYEOF
+    python3 ${projectDir}/scripts/presto_save_state.py --stage birdies \\
+        --input-file ${input_file} \\
+        --rfi-mask ${rfi_mask} \\
+        --rfi-stats ${rfi_stats} \\
+        --rfi-inf ${rfi_inf} \\
+        --zerodm-inf ${zerodm_inf} \\
+        --zaplist ${zaplist}
     """
 }
 
@@ -1360,7 +872,7 @@ PYEOF
  */
 process save_presto_dedisperse_state {
     label 'short'
-    publishDir "${params.output_dir}/${params.target_name}/presto/state", mode: 'copy'
+    publishDir "${params.basedir}/${params.runID}/PRESTO_STATE", mode: 'copy'
 
     input:
     path input_file
@@ -1375,35 +887,11 @@ process save_presto_dedisperse_state {
 
     script:
     """
-    python3 << 'PYEOF'
-import json
-import os
-import glob
-
-zaplist_path = "${zaplist}"
-if zaplist_path == "NO_ZAPLIST" or not os.path.exists(zaplist_path):
-    zaplist_path = None
-else:
-    zaplist_path = os.path.abspath(zaplist_path)
-
-dat_files = sorted([os.path.abspath(f) for f in glob.glob("*.dat")])
-inf_files = sorted([os.path.abspath(f) for f in glob.glob("*.inf")])
-
-state = {
-    "stage": "dedisperse",
-    "input_file": os.path.abspath("${input_file}"),
-    "rfi_mask": os.path.abspath("${rfi_mask}"),
-    "rfi_stats": os.path.abspath("${rfi_stats}"),
-    "zaplist": zaplist_path,
-    "dat_files": dat_files,
-    "inf_files": inf_files,
-    "next_workflow": "presto_search"
-}
-
-with open("dedisperse_state.json", "w") as f:
-    json.dump(state, f, indent=2)
-print(f"Dedisperse state saved with {len(dat_files)} dat files")
-PYEOF
+    python3 ${projectDir}/scripts/presto_save_state.py --stage dedisperse \\
+        --input-file ${input_file} \\
+        --rfi-mask ${rfi_mask} \\
+        --rfi-stats ${rfi_stats} \\
+        --zaplist ${zaplist}
     """
 }
 
@@ -1412,7 +900,7 @@ PYEOF
  */
 process save_presto_search_state {
     label 'short'
-    publishDir "${params.output_dir}/${params.target_name}/presto/state", mode: 'copy'
+    publishDir "${params.basedir}/${params.runID}/PRESTO_STATE", mode: 'copy'
 
     input:
     path input_file
@@ -1425,31 +913,10 @@ process save_presto_search_state {
 
     script:
     """
-    python3 << 'PYEOF'
-import json
-import os
-import glob
-
-accel_all = sorted([os.path.abspath(f) for f in glob.glob("*_ACCEL_*")])
-# Main ACCEL outputs (exclude sidecars like .cand/.txtcand/.inf)
-accel_files = [f for f in accel_all if not any(f.endswith(ext) for ext in [".cand", ".txtcand", ".inf"])]
-# Retain cand files if needed for compatibility
-cand_files = [f for f in accel_all if f.endswith(".cand")]
-
-state = {
-    "stage": "search",
-    "input_file": os.path.abspath("${input_file}"),
-    "rfi_mask": os.path.abspath("${rfi_mask}"),
-    "rfi_stats": os.path.abspath("${rfi_stats}"),
-    "accel_files": accel_files,
-    "cand_files": cand_files,
-    "next_workflow": "presto_sift_fold"
-}
-
-with open("search_state.json", "w") as f:
-    json.dump(state, f, indent=2)
-print(f"Search state saved with {len(accel_files)} ACCEL files and {len(cand_files)} cand files")
-PYEOF
+    python3 ${projectDir}/scripts/presto_save_state.py --stage search \\
+        --input-file ${input_file} \\
+        --rfi-mask ${rfi_mask} \\
+        --rfi-stats ${rfi_stats}
     """
 }
 
@@ -1458,7 +925,7 @@ PYEOF
  */
 process save_presto_sift_fold_state {
     label 'short'
-    publishDir "${params.output_dir}/${params.target_name}/presto/state", mode: 'copy'
+    publishDir "${params.basedir}/${params.runID}/PRESTO_STATE", mode: 'copy'
 
     input:
     path input_file
@@ -1471,26 +938,10 @@ process save_presto_sift_fold_state {
 
     script:
     """
-    python3 << 'PYEOF'
-import json
-import os
-import glob
-
-pfd_files = sorted([os.path.abspath(f) for f in glob.glob("*.pfd")])
-
-state = {
-    "stage": "sift_fold",
-    "input_file": os.path.abspath("${input_file}"),
-    "sifted_csv": os.path.abspath("${sifted_csv}"),
-    "provenance_csv": os.path.abspath("${provenance_csv}"),
-    "pfd_files": pfd_files,
-    "next_workflow": "presto_postprocess"
-}
-
-with open("sift_fold_state.json", "w") as f:
-    json.dump(state, f, indent=2)
-print(f"Sift/fold state saved with {len(pfd_files)} PFD files")
-PYEOF
+    python3 ${projectDir}/scripts/presto_save_state.py --stage sift_fold \\
+        --input-file ${input_file} \\
+        --sifted-csv ${sifted_csv} \\
+        --provenance-csv ${provenance_csv}
     """
 }
 
@@ -1912,6 +1363,14 @@ workflow presto_pipeline {
         dat_ch = dedisperse_out.dat_files
         inf_ch = dedisperse_out.inf_files
 
+        // Run Riptide FFA search if enabled (runs in parallel with accelsearch)
+        if (params.riptide?.run_ffa_search) {
+            log.info "Running Riptide FFA search on dedispersed time series"
+            def config_path = params.riptide?.config_file ?: "${params.basedir}/riptide_config.yml"
+            def config_file_ch = channel.fromPath(config_path)
+            riptide_ffa_search(inf_ch.collect(), config_file_ch)
+        }
+
         if (end_stage == 3) {
             log.info "Pipeline complete. Dedispersion finished."
         }
@@ -1927,8 +1386,8 @@ workflow presto_pipeline {
             rfi_mask_ch = channel.fromPath(state.rfi_mask)
             rfi_stats_ch = channel.fromPath(state.rfi_stats)
             zaplist_ch = state.zaplist ? channel.fromPath(state.zaplist) : channel.value(file('NO_ZAPLIST'))
-            dat_ch = channel.fromPath(state.dat_files).flatten()
-            inf_ch = channel.fromPath(state.inf_files).flatten()
+            dat_ch = Channel.fromList(state.dat_files).map { file(it) }
+            inf_ch = Channel.fromList(state.inf_files).map { file(it) }
         }
 
         search_out = presto_search(input_ch, rfi_mask_ch, rfi_stats_ch, dat_ch, inf_ch, zaplist_ch)
@@ -1950,7 +1409,7 @@ workflow presto_pipeline {
             input_ch = channel.fromPath(state.input_file)
             rfi_mask_ch = channel.fromPath(state.rfi_mask)
             rfi_stats_ch = channel.fromPath(state.rfi_stats)
-            accel_ch = channel.fromPath(state.accel_files)
+            accel_ch = Channel.fromList(state.accel_files).map { file(it) }
             cand_ch = accel_ch
         }
 
@@ -2131,83 +1590,6 @@ workflow presto_full {
 }
 
 /*
- * PRESTO search on pre-cleaned filterbanks
- * Similar to run_search_fold but using PRESTO instead of peasoup+pulsarx
- */
-workflow run_presto_search {
-    take:
-    cleaned_ch  // Channel from intake()
-
-    main:
-    def fil_ch = cleaned_ch.map { p, f, c, bn, bi, u, ra, dec, cdm, fname ->
-        file(f)
-    }
-    def meta_info_ch = cleaned_ch.map { p, f, c, bn, bi, u, ra, dec, cdm, fname ->
-        tuple(p, c, bn, bi, u, ra, dec, cdm, f)
-    }
-
-    // Run RFI detection
-    presto_rfi(fil_ch)
-        .set { rfi_out }
-
-    // Run birdie detection
-    presto_birdies(fil_ch, rfi_out.rfi_mask, rfi_out.rfi_stats, rfi_out.rfi_inf)
-        .set { birdie_out }
-
-    // Generate DM ranges
-    def dm_ranges = Channel.from(params.presto.dm_ranges).map { range ->
-        tuple(range.dm_low, range.dm_high, range.dm_step, range.downsamp)
-    }
-
-    // Run dedispersion
-    presto_prepsubband(fil_ch, birdie_out.zerodm_inf, rfi_out.rfi_mask, rfi_out.rfi_stats, dm_ranges)
-        .set { subband_out }
-
-    // Run acceleration search
-    presto_accelsearch(
-        subband_out.dat_files.flatten(),
-        subband_out.inf_files.flatten(),
-        birdie_out.zaplist.ifEmpty(file('NO_ZAPLIST'))
-    ).set { accel_out }
-
-    // Sift candidates
-    presto_sift_candidates(accel_out.accel_files.collect(), fil_ch)
-        .set { sifted_out }
-
-    // Fold candidates
-    presto_prepfold_batch(fil_ch, sifted_out.sifted_csv, rfi_out.rfi_mask, rfi_out.rfi_stats)
-        .set { fold_out }
-
-    // Convert PFD files to PNG using show_pfd
-    presto_pfd_to_png(fold_out.pfd_files.flatten().collect())
-        .set { png_out }
-
-    // Merge fold results
-    presto_fold_merge(
-        fold_out.pfd_files.flatten().collect(),
-        png_out.png_files.collect(),
-        fold_out.bestprof_files.flatten().collect().ifEmpty([]),
-        sifted_out.sifted_csv,
-        sifted_out.provenance_csv,
-        meta_info_ch
-    ).set { merged_out }
-
-    // Run PICS classification on PFD files (PICS requires .pfd files)
-    presto_pics_classifier(
-        merged_out.all_pfd,
-        merged_out.merged_csv
-    ).set { pics_out }
-
-    // Create tarball (PNG + CSV only, no PFD files)
-    def tarball_prefix = params.tarball_prefix ?: params.target_name ?: "presto_search"
-    presto_create_tarball(
-        pics_out.classified_csv,
-        merged_out.all_png,
-        tarball_prefix
-    ).set { tarball_out }
-}
-
-/*
  * Peasoup time series dumping workflow
  * Dumps PRESTO-compatible .dat/.inf files from peasoup for subsequent PRESTO processing
  */
@@ -2256,7 +1638,7 @@ workflow presto_on_peasoup_timeseries {
 
     // Choose folding backend
     def fold_backend = params.presto?.fold_backend ?: 'pulsarx'
-    def tarball_prefix = params.tarball_prefix ?: params.target_name ?: "hybrid"
+    def tarball_prefix = params.tarball_prefix ?: params.target_name ?: "accelsearch"
 
     def meta_info_ch = meta_channel.map { p, f, c, bn, bi, u, ra, dec, cdm ->
         tuple(p, c, bn, bi, u, ra, dec, cdm, f)
@@ -2264,7 +1646,7 @@ workflow presto_on_peasoup_timeseries {
 
     if (fold_backend == 'pulsarx') {
         // Generate meta file for PulsarX folding
-        def fft_size = params.peasoup?.fft_size ?: 134217728
+        def fft_size = params.presto?.fft_size ?: params.peasoup?.fft_size ?: 134217728
         generate_fold_meta(meta_channel, fft_size, fold_backend)
             .set { meta_out }
 
@@ -2325,99 +1707,6 @@ workflow presto_on_peasoup_timeseries {
 }
 
 /*
- * Helper workflow to run accelsearch on a single set of time series files
- */
-workflow run_accelsearch_single {
-    take:
-    dat_channel   // Channel of .dat files
-    inf_channel   // Channel of .inf files
-    fil_channel   // Filterbank file channel
-    meta_channel  // Metadata channel for PulsarX
-
-    main:
-    // Run acceleration search on pre-dumped time series
-    presto_accelsearch(
-        dat_channel.flatten(),
-        inf_channel.flatten(),
-        file('NO_ZAPLIST')  // No zaplist for pre-dumped time series
-    ).set { accel_out }
-
-    // Sift candidates
-    presto_sift_candidates(accel_out.accel_files.collect(), fil_channel)
-        .set { sifted_out }
-
-    // Choose folding backend
-    def fold_backend = params.presto?.fold_backend ?: 'pulsarx'
-
-    def meta_info_ch = meta_channel.map { p, f, c, bn, bi, u, ra, dec, cdm ->
-        tuple(p, c, bn, bi, u, ra, dec, cdm, f)
-    }
-
-    if (fold_backend == 'pulsarx') {
-        // Generate meta file for PulsarX folding
-        def fft_size = params.presto?.fft_size ?: params.peasoup?.fft_size ?: 134217728
-        generate_fold_meta(meta_channel, fft_size, fold_backend)
-            .set { meta_out }
-
-        // Fold with PulsarX
-        presto_fold_pulsarx(fil_channel, sifted_out.sifted_csv, meta_out.meta_file)
-            .set { fold_out }
-
-        // Merge and create tarball from PulsarX outputs
-        def tarball_prefix = params.tarball_prefix ?: params.target_name ?: "accelsearch"
-        presto_fold_merge_pulsarx(
-            fold_out.png_files.collect(),
-            sifted_out.sifted_csv,
-            sifted_out.provenance_csv,
-            meta_info_ch,
-            meta_out.meta_file
-        ).set { merged_out }
-
-        presto_create_tarball(
-            merged_out.merged_csv,
-            merged_out.all_png,
-            tarball_prefix
-        ).set { tarball_out }
-
-    } else {
-        // Fold with prepfold (creates .pfd, .pfd.ps, .pfd.bestprof files)
-        presto_prepfold_batch(fil_channel, sifted_out.sifted_csv, file('NO_MASK'), file('NO_STATS'))
-            .set { fold_out }
-
-        // Post-processing: PNG conversion from PFD files using show_pfd
-        presto_pfd_to_png(fold_out.pfd_files.flatten().collect())
-            .set { png_out }
-
-        // Create merged results
-        presto_fold_merge(
-            fold_out.pfd_files.flatten().collect(),
-            png_out.png_files.collect(),
-            fold_out.bestprof_files.flatten().collect().ifEmpty([]),
-            sifted_out.sifted_csv,
-            sifted_out.provenance_csv,
-            meta_info_ch
-        ).set { merged_out }
-
-        // Run PICS classification on PFD files (PICS requires .pfd files)
-        presto_pics_classifier(
-            merged_out.all_pfd,
-            merged_out.merged_csv
-        ).set { pics_out }
-
-        // Create tarball (PNG + CSV only, no PFD files)
-        def tarball_prefix = params.tarball_prefix ?: params.target_name ?: "accelsearch"
-        presto_create_tarball(
-            pics_out.classified_csv,
-            merged_out.all_png,
-            tarball_prefix
-        ).set { tarball_out }
-    }
-
-    emit:
-    sifted_csv = sifted_out.sifted_csv
-}
-
-/*
  * Entry point for running accelsearch on pre-dumped time series from peasoup
  */
 workflow run_accelsearch_on_timeseries {
@@ -2461,7 +1750,15 @@ For single-file mode, provide:
             )
         }
 
-        run_accelsearch_single(dat_channel, inf_channel, fil_channel, meta_channel)
+        // Run Riptide FFA search if enabled (runs in parallel with accelsearch)
+        if (params.riptide?.run_ffa_search) {
+            log.info "Running Riptide FFA search on time series"
+            def config_path = params.riptide?.config_file ?: "${params.basedir}/riptide_config.yml"
+            def config_file_ch = channel.fromPath(config_path)
+            riptide_ffa_search(inf_channel.collect(), config_file_ch)
+        }
+
+        presto_on_peasoup_timeseries(dat_channel, inf_channel, fil_channel, meta_channel)
 
     } else {
         // ===== MULTI-FILE MODE =====
@@ -2528,7 +1825,15 @@ For single-file mode, provide:
             def fil_ch = Channel.of(fil_file)
             def meta_ch = Channel.of(tuple(pointing, fil_file, cluster, beam_name, beam_id, utc, ra, dec, cdm))
 
-            run_accelsearch_single(dat_ch, inf_ch, fil_ch, meta_ch)
+            // Run Riptide FFA search if enabled (runs in parallel with accelsearch)
+            if (params.riptide?.run_ffa_search) {
+                log.info "Running Riptide FFA search for beam ${beam_name}"
+                def config_path = params.riptide?.config_file ?: "${params.basedir}/riptide_config.yml"
+                def config_file_ch = channel.fromPath(config_path)
+                riptide_ffa_search(inf_ch.collect(), config_file_ch)
+            }
+
+            presto_on_peasoup_timeseries(dat_ch, inf_ch, fil_ch, meta_ch)
         }
     }
 }

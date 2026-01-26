@@ -1,0 +1,109 @@
+# ============================================================================
+# Riptide FFA Search Configuration
+# ============================================================================
+#
+# This file configures the Riptide Fast Folding Algorithm (FFA) search.
+# Edit the parameters below to customize your search.
+#
+# Documentation: https://riptide-ffa.readthedocs.io/en/latest/pipeline.html
+#
+# Usage:
+#   This file is copied to your basedir during setup_basedir.
+#   Edit it directly, then run with --riptide.run_ffa_search true
+#
+# ============================================================================
+
+# Number of parallel processes for FFA search
+processes: 4
+
+# Input data format and parameters
+data:
+  format: presto    # 'presto' for prepsubband output, 'peasoup' for peasoup dump
+  fmin:             # Minimum frequency (Hz) - extracted from .inf files if not specified
+  fmax:             # Maximum frequency (Hz) - extracted from .inf files if not specified
+  nchans:           # Number of channels - extracted from .inf files if not specified
+
+# DM selection range
+# Only process time series within this DM range
+dmselect:
+  min: 0.0          # Minimum DM to search
+  max: 1000.0       # Maximum DM to search
+  dmsinb_max: 45.0  # Maximum DM * sin(galactic_latitude) for Galactic filtering
+
+# Dereddening (baseline subtraction / red noise removal)
+dereddening:
+  rmed_width: 5.0   # Running median width in seconds
+  rmed_minpts: 101  # Minimum points for running median calculation
+
+# Period search ranges
+# Define multiple ranges with different parameters for optimal sensitivity
+# Each range searches a specific period interval with tuned FFA parameters
+ranges:
+  # Short periods (1-50 ms) - millisecond pulsars
+  - name: 'short'
+    ffa_search:
+      period_min: 0.001     # Minimum period to search (seconds)
+      period_max: 0.05      # Maximum period to search (seconds)
+      bins_min: 64          # Minimum number of phase bins
+      bins_max: 128         # Maximum number of phase bins
+      fpmin: 4              # Minimum number of profile peaks
+      wtsp: 1.5             # Width tolerance scaling parameter
+    find_peaks:
+      smin: 6.0             # Minimum S/N threshold for peak detection
+    candidates:
+      bins: 128             # Number of bins for candidate profiles
+      subints: 16           # Number of sub-integrations for candidates
+
+  # Medium periods (50 ms - 1 s) - normal pulsars
+  - name: 'medium'
+    ffa_search:
+      period_min: 0.05
+      period_max: 1.0
+      bins_min: 240
+      bins_max: 260
+      fpmin: 8
+      wtsp: 1.5
+    find_peaks:
+      smin: 7.0
+    candidates:
+      bins: 256
+      subints: 32
+
+  # Long periods (1-10 s) - slow pulsars and magnetars
+  - name: 'long'
+    ffa_search:
+      period_min: 1.0
+      period_max: 10.0
+      bins_min: 480
+      bins_max: 520
+      fpmin: 8
+      wtsp: 1.5
+    find_peaks:
+      smin: 7.0
+    candidates:
+      bins: 512
+      subints: 32
+
+# Candidate clustering
+# Groups nearby peaks in period-DM space
+clustering:
+  radius: 0.2       # Clustering radius (fractional period difference)
+
+# Harmonic flagging
+# Identifies and flags candidates that are harmonics of other candidates
+harmonic_flagging:
+  denom_max: 100              # Maximum denominator for harmonic relation (P1/P2 = n/m)
+  phase_distance_max: 1.0     # Maximum phase distance for harmonic match
+  dm_distance_max: 3.0        # Maximum DM distance for harmonic match (in DM units)
+  snr_distance_max: 3.0       # Maximum S/N distance for harmonic match
+
+# Candidate filtering
+# Final filters applied to the candidate list
+candidate_filters:
+  dm_min: 5.0                 # Minimum DM for real candidates (filter RFI)
+  snr_min: 8.0                # Minimum S/N threshold for final candidates
+  remove_harmonics: true      # Remove candidates flagged as harmonics
+  max_number: 100             # Maximum number of candidates to output
+
+# Output options
+plot_candidates: true         # Generate diagnostic PNG plots for candidates

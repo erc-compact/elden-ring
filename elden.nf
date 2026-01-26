@@ -39,9 +39,7 @@ include {
     presto_prepsubband;
     presto_accelsearch;
     presto_sift_candidates;
-    presto_prepfold;
     presto_prepfold_batch;
-    presto_ps_to_png;
     presto_fold_merge;
     presto_create_tarball;
     presto_pics_classifier;
@@ -63,12 +61,20 @@ include {
     presto_postprocess;
     presto_full;
     presto_pipeline;
-    run_presto_search;
     peasoup_timeseries_dump;
     presto_on_peasoup_timeseries;
-    run_accelsearch_single;
     run_accelsearch_on_timeseries;
 } from './presto'
+
+// Riptide FFA pipeline - processes and workflows from riptide.nf
+include {
+    // Processes
+    riptide_ffa_search;
+    // Workflows
+    riptide_search;
+    run_riptide;
+    run_riptide_on_timeseries;
+} from './riptide'
 
 // Utility workflow includes
 include { help } from './utilities'
@@ -442,6 +448,19 @@ workflow full {
     }
 
     def search_ch    = search(seg_ch)
+
+    // Run Riptide FFA search if enabled and time series were dumped
+    if (params.riptide?.run_ffa_search && params.peasoup?.dump_timeseries) {
+        log.info "Running Riptide FFA search on peasoup time series"
+        def config_path = params.riptide?.config_file ?: "${params.basedir}/riptide_config.yml"
+        def config_file_ch = channel.fromPath(config_path)
+        // Get .inf files from the timeseries_data channel
+        def inf_files_ch = search_ch.timeseries_data
+            .map { dats, infs -> infs }
+            .flatten()
+        riptide_ffa_search(inf_files_ch.collect(), config_file_ch)
+    }
+
     def xml_ch       = xml_parse(search_ch.search_out)
     def fold_ch      = fold(xml_ch)
     def merged_ch    = fold_merge(fold_ch)
@@ -669,6 +688,30 @@ workflow search_pipeline {
         full()
     }
 }
+
+// ============================================================================
+// Riptide FFA Pipeline Entry Points
+// ============================================================================
+
+/*
+ * Standalone Riptide FFA pipeline
+ * Generates time series using selected backend (presto/peasoup), then runs FFA search
+ *
+ * Usage:
+ *   nextflow run elden.nf -entry run_riptide --input_fil /path/to/file.fil --riptide.backend presto
+ *   nextflow run elden.nf -entry run_riptide --timeseries_input_dir /path/to/TIMESERIES --riptide.backend peasoup
+ */
+// run_riptide workflow is imported from riptide.nf
+
+/*
+ * Run Riptide FFA on pre-existing time series (.dat/.inf files)
+ *
+ * Usage:
+ *   nextflow run elden.nf -entry run_riptide_on_timeseries \
+ *       --timeseries_input_dir /path/to/TIMESERIES \
+ *       --filterbank_file /path/to/original.fil
+ */
+// run_riptide_on_timeseries workflow is imported from riptide.nf
 
 // Default to `full` if no --entry is given
 workflow {

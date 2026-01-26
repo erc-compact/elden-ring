@@ -246,6 +246,12 @@ workflow setup_basedir {
         echo "  ✓ Copied rfi_filters.txt"
     fi
 
+    # Copy riptide_config.yml for FFA search configuration
+    if [[ -f "\${PROJECT_DIR}/example/riptide_config.yml" ]]; then
+        cp "\${PROJECT_DIR}/example/riptide_config.yml" "\${BASEDIR}/riptide_config.yml"
+        echo "  ✓ Copied riptide_config.yml (for FFA search)"
+    fi
+
     # Create a README in the project directory
     cat > "\${BASEDIR}/README.txt" << 'READMEEOF'
 ELDEN-RING Project Directory
@@ -258,6 +264,7 @@ Directory Structure:
   params.config         - Main configuration file (EDIT THIS)
   inputfile.txt         - Input data files CSV (EDIT THIS)
   inputfile.txt.template - Example input file format
+  riptide_config.yml    - Riptide FFA search configuration (EDIT for FFA search)
   meta/                 - Metadata files (auto-generated)
   shared_cache/         - Cached intermediate files (auto-managed)
   <runID>/              - Output directories for each search run

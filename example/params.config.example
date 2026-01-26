@@ -254,6 +254,27 @@ params {
     }
 
     // =========================================================================
+    // Riptide FFA Pipeline Parameters (Fast Folding Algorithm search)
+    // =========================================================================
+    // Riptide runs the rffa command which handles: FFA search, peak detection,
+    // clustering, harmonic flagging, candidate filtering, and PNG plot generation.
+    // All search parameters are configured in riptide_config.yml (not here).
+    // Documentation: https://riptide-ffa.readthedocs.io/en/latest/pipeline.html
+    riptide {
+        // Enable FFA search on dedispersed time series
+        // When true, runs rffa in parallel with accelsearch on the same .inf files
+        run_ffa_search      = false
+
+        // Path to riptide YAML configuration file
+        // This file is copied from template during setup_basedir - edit it directly
+        config_file         = "riptide_config.yml"
+
+        // Backend for standalone run_riptide entry point
+        // Determines how time series are generated before running FFA
+        backend             = 'presto'       // Options: 'presto' or 'peasoup'
+    }
+
+    // =========================================================================
     // Monitoring and Notification Settings
     // =========================================================================
     notification {

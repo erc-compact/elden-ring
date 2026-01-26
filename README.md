@@ -227,10 +227,18 @@ Select a workflow with the `-entry` flag:
 
 | Workflow | Description |
 |----------|-------------|
-| `presto_full` | Full PRESTO pipeline: rfifind → birdie detection → dedisperse → accelsearch → sift → fold |
-| `run_presto_search` | PRESTO search on pre-cleaned filterbanks |
+| `presto_pipeline` | Stage-based PRESTO with resume support (recommended) |
+| `presto_full` | Full PRESTO pipeline from intake channel (CSV input) |
 | `run_accelsearch_on_timeseries` | Run accelsearch on pre-dumped .dat/.inf files from peasoup |
 | `peasoup_with_presto_search` | Hybrid: peasoup search + optional PRESTO accelsearch on dumped time series |
+
+**PRESTO Pipeline Stages:**
+1. **RFI Detection** - rfifind to create RFI mask
+2. **Birdie Detection** - Zero-DM accelsearch for persistent signals
+3. **Dedispersion** - prepsubband across DM range
+4. **Acceleration Search** - accelsearch with GPU support
+5. **Sift and Fold** - Candidate sifting + folding (PulsarX or prepfold)
+6. **Post-processing** - PNG conversion + tarball creation
 
 ### DADA Processing Pipelines
 
@@ -320,6 +328,7 @@ Create custom profiles in `conf/profiles/`.
 
 ## Output Structure
 
+### Peasoup Pipeline Output
 ```
 basedir/
 ├── shared_cache/                    # Reusable cached files
@@ -353,6 +362,39 @@ basedir/
 │   └── pipeline_summary_*.txt       # Run summary
 │
 └── .cumulative_runtime_*.txt        # Runtime tracking
+```
+
+### PRESTO Pipeline Output
+```
+basedir/
+├── <runID>/
+│   ├── sharedcache/presto/          # Shareable/reusable artifacts
+│   │   ├── rfi/                     # RFI masks (*.mask)
+│   │   ├── subbands/<dm_range>/     # Dedispersed time series
+│   │   └── timeseries/<dm_range>/   # Peasoup time series dumps
+│   │
+│   ├── PRESTO_RFI/                  # RFI stats, inf, out files
+│   ├── PRESTO_SEARCH/               # Accelsearch outputs
+│   │   ├── full/                    # Full observation search
+│   │   └── segmented/               # Segmented search (if enabled)
+│   ├── PRESTO_SIFTED/               # Sifted candidate files
+│   │   ├── sifted_candidates.csv
+│   │   ├── sifted_candidates.candfile
+│   │   └── sifted_candidates.provenance.csv
+│   ├── PRESTO_FOLDING/
+│   │   ├── PFD/                     # .pfd files (prepfold backend)
+│   │   ├── BESTPROF/                # .bestprof files
+│   │   ├── PNG/                     # Diagnostic plots
+│   │   ├── MERGED/                  # Merged results CSV
+│   │   └── PULSARX/                 # PulsarX fold outputs
+│   ├── PRESTO_CLASSIFICATION/       # PICS classification results
+│   ├── PRESTO_TARBALLS/             # Final CandyJar-compatible tarballs
+│   └── PRESTO_STATE/                # State files for stage resume
+│       ├── rfi_state.json
+│       ├── birdies_state.json
+│       ├── dedisperse_state.json
+│       ├── search_state.json
+│       └── sift_fold_state.json
 ```
 
 ## Advanced Usage
@@ -398,17 +440,26 @@ nextflow run elden.nf -entry candypolice \
 ### Run PRESTO Pipeline
 
 ```bash
-# Full PRESTO search
+# Full PRESTO search (all 6 stages)
+nextflow run elden.nf -entry presto_pipeline \
+    -profile hercules \
+    --input_fil /path/to/file.fil \
+    --presto.dm_ranges '[{"dm_low": 0, "dm_high": 100, "dm_step": 0.5, "downsamp": 1}]'
+
+# Run only stages 1-3 (RFI through Dedispersion)
+nextflow run elden.nf -entry presto_pipeline \
+    --input_fil file.fil \
+    --presto.end_stage 3
+
+# Resume from stage 4 using state file
+nextflow run elden.nf -entry presto_pipeline \
+    --presto.start_stage 4 \
+    --state_file PRESTO_STATE/dedisperse_state.json
+
+# Or use presto_full with CSV input
 nextflow run elden.nf -entry presto_full \
     -profile hercules \
-    -c params.config \
-    --search_backend presto
-
-# Or use the auto-select workflow
-nextflow run elden.nf -entry search_pipeline \
-    -profile hercules \
-    -c params.config \
-    --search_backend presto
+    -c params.config
 ```
 
 ### Hybrid Peasoup + PRESTO Search

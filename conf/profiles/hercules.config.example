@@ -13,6 +13,8 @@ params {
     rusty_candypicker     = "${singularity_image_dir}/rusty_candypicker_latest.sif"
     // PrestoZL GPU-accelerated container (pull from zjlabastro/prestozl:v1.0)
     prestozl_image        = "/hercules/scratch/vishnu/singularity_images/prestozl_v1.0.sif"
+    // Riptide FFA search container (PLACEHOLDER - update with actual path)
+    riptide_image         = "${singularity_image_dir}/riptide_latest.sif"
     // Number of threads for processes used in filtool
     threads = 48  // Adjust as per the cluster's CPU availability
 }
@@ -185,6 +187,21 @@ process {
         errorStrategy  = { task.exitStatus in (137..140) ? 'retry' : 'finish' }
         maxRetries     = 2
         container      = "${params.pulsarx_image}"
+    }
+
+    // =========================================================================
+    // Riptide FFA Pipeline Process Configuration
+    // =========================================================================
+
+    // Riptide FFA search processes
+    withLabel: 'riptide' {
+        cpus           = 4
+        memory         = '64 GB'
+        time           = { 4.hour * task.attempt }
+        queue          = { (task.time <= 4.hour) ? 'short.q' : 'long.q' }
+        errorStrategy  = { task.exitStatus in (137..140) ? 'retry' : 'finish' }
+        maxRetries     = 2
+        container      = "${params.riptide_image}"
     }
 
     // alpha_beta_gamma_test Process Configuration

@@ -181,6 +181,15 @@ process {
         errorStrategy  = 'retry'
         maxRetries     = 2
     }
+
+    // Riptide FFA search processes
+    withLabel: 'riptide' {
+        cpus           = 4
+        memory         = '64 GB'
+        time           = '4h'
+        errorStrategy  = 'retry'
+        maxRetries     = 2
+    }
 }
 
 // Define container image paths specific to Edgar cluster
@@ -199,6 +208,8 @@ params {
     rusty_candypicker     = "${singularity_image_dir}/rusty_candypicker_latest.sif"
     // PrestoZL GPU-accelerated container
     prestozl_image        = "${singularity_image_dir}/prestozl_v1.0.sif"
+    // Riptide FFA search container
+    riptide_image         = "${singularity_image_dir}/riptide_latest.sif"
 
     // Number of threads for processes
     threads = 20  // Adjust as per the Edgar cluster's CPU availability
