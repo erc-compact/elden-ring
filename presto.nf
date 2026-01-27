@@ -492,17 +492,17 @@ process presto_fold_merge {
     def cdm = meta_info[7]
     def filterbank_path = meta_info[8]
     """
-    python3 ${projectDir}/scripts/presto_fold_merge.py --backend presto \\
-        --sifted-csv ${sifted_csv} \\
-        --provenance-csv ${provenance_csv} \\
-        --pointing="${pointing}" \\
-        --cluster="${cluster}" \\
-        --beam-name="${beam_name}" \\
-        --beam-id="${beam_id}" \\
-        --utc-start="${utc_start}" \\
-        --ra="${ra}" \\
-        --dec="${dec}" \\
-        --cdm="${cdm}" \\
+    python3 ${projectDir}/scripts/presto_fold_merge.py --backend presto \
+        --sifted-csv ${sifted_csv} \
+        --provenance-csv ${provenance_csv} \
+        --pointing="${pointing}" \
+        --cluster="${cluster}" \
+        --beam-name="${beam_name}" \
+        --beam-id="${beam_id}" \
+        --utc-start="${utc_start}" \
+        --ra="${ra}" \
+        --dec="${dec}" \
+        --cdm="${cdm}" \
         --filterbank-path="${filterbank_path}"
     """
 }
@@ -538,7 +538,7 @@ process presto_fold_merge_pulsarx {
     def cdm = meta_info[7]
     def filterbank_path = meta_info[8]
     """
-    python3 ${projectDir}/scripts/presto_fold_merge.py --backend pulsarx \\
+    python3 ${projectDir}/scripts/presto_fold_merge.py --backend pulsarx \
         --sifted-csv ${sifted_csv} \\
         --provenance-csv ${provenance_csv} \\
         --meta-file ${meta_file} \\
