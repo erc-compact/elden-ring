@@ -1289,7 +1289,7 @@ workflow presto_pipeline {
                     row.fits_files.trim()
                 )
             }
-            .ifEmpty(Channel.value(default_meta))
+            .ifEmpty { default_meta }
     }
 
     // Stage 1: RFI Detection
