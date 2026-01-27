@@ -40,18 +40,15 @@ include {
     presto_accelsearch;
     presto_sift_candidates;
     presto_prepfold_batch;
+    presto_pfd_to_png;
     presto_fold_merge;
+    presto_fold_merge_pulsarx;
     presto_create_tarball;
     presto_pics_classifier;
     presto_fold_pulsarx;
     generate_fold_meta;
     peasoup_dump_timeseries;
-    // State file processes
-    save_presto_rfi_state;
-    save_presto_birdies_state;
-    save_presto_dedisperse_state;
-    save_presto_search_state;
-    save_presto_sift_fold_state;
+
     // Workflows
     presto_rfi;
     presto_birdies;
@@ -59,6 +56,7 @@ include {
     presto_search;
     presto_sift_fold;
     presto_postprocess;
+    presto_search_fold;
     presto_full;
     presto_pipeline;
     peasoup_timeseries_dump;
