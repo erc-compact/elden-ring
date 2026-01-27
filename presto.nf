@@ -495,15 +495,15 @@ process presto_fold_merge {
     python3 ${projectDir}/scripts/presto_fold_merge.py --backend presto \\
         --sifted-csv ${sifted_csv} \\
         --provenance-csv ${provenance_csv} \\
-        --pointing "${pointing}" \\
-        --cluster "${cluster}" \\
-        --beam-name "${beam_name}" \\
-        --beam-id "${beam_id}" \\
-        --utc-start "${utc_start}" \\
-        --ra "${ra}" \\
-        --dec "${dec}" \\
-        --cdm "${cdm}" \\
-        --filterbank-path "${filterbank_path}"
+        --pointing="${pointing}" \\
+        --cluster="${cluster}" \\
+        --beam-name="${beam_name}" \\
+        --beam-id="${beam_id}" \\
+        --utc-start="${utc_start}" \\
+        --ra="${ra}" \\
+        --dec="${dec}" \\
+        --cdm="${cdm}" \\
+        --filterbank-path="${filterbank_path}"
     """
 }
 
@@ -542,15 +542,15 @@ process presto_fold_merge_pulsarx {
         --sifted-csv ${sifted_csv} \\
         --provenance-csv ${provenance_csv} \\
         --meta-file ${meta_file} \\
-        --pointing "${pointing}" \\
-        --cluster "${cluster}" \\
-        --beam-name "${beam_name}" \\
-        --beam-id "${beam_id}" \\
-        --utc-start "${utc_start}" \\
-        --ra "${ra}" \\
-        --dec "${dec}" \\
-        --cdm "${cdm}" \\
-        --filterbank-path "${filterbank_path}"
+        --pointing="${pointing}" \\
+        --cluster="${cluster}" \\
+        --beam-name="${beam_name}" \\
+        --beam-id="${beam_id}" \\
+        --utc-start="${utc_start}" \\
+        --ra="${ra}" \\
+        --dec="${dec}" \\
+        --cdm="${cdm}" \\
+        --filterbank-path="${filterbank_path}"
     """
 }
 
@@ -752,21 +752,21 @@ process generate_fold_meta {
         --fil-file ${fil_file} \\
         --output fold_meta.txt \\
         --fft-size ${fft_size} \\
-        --telescope "${telescope}" \\
-        --source-name "${cluster}" \\
-        --beam-name "${beam_name}" \\
-        --beam-id "${beam_id}" \\
-        --utc-start "${utc_start}" \\
-        --ra "${ra}" \\
-        --dec "${dec}" \\
+        --telescope="${telescope}" \\
+        --source-name="${cluster}" \\
+        --beam-name="${beam_name}" \\
+        --beam-id="${beam_id}" \\
+        --utc-start="${utc_start}" \\
+        --ra="${ra}" \\
+        --dec="${dec}" \\
         --cdm ${coherent_dm} \\
         --subint-length ${subint_length} \\
         --nsubband ${nsubband} \\
         --clfd ${clfd} \\
         --nbins ${nbins} \\
-        --binplan "${binplan}" \\
+        --binplan="${binplan}" \\
         --threads ${threads} \\
-        --template "${template}"
+        --template="${template}"
     """
 }
 

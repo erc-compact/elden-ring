@@ -27,7 +27,7 @@ set -e
 cd /hercules/results/fkareem/ELDEN/elden-ring
 
 # Test configuration
-TEST_FIL="/hercules/results/rsenzel/signal_inject/J0514-4002A_3HM_000_52.0_01_noise_t4_15min_inj_FAZAL_PRESTO.fil"
+TEST_FIL="/hercules/results/rsenzel/signal_inject/J0514-4002A_3HM_000_52.0_01_noise_t4_15min_inj_FAZAL_TEST_2.fil"
 BASE_OUTPUT="/hercules/results/fkareem/ELDEN/elden-ring/test_presto"
 CONFIG_FILE="test_presto/presto_test.config"
 INPUT_CSV="${BASE_OUTPUT}/test_presto_inputfile.csv"

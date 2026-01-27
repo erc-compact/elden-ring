@@ -21,7 +21,7 @@ data:
 dmselect:
   min: 29.0         # Minimum DM to search
   max: 31.0         # Maximum DM to search
-  dmsinb_max: 100.0 # Maximum DM * sin(galactic_latitude)
+  dmsinb_max: 45.0 # Maximum DM * sin(galactic_latitude)
 
 # Dereddening (baseline subtraction / red noise removal)
 dereddening:
