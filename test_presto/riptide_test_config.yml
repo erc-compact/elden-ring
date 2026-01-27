@@ -8,7 +8,7 @@
 # ============================================================================
 
 # Number of parallel processes for FFA search
-processes: 4
+processes: 48
 
 # Input data format and parameters
 data:
@@ -16,8 +16,8 @@ data:
 
 # DM selection range - centered around DM=30
 dmselect:
-  min: 25.0         # Minimum DM to search
-  max: 35.0         # Maximum DM to search
+  min: 29.0         # Minimum DM to search
+  max: 31.0         # Maximum DM to search
   dmsinb_max: 100.0 # Maximum DM * sin(galactic_latitude)
 
 # Dereddening (baseline subtraction / red noise removal)

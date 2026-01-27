@@ -64,7 +64,7 @@ if should_run_test 1; then
         --basedir ${BASE_OUTPUT}/output_presto_prepfold \
         --target_name J0514_presto_prepfold \
         --tarball_prefix presto_prepfold_test \
-        --presto.dm_ranges '[{"dm_low": 28.0, "dm_high": 32.0, "dm_step": 0.2, "downsamp": 1}]' \
+        --presto.dm_ranges '[{"dm_low": 29.0, "dm_high": 31.0, "dm_step": 0.2, "downsamp": 1}]' \
         --presto.fold_backend presto \
         --presto.max_fold_cands 50 \
         --presto.zmax 100 \
@@ -88,7 +88,7 @@ if should_run_test 2; then
         --basedir ${BASE_OUTPUT}/output_presto_pulsarx \
         --target_name J0514_presto_pulsarx \
         --tarball_prefix presto_pulsarx_test \
-        --presto.dm_ranges '[{"dm_low": 28.0, "dm_high": 32.0, "dm_step": 0.2, "downsamp": 1}]' \
+        --presto.dm_ranges '[{"dm_low": 29.0, "dm_high": 31.0, "dm_step": 0.2, "downsamp": 1}]' \
         --presto.fold_backend pulsarx \
         --presto.max_fold_cands 50 \
         --presto.zmax 100 \
@@ -115,7 +115,7 @@ if should_run_test 3; then
         --basedir ${BASE_OUTPUT}/output_presto_ffa \
         --target_name J0514_presto_ffa \
         --tarball_prefix presto_ffa_test \
-        --presto.dm_ranges '[{"dm_low": 28.0, "dm_high": 32.0, "dm_step": 0.2, "downsamp": 1}]' \
+        --presto.dm_ranges '[{"dm_low": 29.0, "dm_high": 31.0, "dm_step": 0.2, "downsamp": 1}]' \
         --presto.fold_backend pulsarx \
         --presto.max_fold_cands 50 \
         --presto.zmax 100 \
@@ -139,7 +139,7 @@ if should_run_test 4; then
         --basedir ${BASE_OUTPUT}/output_riptide_standalone \
         --target_name J0514_riptide \
         --riptide.backend presto \
-        --presto.dm_ranges '[{"dm_low": 28.0, "dm_high": 32.0, "dm_step": 0.2, "downsamp": 1}]' \
+        --presto.dm_ranges '[{"dm_low": 29.0, "dm_high": 31.0, "dm_step": 0.2, "downsamp": 1}]' \
         -resume
 fi
 

@@ -176,11 +176,12 @@ process {
 
     // Riptide FFA search processes
     withLabel: 'riptide' {
-        cpus           = 4
+        cpus           = 8
         memory         = '64 GB'
         time           = '4h'
         errorStrategy  = 'retry'
         maxRetries     = 2
+        container      = "${params.riptide_image}"
     }
 }
 
