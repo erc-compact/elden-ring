@@ -267,7 +267,7 @@ params {
 
         // Path to riptide YAML configuration file
         // This file is copied from template during setup_basedir - edit it directly
-        config_file         = "riptide_config.yml"
+        config_file         = "${basedir}/riptide_config.yml"
 
         // Backend for standalone run_riptide entry point
         // Determines how time series are generated before running FFA

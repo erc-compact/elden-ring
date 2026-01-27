@@ -24,10 +24,11 @@ A GPU-accelerated Nextflow pipeline for pulsar candidate detection featuring RFI
 
 ## Features
 
-- **Dual Search Backends**: Choose between peasoup (GPU) or PRESTO for periodicity searches
+- **Multiple Search Backends**: Choose between peasoup (GPU), PRESTO, or Riptide FFA for periodicity searches
 - **GPU-Accelerated Search**: Fast periodicity searches using peasoup on NVIDIA GPUs
 - **PRESTO Pipeline**: Full PRESTO support including rfifind, prepsubband, accelsearch, and prepfold
-- **Hybrid Mode**: Dump peasoup time series for subsequent PRESTO accelsearch processing
+- **Riptide FFA Search**: Fast Folding Algorithm search for long-period pulsars (complementary to FFT-based searches)
+- **Hybrid Mode**: Dump peasoup time series for subsequent PRESTO accelsearch or Riptide FFA processing
 - **RFI Mitigation**: Automated RFI detection and filtering with spectral kurtosis
 - **Multi-Beam Support**: Process multiple beams in parallel
 - **Coherent Dedispersion**: Support for DADA baseband data with digifits conversion
@@ -89,6 +90,7 @@ The pipeline uses containerized tools. Required images:
 | `edd_pulsar_image` | DADA to FITS conversion (digifits) |
 | `filtools_sig_image` | Filterbank tools with signal injection |
 | `rusty_candypicker` | Candidate filtering (Rust implementation) |
+| `riptide_image` | Riptide FFA periodicity search |
 
 ## Installation
 
@@ -240,6 +242,15 @@ Select a workflow with the `-entry` flag:
 5. **Sift and Fold** - Candidate sifting + folding (PulsarX or prepfold)
 6. **Post-processing** - PNG conversion + tarball creation
 
+### Riptide FFA Pipelines
+
+| Workflow | Description |
+|----------|-------------|
+| `run_riptide` | Standalone Riptide FFA: dedisperse (PRESTO) → FFA search |
+| `run_riptide_on_timeseries` | Run Riptide FFA on pre-existing .dat/.inf files |
+
+**Note:** Riptide FFA can also be enabled alongside other pipelines using `--riptide.run_ffa_search true`
+
 ### DADA Processing Pipelines
 
 | Workflow | Description |
@@ -304,6 +315,11 @@ params.filtool.run_filtool = true
 params.generateRfiFilter.run_rfi_filter = true
 params.stack_by_cdm = false
 params.split_fil = false
+
+// Riptide FFA Search (complementary to FFT-based searches)
+params.riptide.run_ffa_search = false         // Enable FFA search alongside accelsearch
+params.riptide.config_file = "riptide_config.yml"  // YAML config for rffa (edit directly)
+params.riptide.backend = 'presto'             // Backend for standalone: 'presto' or 'peasoup'
 
 // Notifications (optional)
 params.notification.enabled = true
@@ -395,6 +411,18 @@ basedir/
 │       ├── dedisperse_state.json
 │       ├── search_state.json
 │       └── sift_fold_state.json
+```
+
+### Riptide FFA Output
+```
+basedir/
+├── <runID>/
+│   └── RIPTIDE_SEARCH/
+│       ├── candidates.csv      # Final candidates (filtered, harmonics removed)
+│       ├── peaks.csv           # All detected periodogram peaks
+│       ├── clusters.csv        # Peaks grouped by frequency proximity
+│       ├── *.json              # JSON file per candidate (loadable with riptide.load_json)
+│       └── *.png               # Diagnostic plot per candidate
 ```
 
 ## Advanced Usage
@@ -493,6 +521,44 @@ nextflow run elden.nf -entry presto_full \
 nextflow run elden.nf -entry presto_full \
     -c params.config \
     --presto.fold_backend presto
+```
+
+### Run Riptide FFA Search
+
+Riptide performs Fast Folding Algorithm (FFA) searches, which are sensitive to long-period pulsars that may be missed by FFT-based searches. The FFA search can be run standalone or alongside existing pipelines.
+
+**Configuration:** Edit `riptide_config.yml` in your basedir (created during `setup_basedir`). See [riptide documentation](https://riptide-ffa.readthedocs.io/en/latest/pipeline.html) for parameter details.
+
+```bash
+# Add FFA search to peasoup pipeline (runs in parallel with peasoup)
+nextflow run elden.nf -entry full \
+    -profile hercules \
+    -c params.config \
+    --riptide.run_ffa_search true \
+    --peasoup.dump_timeseries true
+
+# Add FFA search to PRESTO pipeline (runs after dedispersion)
+nextflow run elden.nf -entry presto_pipeline \
+    -profile hercules \
+    --input_fil /path/to/file.fil \
+    --riptide.run_ffa_search true
+
+# Add FFA search to accelsearch on existing time series
+nextflow run elden.nf -entry run_accelsearch_on_timeseries \
+    -profile hercules \
+    -c params.config \
+    --riptide.run_ffa_search true
+
+# Standalone Riptide with PRESTO dedispersion
+nextflow run elden.nf -entry run_riptide \
+    -profile hercules \
+    --input_fil /path/to/file.fil \
+    --riptide.backend presto
+
+# Standalone Riptide on pre-existing time series
+nextflow run elden.nf -entry run_riptide_on_timeseries \
+    -profile hercules \
+    --timeseries_input_dir /path/to/TIMESERIES
 ```
 
 ### Copy Data from Remote Cluster
