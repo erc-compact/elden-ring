@@ -653,7 +653,7 @@ process parse_xml {
         config_flag=()
     fi
     
-    python3 ${params.parse_xml.script} -i \${picked_xml_files[@]} --chunk_id ${segments}${segment_id} --fold_technique ${params.psrfold.fold_technique} --nbins_default ${params.psrfold.nbins} --binplan "${params.psrfold.binplan}" ${subintlengthstring} -nsub ${params.psrfold.nsub} -clfd ${params.psrfold.clfd} -b ${beam_name} -b_id ${beam_id} -utc ${utc_start} -threads ${params.psrfold.threads}  --template_dir ${params.psrfold.template_dir} --telescope ${params.telescope} \${config_flag[@]} --cdm ${cdm} --cands_per_node ${params.psrfold.cands_per_node}
+    python3 ${projectDir}/scripts/parse_split.py -i \${picked_xml_files[@]} --chunk_id ${segments}${segment_id} --fold_technique ${params.psrfold.fold_technique} --nbins_default ${params.psrfold.nbins} --binplan "${params.psrfold.binplan}" ${subintlengthstring} -nsub ${params.psrfold.nsub} -clfd ${params.psrfold.clfd} -b ${beam_name} -b_id ${beam_id} -utc ${utc_start} -threads ${params.psrfold.threads}  --template_dir ${params.psrfold.template_dir} --telescope ${params.telescope} \${config_flag[@]} --cdm ${cdm} --cands_per_node ${params.psrfold.cands_per_node}
 
     mv filtered_candidates_file* filtered_candidates_file_${beam_name}_cdm_${cdm}_ck${segments}${segment_id}.csv
     mv unfiltered_for_folding* unfiltered_for_folding_${beam_name}_cdm_${cdm}_ck${segments}${segment_id}.csv
@@ -871,7 +871,7 @@ process alpha_beta_gamma_test {
     #!/bin/bash
     publish_dir="${params.basedir}/${params.runID}/${beam_name}/segment_${segments}/${segments}${segment_id}/ABG"
     mkdir -p \${publish_dir}
-    python3 ${baseDir}/scripts/calculate_alpha_beta_gamma_dmffdot.py -i ${search_fold_cands_csv} -o ${cluster}_${beam_name}_cdm_${cdm}_ck${segments}${segment_id}_alpha_beta_gamma.csv -t ${params.alpha_beta_gamma.snr_min} -p \${publish_dir} -s ${png_source_dir} -c
+    python3 ${baseDir}/scripts/calculate_alpha_beta_gamma_dmffdot.py -i ${search_fold_cands_csv} -o ${cluster}_${beam_name}_cdm_${cdm}_ck${segments}${segment_id}_alpha_beta_gamma.csv -t ${params.alpha_beta_gamma.snr_threshold} -p \${publish_dir} -s ${png_source_dir} -c
     """
 }
 

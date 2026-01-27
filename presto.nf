@@ -3,33 +3,31 @@
  * PRESTO Pipeline - Processes and Workflows
  * ============================================================================
  *
- * This file contains all PRESTO-related processes and workflows 
+ * This file contains all PRESTO-related processes and workflows.
  * The pipeline consists of 6 stages that can be run together or
- * independently using the unified presto_pipeline entry point.
+ * individually. Each stage saves state files for resumption.
  *
  * Pipeline Stages:
- *   1. RFI Detection      (rfifind)
- *   2. Birdie Detection   (zero-DM accelsearch)
- *   3. Dedispersion       (prepsubband)
- *   4. Acceleration Search (accelsearch)
- *   5. Sift and Fold      (candidate sifting + prepfold/pulsarx)
- *   6. Post-processing    (PNG conversion + tarball creation)
+ *   1. RFI Detection      (presto_rfi)          - rfifind
+ *   2. Birdie Detection   (presto_birdies)      - zero-DM accelsearch
+ *   3. Dedispersion       (presto_dedisperse)   - prepsubband
+ *   4. Acceleration Search (presto_search)      - accelsearch with GPU
+ *   5. Sift and Fold      (presto_sift_fold)    - sifting + prepfold/pulsarx
+ *   6. Post-processing    (presto_postprocess)  - PNG + tarball
  *
- * Usage Examples:
+ * Entry Points:
  *
- *   # Run full pipeline (all 6 stages):
+ *   # Full pipeline with single filterbank file:
  *   nextflow run elden.nf -entry presto_pipeline --input_fil /path/to/file.fil
  *
- *   # Run only stages 1-3 (RFI through Dedispersion):
- *   nextflow run elden.nf -entry presto_pipeline \
- *       --input_fil file.fil --presto.end_stage 3
- *
- *   # Resume from stage 4 using state file:
- *   nextflow run elden.nf -entry presto_pipeline \
- *       --presto.start_stage 4 --state_file dedisperse_state.json
- *
- *   # Run with CSV input (multiple files):
+ *   # Full pipeline with CSV input (multiple files):
  *   nextflow run elden.nf -entry presto_full_entry --files_list input.csv
+ *
+ *   # Resume from dedispersion state file (search + fold + postprocess):
+ *   nextflow run elden.nf -entry presto_search_fold \
+ *       --state_file PRESTO_STATE/dedisperse_state.json
+ *
+ *   # Individual stages can also be run directly as workflows
  *
  * State files are saved to: ${params.basedir}/${params.runID}/PRESTO_STATE/
  * ============================================================================
@@ -810,141 +808,21 @@ process peasoup_dump_timeseries {
 }
 
 // ============================================================================
-// STATE FILE PROCESSES - For Workflow Chaining
+// STATE FILE HELPER - Save workflow state directly in Groovy
 // ============================================================================
 
 /*
- * Save RFI state - output from presto_rfi, input to presto_birdies
+ * Helper function to save state files directly from workflows.
+ * This eliminates the need for separate state-saving processes.
  */
-process save_presto_rfi_state {
-    label 'short'
-    publishDir "${params.basedir}/${params.runID}/PRESTO_STATE", mode: 'copy'
-
-    input:
-    path input_file
-    path rfi_mask
-    path rfi_stats
-    path rfi_inf
-
-    output:
-    path "rfi_state.json", emit: state_file
-
-    script:
-    """
-    python3 ${projectDir}/scripts/presto_save_state.py --stage rfi \\
-        --input-file ${input_file} \\
-        --rfi-mask ${rfi_mask} \\
-        --rfi-stats ${rfi_stats} \\
-        --rfi-inf ${rfi_inf}
-    """
-}
-
-/*
- * Save birdies state - output from presto_birdies, input to presto_dedisperse
- */
-process save_presto_birdies_state {
-    label 'short'
-    publishDir "${params.basedir}/${params.runID}/PRESTO_STATE", mode: 'copy'
-
-    input:
-    path input_file
-    path rfi_mask
-    path zaplist
-    path rfi_stats
-    path rfi_inf
-    path zerodm_inf
-
-    output:
-    path "birdies_state.json", emit: state_file
-
-    script:
-    """
-    python3 ${projectDir}/scripts/presto_save_state.py --stage birdies \\
-        --input-file ${input_file} \\
-        --rfi-mask ${rfi_mask} \\
-        --rfi-stats ${rfi_stats} \\
-        --rfi-inf ${rfi_inf} \\
-        --zerodm-inf ${zerodm_inf} \\
-        --zaplist ${zaplist}
-    """
-}
-
-/*
- * Save dedisperse state - output from presto_dedisperse, input to presto_search
- */
-process save_presto_dedisperse_state {
-    label 'short'
-    publishDir "${params.basedir}/${params.runID}/PRESTO_STATE", mode: 'copy'
-
-    input:
-    path input_file
-    path rfi_mask
-    path rfi_stats
-    path zaplist
-    path dat_files
-    path inf_files
-
-    output:
-    path "dedisperse_state.json", emit: state_file
-
-    script:
-    """
-    python3 ${projectDir}/scripts/presto_save_state.py --stage dedisperse \\
-        --input-file ${input_file} \\
-        --rfi-mask ${rfi_mask} \\
-        --rfi-stats ${rfi_stats} \\
-        --zaplist ${zaplist}
-    """
-}
-
-/*
- * Save search state - output from presto_search, input to presto_sift_fold
- */
-process save_presto_search_state {
-    label 'short'
-    publishDir "${params.basedir}/${params.runID}/PRESTO_STATE", mode: 'copy'
-
-    input:
-    path input_file
-    path rfi_mask
-    path rfi_stats
-    path accel_files
-
-    output:
-    path "search_state.json", emit: state_file
-
-    script:
-    """
-    python3 ${projectDir}/scripts/presto_save_state.py --stage search \\
-        --input-file ${input_file} \\
-        --rfi-mask ${rfi_mask} \\
-        --rfi-stats ${rfi_stats}
-    """
-}
-
-/*
- * Save sift_fold state - output from presto_sift_fold, input to presto_postprocess
- */
-process save_presto_sift_fold_state {
-    label 'short'
-    publishDir "${params.basedir}/${params.runID}/PRESTO_STATE", mode: 'copy'
-
-    input:
-    path input_file
-    path sifted_csv
-    path pfd_files
-    path provenance_csv
-
-    output:
-    path "sift_fold_state.json", emit: state_file
-
-    script:
-    """
-    python3 ${projectDir}/scripts/presto_save_state.py --stage sift_fold \\
-        --input-file ${input_file} \\
-        --sifted-csv ${sifted_csv} \\
-        --provenance-csv ${provenance_csv}
-    """
+def saveState(String stageName, Map stateData) {
+    def stateDir = file("${params.basedir}/${params.runID}/PRESTO_STATE")
+    stateDir.mkdirs()
+    def stateFile = file("${stateDir}/${stageName}_state.json")
+    stateFile.text = groovy.json.JsonOutput.prettyPrint(
+        groovy.json.JsonOutput.toJson(stateData)
+    )
+    return stateFile
 }
 
 // ============================================================================
@@ -965,12 +843,21 @@ workflow presto_rfi {
     presto_rfifind(input_files)
         .set { rfi_out }
 
-    // Save state file for chaining
-    save_presto_rfi_state(input_files, rfi_out.rfi_mask, rfi_out.rfi_stats, rfi_out.rfi_inf)
-        .set { state_out }
+    // Save state file directly when outputs are ready
+    input_files
+        .combine(rfi_out.rfi_mask)
+        .combine(rfi_out.rfi_stats)
+        .combine(rfi_out.rfi_inf)
+        .subscribe { input_file, mask, stats, inf ->
+            saveState('rfi', [
+                input_file: input_file.toString(),
+                rfi_mask: mask.toString(),
+                rfi_stats: stats.toString(),
+                rfi_inf: inf.toString()
+            ])
+        }
 
     emit:
-    state_file = state_out.state_file  // rfi_state.json -> presto_birdies
     rfi_mask = rfi_out.rfi_mask
     rfi_files = rfi_out.rfi_files
     rfi_stats = rfi_out.rfi_stats
@@ -999,17 +886,30 @@ workflow presto_birdies {
     // Handle empty zaplist
     zaplist_ch = birdie_out.zaplist.ifEmpty(file('NO_ZAPLIST'))
 
-    // Save state file for chaining
-    save_presto_birdies_state(input_file, rfi_mask, zaplist_ch, rfi_stats, rfi_inf, zerodm_out.inf_file)
-        .set { state_out }
+    // Save state file directly when outputs are ready
+    input_file
+        .combine(rfi_mask)
+        .combine(rfi_stats)
+        .combine(rfi_inf)
+        .combine(zaplist_ch)
+        .combine(zerodm_out.inf_file)
+        .subscribe { inp, mask, stats, inf, zap, zerodm_inf ->
+            saveState('birdies', [
+                input_file: inp.toString(),
+                rfi_mask: mask.toString(),
+                rfi_stats: stats.toString(),
+                rfi_inf: inf.toString(),
+                zaplist: zap.name != 'NO_ZAPLIST' ? zap.toString() : null,
+                zerodm_inf: zerodm_inf.toString()
+            ])
+        }
 
     emit:
-    state_file = state_out.state_file  // birdies_state.json -> presto_dedisperse
     zaplist = birdie_out.zaplist
     rfi_mask_passthrough = rfi_mask
     rfi_stats_passthrough = rfi_stats
     rfi_inf_passthrough = rfi_inf
-    zerodm_inf = zerodm_out.inf_file  // .inf file from prepdata zero-DM for prepsubband
+    zerodm_inf = zerodm_out.inf_file
 }
 
 /*
@@ -1034,14 +934,25 @@ workflow presto_dedisperse {
     dat_collected = subband_out.dat_files.collect()
     inf_collected = subband_out.inf_files.collect()
 
-    // Save state file for chaining
-    save_presto_dedisperse_state(
-        input_file, rfi_mask, rfi_stats, zaplist.ifEmpty(file('NO_ZAPLIST')),
-        dat_collected, inf_collected
-    ).set { state_out }
+    // Save state file directly when all outputs are collected
+    input_file
+        .combine(rfi_mask)
+        .combine(rfi_stats)
+        .combine(zaplist.ifEmpty(file('NO_ZAPLIST')))
+        .combine(dat_collected)
+        .combine(inf_collected)
+        .subscribe { inp, mask, stats, zap, dats, infs ->
+            saveState('dedisperse', [
+                input_file: inp.toString(),
+                rfi_mask: mask.toString(),
+                rfi_stats: stats.toString(),
+                zaplist: zap.name != 'NO_ZAPLIST' ? zap.toString() : null,
+                dat_files: dats.collect { it.toString() },
+                inf_files: infs.collect { it.toString() }
+            ])
+        }
 
     emit:
-    state_file = state_out.state_file  // dedisperse_state.json -> presto_search
     dat_files = subband_out.dat_files
     inf_files = subband_out.inf_files
     subband_data = subband_out.subband_data
@@ -1071,12 +982,21 @@ workflow presto_search {
     // Collect accel files for state
     accel_collected = accel_out.accel_files.collect()
 
-    // Save state file for chaining
-    save_presto_search_state(input_file, rfi_mask, rfi_stats, accel_collected)
-        .set { state_out }
+    // Save state file directly when outputs are collected
+    input_file
+        .combine(rfi_mask)
+        .combine(rfi_stats)
+        .combine(accel_collected)
+        .subscribe { inp, mask, stats, accels ->
+            saveState('search', [
+                input_file: inp.toString(),
+                rfi_mask: mask.toString(),
+                rfi_stats: stats.toString(),
+                accel_files: accels.collect { it.toString() }
+            ])
+        }
 
     emit:
-    state_file = state_out.state_file  // search_state.json -> presto_sift_fold
     accel_files = accel_out.accel_files
     cand_files = accel_out.cand_files
 }
@@ -1106,12 +1026,21 @@ workflow presto_sift_fold {
     // Collect pfd files for state
     pfd_collected = fold_out.pfd_files.flatten().collect()
 
-    // Save state file for chaining
-    save_presto_sift_fold_state(input_file, sifted_out.sifted_csv, pfd_collected, sifted_out.provenance_csv)
-        .set { state_out }
+    // Save state file directly when outputs are collected
+    input_file
+        .combine(sifted_out.sifted_csv)
+        .combine(sifted_out.provenance_csv)
+        .combine(pfd_collected)
+        .subscribe { inp, sifted, prov, pfds ->
+            saveState('sift_fold', [
+                input_file: inp.toString(),
+                sifted_csv: sifted.toString(),
+                provenance_csv: prov.toString(),
+                pfd_files: pfds.collect { it.toString() }
+            ])
+        }
 
     emit:
-    state_file = state_out.state_file  // sift_fold_state.json -> presto_postprocess
     pfd_files = fold_out.pfd_files
     ps_files = fold_out.ps_files       // PostScript files for PNG conversion
     sifted_csv = sifted_out.sifted_csv
@@ -1181,94 +1110,59 @@ workflow presto_postprocess {
 }
 
 // ============================================================================
-// UNIFIED PRESTO PIPELINE ENTRY POINT
+// PRESTO SEARCH AND FOLD ENTRY POINT
 // ============================================================================
 
 /*
- * Unified PRESTO Pipeline with Stage Control
+ * PRESTO Search and Fold from State File
  *
- * This workflow replaces the 6 standalone entry points with a single
- * entry point controlled by parameters.
+ * This workflow takes a state file (from dedispersion) and runs:
+ *   - Acceleration search (accelsearch)
+ *   - Candidate sifting
+ *   - Folding (prepfold or pulsarx based on fold_backend)
+ *   - Post-processing (PNG + tarball)
  *
- * Stages:
- *   1 = RFI detection (rfifind)
- *   2 = Birdie detection (zero-DM accelsearch)
- *   3 = Dedispersion (prepsubband)
- *   4 = Acceleration search (accelsearch)
- *   5 = Sift and fold candidates
- *   6 = Post-processing (PNG + tarball)
- *
- * Usage Examples:
- *   # Full pipeline (all 6 stages)
- *   nextflow run elden.nf -entry presto_pipeline --input_fil /path/to/file.fil
- *
- *   # Run only stages 1-3 (RFI through Dedispersion)
- *   nextflow run elden.nf -entry presto_pipeline --input_fil file.fil --presto.end_stage 3
- *
- *   # Resume from stage 4 using state file
- *   nextflow run elden.nf -entry presto_pipeline --presto.start_stage 4 --state_file dedisperse_state.json
+ * Usage:
+ *   nextflow run elden.nf -entry presto_search_fold \
+ *       --state_file dedisperse_state.json \
+ *       --presto.fold_backend pulsarx
  *
  * Parameters:
- *   --input_fil           Input filterbank file (required for start_stage 1)
- *   --state_file          State file to resume from (required for start_stage > 1)
- *   --presto.start_stage  First stage to run (default: 1)
- *   --presto.end_stage    Last stage to run (default: 6)
+ *   --state_file              State file from dedispersion stage (required)
+ *   --presto.fold_backend     'presto' (prepfold) or 'pulsarx' (psrfold_fil2)
  */
-workflow presto_pipeline {
+workflow presto_search_fold {
     main:
-    // Get stage parameters
-    start_stage = params.presto?.start_stage ?: 1
-    end_stage = params.presto?.end_stage ?: 6
+    // Load state file
+    if (!params.state_file) {
+        error "State file required. Use --state_file parameter with dedisperse_state.json"
+    }
+    def state = new groovy.json.JsonSlurper().parse(file(params.state_file))
 
-    // Validate parameters
-    if (start_stage < 1 || start_stage > 6) {
-        error "Invalid start_stage: ${start_stage}. Must be between 1 and 6."
-    }
-    if (end_stage < 1 || end_stage > 6) {
-        error "Invalid end_stage: ${end_stage}. Must be between 1 and 6."
-    }
-    if (start_stage > end_stage) {
-        error "start_stage (${start_stage}) cannot be greater than end_stage (${end_stage})"
-    }
-
-    // Create DM ranges channel at workflow level (outside conditionals)
-    // Parse dm_ranges if it's a string (from command line), otherwise use as-is
-    def dm_ranges_list = params.presto?.dm_ranges ?: []
-    if (dm_ranges_list instanceof String) {
-        dm_ranges_list = new groovy.json.JsonSlurper().parseText(dm_ranges_list)
-    }
-
-    dm_ranges_ch = channel.from(dm_ranges_list).map { range ->
-        tuple(range.dm_low, range.dm_high, range.dm_step, range.downsamp)
-    }
-
-    // Load state file if resuming from a previous stage
-    if (start_stage > 1) {
-        if (!params.state_file) {
-            error "State file required when starting from stage ${start_stage}. Use --state_file parameter."
-        }
-        log.info "Loading state from: ${params.state_file}"
-        state = new groovy.json.JsonSlurper().parse(file(params.state_file))
-    } else {
-        state = null
-    }
+    // Load channels from state
+    def input_ch = channel.fromPath(state.input_file)
+    def rfi_mask_ch = channel.fromPath(state.rfi_mask)
+    def rfi_stats_ch = channel.fromPath(state.rfi_stats)
+    def zaplist_ch = state.zaplist ? channel.fromPath(state.zaplist) : channel.value(file('NO_ZAPLIST'))
+    def dat_ch = Channel.fromList(state.dat_files).map { file(it) }
+    def inf_ch = Channel.fromList(state.inf_files).map { file(it) }
 
     // Build metadata tuple for candidates.csv
-    def input_fil_path = params.input_fil ?: (state ? state.input_file : null)
+    def input_fil_path = state.input_file
     def default_meta = tuple(
         params.get('pointing_id', "0"),
         params.runID ?: "",
-        params.target_name ?: (input_fil_path ? new File(input_fil_path).name.replaceFirst(/\\.fil$/, "") : ""),
+        params.target_name ?: new File(input_fil_path).name.replaceFirst(/\.fil$/, ""),
         params.get('beam_id', "0"),
         params.get('utc_start', ""),
         params.get('ra', ""),
         params.get('dec', ""),
         params.get('cdm', "0.0"),
-        input_fil_path ?: ""
+        input_fil_path
     )
 
-    meta_ch = Channel.value(default_meta)
-    if (params.files_list && input_fil_path) {
+    def meta_ch = Channel.value(default_meta)
+    if (params.files_list) {
         def input_base = new File(input_fil_path).name
         meta_ch = channel.fromPath(params.files_list)
             .splitCsv(header: true, sep: ',')
@@ -1292,159 +1186,120 @@ workflow presto_pipeline {
             .ifEmpty { default_meta }
     }
 
-    // Stage 1: RFI Detection
-    if (start_stage <= 1 && end_stage >= 1) {
-        log.info "Running Stage 1: RFI Detection"
+    // Run acceleration search
+    presto_accelsearch(dat_ch.flatten(), inf_ch.flatten(), zaplist_ch)
+        .set { accel_out }
 
-        if (!params.input_fil) {
-            error "Input filterbank file required for stage 1. Use --input_fil parameter."
+    // Sift candidates
+    presto_sift_candidates(accel_out.accel_files.collect(), input_ch)
+        .set { sifted_out }
+
+    // Choose folding backend
+    def fold_backend = params.presto?.fold_backend ?: 'presto'
+    def tarball_prefix = params.tarball_prefix ?: params.target_name ?: "presto_search_fold"
+
+    if (fold_backend == 'pulsarx') {
+        // Build meta channel for PulsarX
+        def pulsarx_meta_ch = meta_ch.map { p, c, bn, bi, u, ra, dec, cdm, f ->
+            tuple(p, file(f), c, bn, bi, u, ra, dec, cdm)
         }
+        def meta_info_ch = meta_ch
 
-        input_ch = channel.fromPath(params.input_fil)
-        rfi_out = presto_rfi(input_ch)
+        // Generate meta file for PulsarX folding
+        def fft_size = params.presto?.fft_size ?: 134217728
+        generate_fold_meta(pulsarx_meta_ch, fft_size, fold_backend)
+            .set { meta_out }
 
-        rfi_mask_ch = rfi_out.rfi_mask
-        rfi_stats_ch = rfi_out.rfi_stats
-        rfi_inf_ch = rfi_out.rfi_inf
+        // Fold with PulsarX
+        presto_fold_pulsarx(input_ch, sifted_out.sifted_csv, meta_out.meta_file)
+            .set { fold_out }
 
-        if (end_stage == 1) {
-            log.info "Pipeline complete. RFI detection finished."
-        }
+        // Merge and create tarball from PulsarX outputs
+        presto_fold_merge_pulsarx(
+            fold_out.png_files.collect(),
+            sifted_out.sifted_csv,
+            sifted_out.provenance_csv,
+            meta_info_ch,
+            meta_out.meta_file
+        ).set { merged_out }
+
+        presto_create_tarball(
+            merged_out.merged_csv,
+            merged_out.all_png,
+            tarball_prefix
+        ).set { tarball_out }
+
+    } else {
+        // Default: Fold with PRESTO prepfold
+        presto_prepfold_batch(input_ch, sifted_out.sifted_csv, rfi_mask_ch, rfi_stats_ch)
+            .set { fold_out }
+
+        // Post-processing: PNG conversion from PFD files using show_pfd
+        presto_pfd_to_png(fold_out.pfd_files.flatten().collect())
+            .set { png_out }
+
+        // Create merged results
+        presto_fold_merge(
+            fold_out.pfd_files.flatten().collect(),
+            png_out.png_files.collect(),
+            fold_out.bestprof_files.flatten().collect().ifEmpty([]),
+            sifted_out.sifted_csv,
+            sifted_out.provenance_csv,
+            meta_ch
+        ).set { merged_out }
+
+        // Run PICS classification on PFD files
+        presto_pics_classifier(
+            merged_out.all_pfd,
+            merged_out.merged_csv
+        ).set { pics_out }
+
+        // Create tarball (PNG + CSV only)
+        presto_create_tarball(
+            pics_out.classified_csv,
+            merged_out.all_png,
+            tarball_prefix
+        ).set { tarball_out }
+    }
+}
+
+/*
+ * PRESTO Pipeline Entry Point (single file input)
+ *
+ * Simple wrapper that creates an intake channel from --input_fil and calls presto_full.
+ * This allows running the full PRESTO pipeline with a single filterbank file.
+ *
+ * Usage:
+ *   nextflow run elden.nf -entry presto_pipeline \
+ *       --input_fil /path/to/file.fil \
+ *       --presto.dm_ranges '[{"dm_low": 0, "dm_high": 100, "dm_step": 0.1, "downsamp": 1}]' \
+ *       --presto.fold_backend pulsarx
+ */
+workflow presto_pipeline {
+    main:
+    if (!params.input_fil) {
+        error "Input filterbank file required. Use --input_fil parameter."
     }
 
-    // Stage 2: Birdie Detection
-    if (start_stage <= 2 && end_stage >= 2) {
-        log.info "Running Stage 2: Birdie Detection"
+    def input_fil = file(params.input_fil)
+    def basename = input_fil.baseName
 
-        // Load from state if starting at stage 2
-        if (start_stage == 2) {
-            input_ch = channel.fromPath(state.input_file)
-            rfi_mask_ch = channel.fromPath(state.rfi_mask)
-            if (!state.rfi_stats || !state.rfi_inf) {
-                error "State file missing rfi_stats or rfi_inf; rerun stage 1 to regenerate rfifind outputs."
-            }
-        rfi_stats_ch = channel.fromPath(state.rfi_stats)
-        rfi_inf_ch = channel.fromPath(state.rfi_inf)
-        if (!state.zerodm_inf) {
-            error "State file missing zerodm_inf; rerun stage 2 to regenerate prepdata outputs."
-        }
-        zerodm_inf_ch = channel.fromPath(state.zerodm_inf)
-    }
+    // Build intake channel with same structure as CSV intake
+    def intake_ch = Channel.of(tuple(
+        params.get('pointing_id', "0"),          // pointing
+        params.input_fil,                         // fil_file path
+        params.target_name ?: basename,           // cluster/target
+        params.get('beam_name', basename),        // beam_name
+        params.get('beam_id', "0"),               // beam_id
+        params.get('utc_start', ""),              // utc_start
+        params.get('ra', ""),                     // ra
+        params.get('dec', ""),                    // dec
+        params.get('cdm', "0.0"),                 // cdm
+        basename                                  // fname
+    ))
 
-    birdie_out = presto_birdies(input_ch, rfi_mask_ch, rfi_stats_ch, rfi_inf_ch)
-
-    zaplist_ch = birdie_out.zaplist
-    zerodm_inf_ch = birdie_out.zerodm_inf
-
-        if (end_stage == 2) {
-            log.info "Pipeline complete. Birdie detection finished."
-        }
-    }
-
-    // Stage 3: Dedispersion
-    if (start_stage <= 3 && end_stage >= 3) {
-        log.info "Running Stage 3: Dedispersion"
-
-        // Load from state if starting at stage 3
-        if (start_stage == 3) {
-            input_ch = channel.fromPath(state.input_file)
-            rfi_mask_ch = channel.fromPath(state.rfi_mask)
-            zaplist_ch = state.zaplist ? channel.fromPath(state.zaplist) : channel.value(file('NO_ZAPLIST'))
-            if (!state.zerodm_inf) {
-                error "State file missing zerodm_inf; rerun stage 2 to regenerate prepdata outputs."
-            }
-            zerodm_inf_ch = channel.fromPath(state.zerodm_inf)
-            if (!state.rfi_stats) {
-                error "State file missing rfi_stats; rerun stage 1 to regenerate rfifind outputs."
-            }
-            rfi_stats_ch = channel.fromPath(state.rfi_stats)
-        }
-
-        dedisperse_out = presto_dedisperse(input_ch, zerodm_inf_ch, rfi_mask_ch, rfi_stats_ch, zaplist_ch, dm_ranges_ch)
-
-        dat_ch = dedisperse_out.dat_files
-        inf_ch = dedisperse_out.inf_files
-
-        // Run Riptide FFA search if enabled (runs in parallel with accelsearch)
-        if (params.riptide?.run_ffa_search) {
-            log.info "Running Riptide FFA search on dedispersed time series"
-            def config_path = params.riptide?.config_file ?: "${params.basedir}/riptide_config.yml"
-            def config_file_ch = channel.fromPath(config_path)
-            riptide_ffa_search(inf_ch.collect(), config_file_ch)
-        }
-
-        if (end_stage == 3) {
-            log.info "Pipeline complete. Dedispersion finished."
-        }
-    }
-
-    // Stage 4: Acceleration Search
-    if (start_stage <= 4 && end_stage >= 4) {
-        log.info "Running Stage 4: Acceleration Search"
-
-        // Load from state if starting at stage 4
-        if (start_stage == 4) {
-            input_ch = channel.fromPath(state.input_file)
-            rfi_mask_ch = channel.fromPath(state.rfi_mask)
-            rfi_stats_ch = channel.fromPath(state.rfi_stats)
-            zaplist_ch = state.zaplist ? channel.fromPath(state.zaplist) : channel.value(file('NO_ZAPLIST'))
-            dat_ch = Channel.fromList(state.dat_files).map { file(it) }
-            inf_ch = Channel.fromList(state.inf_files).map { file(it) }
-        }
-
-        search_out = presto_search(input_ch, rfi_mask_ch, rfi_stats_ch, dat_ch, inf_ch, zaplist_ch)
-
-        accel_ch = search_out.accel_files
-        cand_ch = search_out.accel_files  // use main ACCEL files for sifting
-
-        if (end_stage == 4) {
-            log.info "Pipeline complete. Acceleration search finished."
-        }
-    }
-
-    // Stage 5: Sift and Fold
-    if (start_stage <= 5 && end_stage >= 5) {
-        log.info "Running Stage 5: Sift and Fold"
-
-        // Load from state if starting at stage 5
-        if (start_stage == 5) {
-            input_ch = channel.fromPath(state.input_file)
-            rfi_mask_ch = channel.fromPath(state.rfi_mask)
-            rfi_stats_ch = channel.fromPath(state.rfi_stats)
-            accel_ch = Channel.fromList(state.accel_files).map { file(it) }
-            cand_ch = accel_ch
-        }
-
-        sift_fold_out = presto_sift_fold(input_ch, rfi_mask_ch, rfi_stats_ch, accel_ch, cand_ch)
-
-        sifted_csv_ch = sift_fold_out.sifted_csv
-        provenance_ch = sift_fold_out.provenance_csv
-        pfd_ch = sift_fold_out.pfd_files
-        ps_ch = sift_fold_out.ps_files
-
-        if (end_stage == 5) {
-            log.info "Pipeline complete. Sifting and folding finished."
-        }
-    }
-
-    // Stage 6: Post-processing
-    if (start_stage <= 6 && end_stage >= 6) {
-        log.info "Running Stage 6: Post-processing"
-
-        // Load from state if starting at stage 6
-        if (start_stage == 6) {
-            input_ch = channel.fromPath(state.input_file)
-            sifted_csv_ch = channel.fromPath(state.sifted_csv)
-            provenance_ch = channel.fromPath(state.provenance_csv)
-            pfd_ch = Channel.from(state.pfd_files).map { file(it) }
-            // PS files are in same directory as PFD files, just with .ps extension
-            ps_ch = Channel.from(state.pfd_files).map { file("${it}.ps") }
-        }
-        meta_ch.view { log.info "Metadata for candidates.csv: ${it}" }
-        presto_postprocess(input_ch, sifted_csv_ch, pfd_ch, ps_ch, provenance_ch, meta_ch)
-
-        log.info "Pipeline complete. All stages finished."
-    }
+    // Call presto_full with the intake channel
+    presto_full(intake_ch)
 }
 
 // ============================================================================
@@ -1452,7 +1307,7 @@ workflow presto_pipeline {
 // ============================================================================
 
 /*
- * Full PRESTO search pipeline
+ * Full PRESTO search pipeline (sub-workflow)
  * Runs: RFI detection -> Birdie detection -> Dedispersion -> Acceleration search -> Sifting -> Folding -> Post-processing
  *
  * Set params.presto.fold_backend = 'presto' (default) to fold with prepfold

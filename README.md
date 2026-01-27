@@ -44,22 +44,69 @@ A GPU-accelerated Nextflow pipeline for pulsar candidate detection featuring RFI
 
 ## Pipeline Overview
 
+### Peasoup Pipeline (GPU-accelerated FFT search)
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                           ELDEN-RING Pipeline                                │
+│                         Peasoup Pipeline (GPU)                              │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
 │   DADA Files ──► digifits ──┐                                               │
 │                             │                                               │
 │   FITS/Filterbanks ─────────┼──► RFI Filter ──► filtool ──► Segmentation   │
-│                             │                                               │
-│                             └──────────────────────────────────────────────►│
 │                                                                             │
 │   Segmentation ──► birdies ──► peasoup (GPU) ──► XML Parse ──► PulsarX     │
+│                                    │                                        │
+│                                    └──► [dump_timeseries] ──► PRESTO/FFA   │
 │                                                                             │
 │   PulsarX ──► Merge Folds ──► PICS Classifier ──► Alpha-Beta-Gamma         │
 │                                                                             │
 │   Final Output: CandyJar tarball with ranked candidates                     │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### PRESTO Pipeline (CPU-based acceleration search)
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           PRESTO Pipeline                                   │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│   Filterbank ──► rfifind ──► prepdata (zero-DM) ──► accelsearch (birdies)  │
+│                    │                                                        │
+│                    └──► prepsubband ──► accelsearch ──► sift candidates    │
+│                            (DM range)      (z/w)           │                │
+│                                                            │                │
+│                    ┌───────────────────────────────────────┘                │
+│                    │                                                        │
+│                    ▼                                                        │
+│              [fold_backend]                                                 │
+│                    │                                                        │
+│        ┌──────────┴──────────┐                                             │
+│        ▼                     ▼                                              │
+│    prepfold              PulsarX ──► PNG plots                             │
+│        │                                                                    │
+│        └──► show_pfd ──► PNG plots                                         │
+│                                                                             │
+│   PNG + CSV ──► PICS Classifier ──► CandyJar tarball                       │
+│                                                                             │
+│   State files saved at each stage for resumption                           │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Riptide FFA Pipeline (long-period pulsar search)
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         Riptide FFA Pipeline                                │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│   Filterbank ──► [PRESTO or Peasoup dedispersion] ──► .dat/.inf files      │
+│                                                                             │
+│   Time series ──► rffa (Fast Folding Algorithm) ──► candidates.csv         │
+│                                                                             │
+│   Output: candidates.csv + peaks.csv + clusters.csv + plots                │
+│                                                                             │
+│   Can run standalone or alongside Peasoup/PRESTO pipelines                 │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -229,18 +276,21 @@ Select a workflow with the `-entry` flag:
 
 | Workflow | Description |
 |----------|-------------|
-| `presto_pipeline` | Stage-based PRESTO with resume support (recommended) |
-| `presto_full` | Full PRESTO pipeline from intake channel (CSV input) |
+| `presto_pipeline` | Full PRESTO pipeline for single filterbank file (recommended) |
+| `presto_full_entry` | Full PRESTO pipeline from CSV input file |
+| `presto_search_fold` | Resume from state file: search → fold → postprocess |
 | `run_accelsearch_on_timeseries` | Run accelsearch on pre-dumped .dat/.inf files from peasoup |
 | `peasoup_with_presto_search` | Hybrid: peasoup search + optional PRESTO accelsearch on dumped time series |
 
 **PRESTO Pipeline Stages:**
-1. **RFI Detection** - rfifind to create RFI mask
-2. **Birdie Detection** - Zero-DM accelsearch for persistent signals
-3. **Dedispersion** - prepsubband across DM range
-4. **Acceleration Search** - accelsearch with GPU support
-5. **Sift and Fold** - Candidate sifting + folding (PulsarX or prepfold)
-6. **Post-processing** - PNG conversion + tarball creation
+1. **RFI Detection** (`presto_rfi`) - rfifind to create RFI mask
+2. **Birdie Detection** (`presto_birdies`) - Zero-DM accelsearch for persistent signals
+3. **Dedispersion** (`presto_dedisperse`) - prepsubband across DM range
+4. **Acceleration Search** (`presto_search`) - accelsearch with GPU support
+5. **Sift and Fold** (`presto_sift_fold`) - Candidate sifting + folding (PulsarX or prepfold)
+6. **Post-processing** (`presto_postprocess`) - PNG conversion + tarball creation
+
+Each stage saves a state file to `PRESTO_STATE/` for resumption with `presto_search_fold`.
 
 ### Riptide FFA Pipelines
 
@@ -468,26 +518,30 @@ nextflow run elden.nf -entry candypolice \
 ### Run PRESTO Pipeline
 
 ```bash
-# Full PRESTO search (all 6 stages)
+# Full PRESTO pipeline with single filterbank file
 nextflow run elden.nf -entry presto_pipeline \
     -profile hercules \
     --input_fil /path/to/file.fil \
-    --presto.dm_ranges '[{"dm_low": 0, "dm_high": 100, "dm_step": 0.5, "downsamp": 1}]'
+    --presto.dm_ranges '[{"dm_low": 0, "dm_high": 100, "dm_step": 0.5, "downsamp": 1}]' \
+    --presto.fold_backend pulsarx
 
-# Run only stages 1-3 (RFI through Dedispersion)
-nextflow run elden.nf -entry presto_pipeline \
-    --input_fil file.fil \
-    --presto.end_stage 3
-
-# Resume from stage 4 using state file
-nextflow run elden.nf -entry presto_pipeline \
-    --presto.start_stage 4 \
-    --state_file PRESTO_STATE/dedisperse_state.json
-
-# Or use presto_full with CSV input
-nextflow run elden.nf -entry presto_full \
+# Full PRESTO pipeline with CSV input
+nextflow run elden.nf -entry presto_full_entry \
     -profile hercules \
-    -c params.config
+    -c params.config \
+    --presto.fold_backend pulsarx
+
+# Resume from dedispersion state file (search + fold + postprocess)
+nextflow run elden.nf -entry presto_search_fold \
+    -profile hercules \
+    --state_file /path/to/PRESTO_STATE/dedisperse_state.json \
+    --presto.fold_backend pulsarx
+
+# Run individual stages for debugging (each saves state files)
+# Example: Run only RFI detection
+nextflow run elden.nf -entry presto_rfi \
+    -profile hercules \
+    --input_fil /path/to/file.fil
 ```
 
 ### Hybrid Peasoup + PRESTO Search

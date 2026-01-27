@@ -1,0 +1,291 @@
+params {
+    cache           = 'lenient'
+    // Base directories
+    basedir         = "/b/PROCESSING_FAZAL/"
+    runID          = "UBB_NGC6401_02_PERIODICITY"
+    target_name    = "NGC6401"  // Target name for PRESTO output directories
+    output_dir     = "${basedir}"  // Base output directory for PRESTO pipelines
+    template_dir    = "${projectDir}/templates"
+    pics_model_dir  = "${projectDir}/ML_Models"
+    split_fil = true
+    split_freq = 1200.0
+    stack_by_cdm    = true // stack eff bands into 1+2+3, 4+5+6+7, and 1+2+3+4+5+6+7 currently only in the full pipeline.
+    stacks          = ['0000123': [1,2,3], '0004567':[4,5,6,7], '1234567':[1,2,3,4,5,6,7]] // 'key':[beam numbers], the key will be used as beam name.
+
+    // Search backend selection: 'peasoup' (default) or 'presto'
+    search_backend  = 'peasoup' 
+
+    // Input files
+    files_list      = "${projectDir}/inputfile.txt"
+    metafile_source_path = "${basedir}/meta/"
+
+    // Telescope configuration
+    telescope       = "effelsberg"  // Options: 'meerkat', 'effelsberg', etc.
+
+    // Copy files from the tape?
+    copy_from_tape {
+        run_copy = false
+        remoteUser = "fkareem"
+        remoteHost = "archive"
+        archivePath = "/p/MFR/MEERKAT/TRAPUM/TRAPUM_ALL_OBS_BY_CLUSTER/NGC6717/NGC6717_01L-trapum"
+    }
+
+    dada{
+        dada_csv = "${basedir}/dada_files.csv"
+        bits = 8
+        nsblk = 4096
+        nchan = 768
+        tsamp = 60e-6
+        dedispersion = true
+        nfft = 32768
+        npol = 1
+    }
+
+    // Generate RFI Filter Parameters
+    generateRfiFilter {
+        // Define parameters for folder paths
+        default_flag = "kadaneF 8 4 kadaneT 8 4" // Default RFI filter to apply
+        run_rfi_filter       = true // Set to false to use default RFI filters
+        target_resolution_ms = 1.0   // Time sample to calculate mean, skew, kurtosis in milliseconds
+    }
+
+    // only for rfi-filter-test
+    rfi_filter_test {
+        rfi_filter_file = "/bscratch/fazal/COMPACT/RFI-TEST/rfifilters.txt"
+        known_csv = "/bscratch/fazal/ELDEN/elden-ring/example/known_pulsars.csv"
+    }
+
+    // Filtool Parameters
+    filtool {
+        run_filtool = true 
+        output_path = "${basedir}/Filtool"
+        td = 1    // time scrunch 
+        fd = 1    // frequency scrunch
+        flip = true
+        rfi_filter_list = [
+            effelsberg: "kadaneF 8 4 kadaneT 8 4 zdot zap 1432.65 1434.68 zap 1452.47 1472.29 zap 1514.47 1514.47 zap 1520.06 1520.06 zap 1526.16 1526.67 zap 1530.23 1531.24 zap 1532.77 1544.96 zap 1545.98 1554.62 zap 1555.64 1557.16 zap 1559.19 1560.72 zap 1561.74 1564.28 zap 1565.29 1565.80 zap 1566.82 1566.82 zap 1567.83 1568.85 zap 1570.88 1571.90 zap 1572.92 1573.93 zap 1615.10 1634.92 zap 1642.54 1642.54 zap 1648.64 1649.15 zap 1711.15 1712.67 zap 1715.22 1715.72 zap 1717.25 1719.28 zap 1725.38 1727.41 zap 1728.43 1728.94 zap 1741.64 1741.64 zap 1742.66 1749.77 zap 1755.36 1755.87 zap 1798.05 1858.53 zap 1869.71 1874.28 zap 1881.40 1882.42 zap 1885.47 1885.47 zap 1886.99 1887.50 zap 1888.51 1889.02 zap 1890.04 1891.06 zap 1892.58 1892.58 zap 1893.60 1898.17 zap 1921.04 1926.12 zap 1936.79 1939.34", 
+            meerkat: "kadaneF 8 4 kadaneT 8 4 zdot"
+        ]
+        run_filtool_cleanup = false // Deletes the original input files. Set to false to skip the cleanup process
+    }
+
+    // Dispersion Measure (DM) Plan
+    ddplan {
+        use_zero_dm = true // Whether to include DM=0 in the plan. 
+        dm_start  = 85
+        dm_end    = 95
+        dm_step   = 0.1
+        dm_sample = 100
+    }
+
+    // Peasoup Parameters
+    peasoup {
+        segmented_search    = true
+        segments            = [1] // The list contains the no. of chunks to split the
+        // filterbanks into. 1=full_search, 2=split_in_half, etc.
+        // Each entry in the list will be executed, so [1,2] will result in a
+        // full search and a segmented search on the halves
+        birdies_min_snr     = 11.0 // Minimum SNR for birdies
+        default_birdies     = "${projectDir}/include/default_birdies.txt" // Path to the default birdies file
+        birdies_max_freq    = 8300.0 // Maximum frequency for birdies in Hz default is 1100 Hz in peasoup
+        birdies_ram_limit_gb = 90.0 // RAM limit for birdies search in GB
+        birdies_harmonics  = 1 // Number of harmonics for birdies search ( keep 1 if giving max_freq = nyquist freq )
+        min_snr             = 7.0
+        acc_start           = -50
+        acc_end             = 50
+        ram_limit_gb        = 145
+        nharmonics          = 4
+        ngpus               = 1
+        total_cands_limit   = 5000
+
+        // Time series dumping for PRESTO processing
+        dump_timeseries     = false  // Set to true to dump PRESTO-compatible .dat/.inf files
+        // When enabled, peasoup runs with -d flag to output dedispersed time series
+        // WHILE ALSO performing the normal search. The .dat/.inf files are saved to:
+        // ${basedir}/${runID}/${beam_name}/segment_${segments}/${segments}${segment_id}/TIMESERIES/
+        // These can be processed with PRESTO's accelsearch in a second run using:
+        //   nextflow run elden.nf -entry run_accelsearch_on_timeseries
+    }
+
+    // =========================================================================
+    // Parameters for second-run accelsearch on pre-dumped time series
+    // Used with: nextflow run elden.nf -entry run_accelsearch_on_timeseries
+    // =========================================================================
+    //
+    // Two modes are available:
+    //
+    // MODE 1: Multi-file mode (RECOMMENDED)
+    //   Uses the same params.files_list, basedir, and runID as the first run.
+    //   The workflow auto-discovers TIMESERIES directories for each beam.
+    //   Usage: nextflow run elden.nf -entry run_accelsearch_on_timeseries -params-file params.config
+    //
+    // MODE 2: Single-file mode
+    //   For processing a single filterbank with explicit paths.
+    //   Uncomment and set these parameters:
+    //   timeseries_input_dir = "/path/to/TIMESERIES"  // Directory with .dat/.inf files
+    //   filterbank_file = "/path/to/original.fil"    // Original filterbank file
+    //   Usage: nextflow run elden.nf -entry run_accelsearch_on_timeseries \
+    //              --timeseries_input_dir /path/to/TIMESERIES \
+    //              --filterbank_file /path/to/file.fil
+
+    // Parse XML Parameters
+    parse_xml {
+        pick_candies        = true  // Whether to pick candidates using candy_picker_rs
+        candy_picker_period_threshold = 1e-7 // Period threshold for candy picker in seconds
+        candy_picker_remove_birdies = true // true if you want to provide a birdie file 'freq width' to remove birdies from xml file.
+        candy_picker_birdies_file = "${projectDir}/include/default_birdies.txt" // Path to the birdies file for candy picker
+        birdies_harmonics = 16 // Max harmonic multiple to reject for each birdie (k=1..N) [default: 16]
+        scale_birdie_width = true // Whether to scale birdie width with frequency
+        candy_picker_dm_tolerance = 0 // DM tolerance for candy picker (set to 0 to ignore DM)
+        filter_cands      = true  // Whether to filter candidates using a config file
+        config_file         = "${projectDir}/templates/pulsarx_fold_config_eff.json"  // Path to the config file for filtering the candidates. 
+    }
+
+    // PsrFold Parameters
+    psrfold {
+        output_path = "${basedir}/PulsarX/Fold"
+        // Define parameters for folding.
+        fold_technique      = "pulsarx"  // Options: 'pulsarx', 'psrfold'
+        nbins               = 32     // defaulf nbin for fold
+        binplan             = "0.005 32 0.01 64 0.1 128"
+        subintlength        = 'None'    // subint length in seconds (default 64 is set when None)
+        nsub                = 64
+        clfd               = 2.0   
+        threads            = 50        // Number of threads to use for folding // use 48 for hercules
+        template_dir       = "${projectDir}/templates"  // Path to the template directory
+        cands_per_node     = 350 // Number of candidates to fold per node. For single candidate file set this to 0.
+        cluster_folded     = true // Whether to cluster the folded candidates using csv_candypicker
+        dm_tolerance       = 0 // DM tolerance for csv_candypicker (set to 0 to ignore DM)
+    }
+
+    alpha_beta_gamma {
+        snr_min = 7.0 // if = 0, all are processed.
+        create_candyjar_tarball = true
+        output_dir_alpha_pics_results = "NGC6656"
+        threshold = 0.1
+        snr_threshold = 6.0
+    }
+
+    parfold {
+        output_path = "${basedir}/PulsarX/ParFold"
+        parfile_path = "/bscratch/fazal/meertime-ptuse_custom-052b72f73862/M28/J1824-2452C.par"
+        threads = 48
+        subintlength        = 10
+        nbins               = 32     // defaulf nbin for fold
+        binplan             = "0.005 32 0.01 64 0.1 128"
+        nsub                = null // give value if you want to subband. 
+        clfd               = 2.0
+    }
+
+    candypolice {
+        input_csv = "/bscratch/fazal/ELDEN/elden-ring/NGC6626_pics_above_threshold_0.1_fkareem_full.csv"
+        output_dir = "/bscratch/fazal/Testfiles"
+        pulsarx_threads = 20
+        nsub = 64
+        nbins = 32
+        binplan = "0.005 32 0.01 64 0.1 128"
+        clfd = 2.0
+    }
+
+    // =========================================================================
+    // PRESTO Pipeline Parameters (used when search_backend = 'presto')
+    // =========================================================================
+    presto {
+        // RFI detection (rfifind) parameters
+        rfifind_time        = 2.0       // Integration time for RFI statistics (seconds)
+        rfifind_chanfrac    = 0.5       // Fraction of channels flagged to mark time as bad
+        rfifind_intfrac     = 0.3       // Fraction of intervals flagged to mark channel as bad
+        rfifind_timesig     = 10        // Sigma threshold for time-domain RFI
+        rfifind_freqsig     = 4         // Sigma threshold for frequency-domain RFI
+
+        // Dedispersion parameters
+        nsub                = 128       // Number of subbands for prepsubband
+        dm_ranges           = [
+            // Each entry: [dm_low, dm_high, dm_step, downsamp]
+            [dm_low: 0.0,   dm_high: 30.0,  dm_step: 0.1,  downsamp: 1],
+            [dm_low: 30.0,  dm_high: 100.0, dm_step: 0.3,  downsamp: 2],
+            [dm_low: 100.0, dm_high: 300.0, dm_step: 1.0,  downsamp: 4],
+            [dm_low: 300.0, dm_high: 500.0, dm_step: 2.0,  downsamp: 8]
+        ]
+
+        // Acceleration search parameters
+        use_gpu             = true      // Use GPU acceleration (requires PRESTO with CUDA)
+        accelsearch_cuda_bin = "accelsearch_cu" // CUDA binary name when use_gpu=true
+        zmax                = 200       // Maximum z (acceleration) to search
+        wmax                = 0         // Maximum w (jerk) to search (0 = no jerk search)
+        numharm             = 8         // Number of harmonics to sum
+        sigma_threshold     = 2.0       // Sigma threshold for candidate detection
+        segment_chunks      = 1         // >1 to split timeseries into chunks before accelsearch
+
+        // Birdie detection (zero-DM) parameters
+        birdie_zmax         = 0         // z value for birdie detection (usually 0)
+
+        // Candidate sifting parameters
+        sift_short_period   = 0.0005    // Shortest period to consider (seconds)
+        sift_long_period    = 15.0      // Longest period to consider (seconds)
+        sift_sigma_threshold = 4.0      // Minimum sigma for sifted candidates
+        sift_max_cands      = 500       // Max candidates to keep
+        sift_min_num_dms    = 1         // Minimum DMs for detection (DM problem filter)
+        sift_low_dm_cutoff  = 2.0       // Lowest DM considered as real pulsar
+
+        // Folding parameters
+        fold_backend        = 'presto'  // Folding backend: 'presto' (prepfold) or 'pulsarx' (psrfold_fil2)
+        fold_nsub           = 128       // Number of subbands for prepfold
+        fold_npart          = 64        // Number of sub-integrations
+        fold_pstep          = 1         // Period search step
+        fold_pdstep         = 2         // Period derivative search step
+        fold_dmstep         = 2         // DM search step
+        max_fold_cands      = 100       // Maximum number of candidates to fold
+
+        // PulsarX folding parameters (when fold_backend = 'pulsarx')
+        fold_nbins          = 64        // Number of phase bins for PulsarX
+        fold_binplan        = "0.005 32 0.01 64 0.1 128"  // Bin plan for PulsarX
+        fold_subint_length  = 10.0      // Subintegration length in seconds
+        fold_clfd           = 2.0       // CLFD parameter for PulsarX
+        fold_threads        = 16        // Number of threads for PulsarX
+        fold_cdm            = 0.0       // Coherent DM for PulsarX folding
+
+        // Output parameters
+        output_dir          = "${basedir}/PRESTO"
+
+        // Container settings (PrestoZL with GPU support)
+        container           = "zjlabastro/prestozl:v1.0"  // GPU-accelerated PRESTO container
+    }
+
+    // =========================================================================
+    // Riptide FFA Pipeline Parameters (Fast Folding Algorithm search)
+    // =========================================================================
+    // Riptide runs the rffa command which handles: FFA search, peak detection,
+    // clustering, harmonic flagging, candidate filtering, and PNG plot generation.
+    // All search parameters are configured in riptide_config.yml (not here).
+    // Documentation: https://riptide-ffa.readthedocs.io/en/latest/pipeline.html
+    riptide {
+        // Enable FFA search on dedispersed time series
+        // When true, runs rffa in parallel with accelsearch on the same .inf files
+        run_ffa_search      = false
+
+        // Path to riptide YAML configuration file
+        // This file is copied from template during setup_basedir - edit it directly
+        config_file         = "${basedir}/riptide_config.yml"
+
+        // Backend for standalone run_riptide entry point
+        // Determines how time series are generated before running FFA
+        backend             = 'presto'       // Options: 'presto' or 'peasoup'
+    }
+
+    // =========================================================================
+    // Monitoring and Notification Settings
+    // =========================================================================
+    notification {
+        enabled = false              // Set to true to enable email notifications
+        email = ""                   // Email address for notifications (required if enabled)
+        on_complete = true           // Send notification when pipeline completes
+        on_fail = true               // Send notification when pipeline fails
+        on_error = true              // Send notification on errors
+        // SMTP settings (only needed if your system doesn't have sendmail configured)
+        // smtp_host = "smtp.example.com"
+        // smtp_port = 587
+        // smtp_user = ""
+        // smtp_password = ""
+    }
+}
