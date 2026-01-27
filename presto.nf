@@ -35,6 +35,8 @@
  * ============================================================================
  */
 
+// Import Riptide FFA search process for optional FFA search integration
+include { riptide_ffa_search } from './riptide'
 
 /*
  * PRESTO RFI Detection - rfifind
