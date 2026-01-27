@@ -13,6 +13,9 @@ processes: 48
 # Input data format and parameters
 data:
   format: presto    # 'presto' for prepsubband output
+  fmin:
+  fmax:
+  nchans:
 
 # DM selection range - centered around DM=30
 dmselect:
