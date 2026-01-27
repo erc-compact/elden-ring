@@ -1440,7 +1440,7 @@ workflow presto_pipeline {
             // PS files are in same directory as PFD files, just with .ps extension
             ps_ch = Channel.from(state.pfd_files).map { file("${it}.ps") }
         }
-
+        meta_ch.view { log.info "Metadata for candidates.csv: ${it}" }
         presto_postprocess(input_ch, sifted_csv_ch, pfd_ch, ps_ch, provenance_ch, meta_ch)
 
         log.info "Pipeline complete. All stages finished."
