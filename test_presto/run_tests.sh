@@ -11,7 +11,9 @@
 #   2. PRESTO pipeline with PulsarX fold
 #   3. PRESTO pipeline with Riptide FFA search
 #   4. Standalone Riptide FFA search
-#   5. Hybrid Peasoup + PRESTO accelsearch
+#   5. Hybrid Peasoup + PRESTO accelsearch + prepfold
+#   6. Hybrid Peasoup + PRESTO accelsearch + PulsarX fold
+#   7. Main Peasoup pipeline + Riptide FFA search
 #
 # Usage:
 #   ./run_tests.sh           # Run all tests
@@ -33,7 +35,7 @@ INPUT_CSV="${BASE_OUTPUT}/test_presto_inputfile.csv"
 # Parse command line arguments for selective test execution
 TESTS_TO_RUN=("$@")
 if [ ${#TESTS_TO_RUN[@]} -eq 0 ]; then
-    TESTS_TO_RUN=(1 2 3 4 5)
+    TESTS_TO_RUN=(1 2 3 4 5 6 7)
 fi
 
 should_run_test() {
@@ -173,6 +175,65 @@ if should_run_test 5; then
 fi
 
 # ==============================================================================
+# Test 6: Hybrid Peasoup + PRESTO Accelsearch + PulsarX fold
+# ==============================================================================
+if should_run_test 6; then
+    echo "=============================================="
+    echo "Test 6: Peasoup + PRESTO accelsearch + PulsarX fold"
+    echo "=============================================="
+
+    nextflow run elden.nf \
+        -entry peasoup_with_presto_search \
+        -profile hercules \
+        -c ${CONFIG_FILE} \
+        --files_list ${INPUT_CSV} \
+        --basedir ${BASE_OUTPUT}/output_hybrid_pulsarx \
+        --target_name J0514_hybrid_pulsarx \
+        --tarball_prefix hybrid_pulsarx_test \
+        --search_backend peasoup \
+        --peasoup.dump_timeseries true \
+        --peasoup.min_snr 6.0 \
+        --peasoup.acc_start -50 \
+        --peasoup.acc_end 50 \
+        --presto.fold_backend pulsarx \
+        --presto.max_fold_cands 50 \
+        --presto.fold_threads 8 \
+        --presto.zmax 100 \
+        --presto.wmax 0 \
+        --ddplan.dm_start -2 \
+        --ddplan.dm_end 2 \
+        --ddplan.dm_step 0.2 \
+        -resume
+fi
+
+# ==============================================================================
+# Test 7: Main Peasoup Pipeline + Riptide FFA Search
+# ==============================================================================
+if should_run_test 7; then
+    echo "=============================================="
+    echo "Test 7: Peasoup full pipeline + Riptide FFA"
+    echo "=============================================="
+
+    nextflow run elden.nf \
+        -entry full \
+        -profile hercules \
+        -c ${CONFIG_FILE} \
+        --files_list ${INPUT_CSV} \
+        --basedir ${BASE_OUTPUT}/output_peasoup_ffa \
+        --target_name J0514_peasoup_ffa \
+        --tarball_prefix peasoup_ffa_test \
+        --peasoup.dump_timeseries true \
+        --peasoup.min_snr 6.0 \
+        --peasoup.acc_start -50 \
+        --peasoup.acc_end 50 \
+        --riptide.run_ffa_search true \
+        --ddplan.dm_start -2 \
+        --ddplan.dm_end 2 \
+        --ddplan.dm_step 0.2 \
+        -resume
+fi
+
+# ==============================================================================
 # Summary
 # ==============================================================================
 echo ""
@@ -181,13 +242,16 @@ echo "Test Suite Complete"
 echo "=============================================="
 echo ""
 echo "Output directories:"
-echo "  Test 1 - PRESTO + prepfold:        ${BASE_OUTPUT}/output_presto_prepfold"
-echo "  Test 2 - PRESTO + PulsarX:         ${BASE_OUTPUT}/output_presto_pulsarx"
-echo "  Test 3 - PRESTO + FFA:             ${BASE_OUTPUT}/output_presto_ffa"
-echo "  Test 4 - Standalone Riptide:       ${BASE_OUTPUT}/output_riptide_standalone"
-echo "  Test 5 - Hybrid Peasoup + PRESTO:  ${BASE_OUTPUT}/output_hybrid_prepfold"
+echo "  Test 1 - PRESTO + prepfold:            ${BASE_OUTPUT}/output_presto_prepfold"
+echo "  Test 2 - PRESTO + PulsarX:             ${BASE_OUTPUT}/output_presto_pulsarx"
+echo "  Test 3 - PRESTO + FFA:                 ${BASE_OUTPUT}/output_presto_ffa"
+echo "  Test 4 - Standalone Riptide:           ${BASE_OUTPUT}/output_riptide_standalone"
+echo "  Test 5 - Hybrid Peasoup + prepfold:    ${BASE_OUTPUT}/output_hybrid_prepfold"
+echo "  Test 6 - Hybrid Peasoup + PulsarX:     ${BASE_OUTPUT}/output_hybrid_pulsarx"
+echo "  Test 7 - Peasoup full + FFA:           ${BASE_OUTPUT}/output_peasoup_ffa"
 echo ""
 echo "Expected outputs:"
 echo "  - *_presto.tar.gz: PRESTO pipeline tarball with PNG + CSV"
-echo "  - RIPTIDE_SEARCH/: FFA candidates (tests 3, 4)"
+echo "  - *_peasoup.tar.gz: Peasoup pipeline tarball"
+echo "  - RIPTIDE_SEARCH/: FFA candidates (tests 3, 4, 7)"
 echo ""
