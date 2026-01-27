@@ -101,7 +101,7 @@ git clone https://github.com/erc-compact/elden-ring.git
 cd elden-ring
 ```
 
-### Option 2: Use Nextflow's built-in pull
+### Option 2: Use Nextflow's built-in pull (recommended)
 
 ```bash
 nextflow pull erc-compact/elden-ring
@@ -135,7 +135,7 @@ bash generate_inputfile.sh \
     --ra "18:07:20.5" \
     --dec "-24:59:51" \
     --utc "2024-01-15T10:00:00" \
-    --cdm "60.0 120.0" \
+    --cdm "60.0" \
     /path/to/data/*.fil
 ```
 

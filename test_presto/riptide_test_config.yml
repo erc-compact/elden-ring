@@ -1,0 +1,94 @@
+# ============================================================================
+# Riptide FFA Test Configuration
+# ============================================================================
+#
+# Test file: J0514-4002A_3HM_000_52.0_01_noise_t4_15min_inj_FAZAL_PRESTO.fil
+# Injected pulsar at DM = 30
+#
+# ============================================================================
+
+# Number of parallel processes for FFA search
+processes: 4
+
+# Input data format and parameters
+data:
+  format: presto    # 'presto' for prepsubband output
+
+# DM selection range - centered around DM=30
+dmselect:
+  min: 25.0         # Minimum DM to search
+  max: 35.0         # Maximum DM to search
+  dmsinb_max: 100.0 # Maximum DM * sin(galactic_latitude)
+
+# Dereddening (baseline subtraction / red noise removal)
+dereddening:
+  rmed_width: 5.0   # Running median width in seconds
+  rmed_minpts: 101  # Minimum points for running median calculation
+
+# Period search ranges
+ranges:
+  # Short periods (1-50 ms) - millisecond pulsars
+  - name: 'short'
+    ffa_search:
+      period_min: 0.001     # Minimum period to search (seconds)
+      period_max: 0.05      # Maximum period to search (seconds)
+      bins_min: 64          # Minimum number of phase bins
+      bins_max: 128         # Maximum number of phase bins
+      fpmin: 4              # Minimum number of profile peaks
+      wtsp: 1.5             # Width tolerance scaling parameter
+    find_peaks:
+      smin: 6.0             # Minimum S/N threshold for peak detection
+    candidates:
+      bins: 128             # Number of bins for candidate profiles
+      subints: 16           # Number of sub-integrations for candidates
+
+  # Medium periods (50 ms - 1 s) - normal pulsars
+  - name: 'medium'
+    ffa_search:
+      period_min: 0.05
+      period_max: 1.0
+      bins_min: 240
+      bins_max: 260
+      fpmin: 8
+      wtsp: 1.5
+    find_peaks:
+      smin: 6.0
+    candidates:
+      bins: 256
+      subints: 32
+
+  # Long periods (1-10 s) - slow pulsars
+  - name: 'long'
+    ffa_search:
+      period_min: 1.0
+      period_max: 10.0
+      bins_min: 480
+      bins_max: 520
+      fpmin: 8
+      wtsp: 1.5
+    find_peaks:
+      smin: 6.0
+    candidates:
+      bins: 512
+      subints: 32
+
+# Candidate clustering
+clustering:
+  radius: 0.2       # Clustering radius (fractional period difference)
+
+# Harmonic flagging
+harmonic_flagging:
+  denom_max: 100              # Maximum denominator for harmonic relation
+  phase_distance_max: 1.0     # Maximum phase distance for harmonic match
+  dm_distance_max: 3.0        # Maximum DM distance for harmonic match
+  snr_distance_max: 3.0       # Maximum S/N distance for harmonic match
+
+# Candidate filtering - lowered thresholds for testing
+candidate_filters:
+  dm_min: 20.0                # Minimum DM for real candidates
+  snr_min: 6.0                # Minimum S/N threshold (lowered for test)
+  remove_harmonics: true      # Remove candidates flagged as harmonics
+  max_number: 100             # Maximum number of candidates to output
+
+# Output options
+plot_candidates: true         # Generate diagnostic PNG plots for candidates
