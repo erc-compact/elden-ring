@@ -29,20 +29,23 @@ dereddening:
   rmed_minpts: 101  # Minimum points for running median calculation
 
 # Period search ranges
+# Note: bins_min must satisfy: period_min / bins_min >= tsamp
+# For tsamp = 60 µs, period_min = 4 ms requires bins_min <= 66
 ranges:
-  # Short periods (1-50 ms) - millisecond pulsars
+  # Short periods (4-50 ms) - millisecond pulsars
+  # J0514-4002A has P ~ 5 ms, so this range covers it
   - name: 'short'
     ffa_search:
-      period_min: 0.001     # Minimum period to search (seconds)
+      period_min: 0.004     # Minimum period (4 ms, compatible with tsamp=60µs)
       period_max: 0.05      # Maximum period to search (seconds)
-      bins_min: 64          # Minimum number of phase bins
+      bins_min: 32          # Minimum number of phase bins
       bins_max: 128         # Maximum number of phase bins
       fpmin: 4              # Minimum number of profile peaks
       wtsp: 1.5             # Width tolerance scaling parameter
     find_peaks:
       smin: 6.0             # Minimum S/N threshold for peak detection
     candidates:
-      bins: 128             # Number of bins for candidate profiles
+      bins: 64              # Number of bins for candidate profiles
       subints: 16           # Number of sub-integrations for candidates
 
   # Medium periods (50 ms - 1 s) - normal pulsars
@@ -50,8 +53,8 @@ ranges:
     ffa_search:
       period_min: 0.05
       period_max: 1.0
-      bins_min: 240
-      bins_max: 260
+      bins_min: 128
+      bins_max: 256
       fpmin: 8
       wtsp: 1.5
     find_peaks:
@@ -65,8 +68,8 @@ ranges:
     ffa_search:
       period_min: 1.0
       period_max: 10.0
-      bins_min: 480
-      bins_max: 520
+      bins_min: 256
+      bins_max: 512
       fpmin: 8
       wtsp: 1.5
     find_peaks:
