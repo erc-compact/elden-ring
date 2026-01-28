@@ -769,8 +769,13 @@ process search_fold_merge {
     fi
     xml_files=\${xml_files:-"N/A"}
 
+    # Extract cand_id_in_file column from filtered candidate CSV for XML ID lookup
+    # The filtered CSV row order matches the candfile generation order
+    xml_id_file="xml_ids_tmp.txt"
+    awk -F',' 'NR==1{for(i=1;i<=NF;i++)if(\$i=="cand_id_in_file")col=i;next}{print \$col}' ${filtered_candidate_csv} > "\${xml_id_file}"
+
     # Write provenance header with comprehensive tracking columns
-    echo "candidate_id,png_file,ar_file,cands_file,cands_file_id,candfile,candfile_id,xml_source,dm,period,f0,f1,snr,beam,segment_id,cdm,cluster,utc_start,ra,dec" > "\${provenance_file}"
+    echo "candidate_id,png_file,ar_file,cands_file,cands_file_id,candfile,candfile_id,xml_candidate_id,xml_source,dm,period,f0,f1,snr,beam,segment_id,cdm,cluster,utc_start,ra,dec" > "\${provenance_file}"
 
     # Parse the master.cands file to extract provenance for each candidate
     master_cands_file=\$(ls *_master.cands 2>/dev/null | head -1)
@@ -796,7 +801,7 @@ process search_fold_merge {
                 candfile_path=""
                 if [[ -d "\${parsexml_dir}" ]]; then
                     # Look for candfile with matching pattern
-                    candfile_path=\$(ls "\${parsexml_dir}"/*_\${candfile_num}_*.candfile 2>/dev/null | head -1)
+                    candfile_path=\$(ls "\${parsexml_dir}"/*_\${candfile_num}.candfile 2>/dev/null | head -1)
                     if [[ -z "\${candfile_path}" ]]; then
                         candfile_path=\$(ls "\${parsexml_dir}"/*.candfile 2>/dev/null | head -1)
                     fi
@@ -815,8 +820,14 @@ process search_fold_merge {
                 fi
                 # Convert to integer (remove leading zeros)
                 final_cand_num=\$((10#\${final_cand_num}))
-                # Calculate original ID in candfile
-                candfile_id=\$(( (final_cand_num - 1) % ${params.psrfold.cands_per_node} + 1 ))
+                # Calculate original ID in candfile (0-indexed)
+                candfile_id=\$(( (final_cand_num - 1) % ${params.psrfold.cands_per_node} ))
+
+                # Look up the original XML candidate ID from the filtered CSV
+                # Global index = (candfile_num - 1) * cands_per_node + candfile_id
+                global_idx=\$(( (\${candfile_num} - 1) * ${params.psrfold.cands_per_node} + \${candfile_id} ))
+                xml_candidate_id=\$(sed -n "\$((\${global_idx} + 1))p" "\${xml_id_file}")
+                xml_candidate_id=\${xml_candidate_id:-"N/A"}
 
                 # Calculate period from f0
                 period="N/A"
@@ -829,7 +840,7 @@ process search_fold_merge {
                 # The ID in the cands file is the same as the #id column (row number)
                 cands_file_id="\${id}"
 
-                echo "\${id},\${png_file},\${ar_file},\${cands_file},\${cands_file_id},\${candfile_path},\${candfile_id},\${xml_files},\${dm_new},\${period},\${f0_new},\${f1_new},\${sn_new},${beam_name},${segments}${segment_id},${cdm},${cluster},${utc_start},${ra},${dec}" >> "\${provenance_file}"
+                echo "\${id},\${png_file},\${ar_file},\${cands_file},\${cands_file_id},\${candfile_path},\${candfile_id},\${xml_candidate_id},\${xml_files},\${dm_new},\${period},\${f0_new},\${f1_new},\${sn_new},${beam_name},${segments}${segment_id},${cdm},${cluster},${utc_start},${ra},${dec}" >> "\${provenance_file}"
             fi
         done
     else
