@@ -65,12 +65,12 @@ include {
 } from './presto'
 
 // Riptide FFA pipeline - processes and workflows from riptide.nf
+// Note: run_riptide workflow is defined below in elden.nf (needs both PRESTO and riptide)
 include {
     // Processes
     riptide_ffa_search;
     // Workflows
     riptide_search;
-    run_riptide;
     run_riptide_on_timeseries;
 } from './riptide'
 
@@ -710,6 +710,108 @@ workflow search_pipeline {
  *       --filterbank_file /path/to/original.fil
  */
 // run_riptide_on_timeseries workflow is imported from riptide.nf
+
+workflow run_riptide {
+    main:
+    // Validate inputs
+    if (!params.input_fil && !params.timeseries_input_dir) {
+        error """
+        ERROR: Either --input_fil or --timeseries_input_dir required
+
+        Usage:
+          # With PRESTO dedispersion:
+          nextflow run elden.nf -entry run_riptide --input_fil /path/to/file.fil
+
+          # With pre-existing time series:
+          nextflow run elden.nf -entry run_riptide --timeseries_input_dir /path/to/TIMESERIES
+        """
+    }
+
+    // Get riptide config file
+    def config_path = params.riptide?.config_file ?: "${params.basedir}/riptide_config.yml"
+    if (!file(config_path).exists()) {
+        error "ERROR: Riptide config file not found: ${config_path}. Run setup_basedir first or specify --riptide.config_file"
+    }
+    config_file_ch = Channel.fromPath(config_path)
+
+    // Determine input source
+    def backend = params.riptide?.backend ?: 'presto'
+
+    if (params.timeseries_input_dir) {
+        // Use pre-existing time series
+        log.info "Running Riptide FFA on pre-existing time series from: ${params.timeseries_input_dir}"
+        inf_files_ch = Channel.fromPath("${params.timeseries_input_dir}/*.inf")
+
+    } else if (backend == 'presto') {
+        // Use PRESTO for dedispersion
+        log.info "Running Riptide FFA with PRESTO dedispersion on: ${params.input_fil}"
+
+        input_file_ch = Channel.fromPath(params.input_fil)
+
+        // RFI detection
+        presto_rfifind(input_file_ch)
+
+        // Zero-DM prepdata for birdie detection
+        presto_prepdata_zerodm(
+            input_file_ch,
+            presto_rfifind.out.rfi_mask,
+            presto_rfifind.out.rfi_stats,
+            presto_rfifind.out.rfi_inf
+        )
+
+        // Birdie detection
+        presto_accelsearch_zerodm(
+            presto_prepdata_zerodm.out.dat_file,
+            presto_prepdata_zerodm.out.inf_file
+        )
+
+        // Get DM ranges - handle both list of maps (from config) and JSON string (from command line)
+        def dm_ranges_raw = params.presto?.dm_ranges ?: [
+            [dm_low: 0.0, dm_high: 100.0, dm_step: 0.5, downsamp: 1]
+        ]
+        def dm_ranges_list = (dm_ranges_raw instanceof String)
+            ? new groovy.json.JsonSlurper().parseText(dm_ranges_raw)
+            : dm_ranges_raw
+        dm_ranges_ch = Channel.from(dm_ranges_list).map { range ->
+            tuple(range.dm_low, range.dm_high, range.dm_step, range.downsamp)
+        }
+
+        // Dedisperse
+        presto_prepsubband(
+            input_file_ch,
+            presto_prepdata_zerodm.out.inf_file,
+            presto_rfifind.out.rfi_mask,
+            presto_rfifind.out.rfi_stats,
+            dm_ranges_ch
+        )
+
+        inf_files_ch = presto_prepsubband.out.inf_files.flatten()
+
+    } else if (backend == 'peasoup') {
+        // Use peasoup time series dump
+        if (!params.timeseries_input_dir) {
+            error """
+            ERROR: --timeseries_input_dir required for peasoup backend
+
+            First run peasoup with dump_timeseries=true, then:
+              nextflow run elden.nf -entry run_riptide \\
+                  --timeseries_input_dir /path/to/TIMESERIES \\
+                  --riptide.backend peasoup
+            """
+        }
+        inf_files_ch = Channel.fromPath("${params.timeseries_input_dir}/*.inf")
+
+    } else {
+        error "ERROR: Unknown backend '${backend}'. Use 'presto' or 'peasoup'."
+    }
+
+    // Run riptide FFA search
+    riptide_search(inf_files_ch, config_file_ch)
+
+    emit:
+    candidates_csv = riptide_search.out.candidates_csv
+    candidate_plots = riptide_search.out.candidate_plots
+}
 
 // Default to `full` if no --entry is given
 workflow {

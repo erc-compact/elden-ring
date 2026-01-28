@@ -35,11 +35,9 @@
  * ============================================================================
  */
 
-// Import PRESTO processes for standalone riptide with PRESTO dedispersion
-include { presto_rfifind } from './presto'
-include { presto_prepdata_zerodm } from './presto'
-include { presto_accelsearch_zerodm } from './presto'
-include { presto_prepsubband } from './presto'
+// Note: The run_riptide workflow (with PRESTO dedispersion) is defined in
+// elden.nf to avoid circular imports. This file contains only the riptide
+// process and simple workflows that don't require PRESTO processes.
 
 
 /*
@@ -111,110 +109,6 @@ workflow riptide_search {
     clusters_csv = riptide_ffa_search.out.clusters_csv
     candidate_json = riptide_ffa_search.out.candidate_json
     candidate_plots = riptide_ffa_search.out.candidate_plots
-}
-
-
-/*
- * Standalone Riptide Pipeline
- * Generates time series using selected backend, then runs FFA search
- */
-workflow run_riptide {
-    main:
-    // Validate inputs
-    if (!params.input_fil && !params.timeseries_input_dir) {
-        error """
-        ERROR: Either --input_fil or --timeseries_input_dir required
-
-        Usage:
-          # With PRESTO dedispersion:
-          nextflow run elden.nf -entry run_riptide --input_fil /path/to/file.fil --riptide.backend presto
-
-          # With pre-existing time series:
-          nextflow run elden.nf -entry run_riptide --timeseries_input_dir /path/to/TIMESERIES
-        """
-    }
-
-    // Get riptide config file
-    def config_path = params.riptide?.config_file ?: "${params.basedir}/riptide_config.yml"
-    if (!file(config_path).exists()) {
-        error "ERROR: Riptide config file not found: ${config_path}. Run setup_basedir first or specify --riptide.config_file"
-    }
-    config_file_ch = Channel.fromPath(config_path)
-
-    // Determine input source
-    def backend = params.riptide?.backend ?: 'presto'
-
-    if (params.timeseries_input_dir) {
-        // Use pre-existing time series
-        log.info "Running Riptide FFA on pre-existing time series from: ${params.timeseries_input_dir}"
-        inf_files_ch = Channel.fromPath("${params.timeseries_input_dir}/*.inf")
-
-    } else if (backend == 'presto') {
-        // Use PRESTO for dedispersion
-        log.info "Running Riptide FFA with PRESTO dedispersion on: ${params.input_fil}"
-
-        input_file_ch = Channel.fromPath(params.input_fil)
-
-        // RFI detection
-        presto_rfifind(input_file_ch)
-
-        // Zero-DM prepdata for birdie detection
-        presto_prepdata_zerodm(
-            input_file_ch,
-            presto_rfifind.out.rfi_mask,
-            presto_rfifind.out.rfi_stats,
-            presto_rfifind.out.rfi_inf
-        )
-
-        // Birdie detection
-        presto_accelsearch_zerodm(
-            presto_prepdata_zerodm.out.dat_file,
-            presto_prepdata_zerodm.out.inf_file
-        )
-
-        // Get DM ranges
-        def dm_ranges = params.presto?.dm_ranges ?: [
-            [dm_low: 0.0, dm_high: 100.0, dm_step: 0.5, downsamp: 1]
-        ]
-        dm_ranges_ch = Channel.from(dm_ranges).map { range ->
-            tuple(range.dm_low, range.dm_high, range.dm_step, range.downsamp)
-        }
-
-        // Dedisperse
-        presto_prepsubband(
-            input_file_ch,
-            presto_prepdata_zerodm.out.inf_file,
-            presto_rfifind.out.rfi_mask,
-            presto_rfifind.out.rfi_stats,
-            dm_ranges_ch
-        )
-
-        inf_files_ch = presto_prepsubband.out.inf_files.flatten()
-
-    } else if (backend == 'peasoup') {
-        // Use peasoup time series dump
-        if (!params.timeseries_input_dir) {
-            error """
-            ERROR: --timeseries_input_dir required for peasoup backend
-
-            First run peasoup with dump_timeseries=true, then:
-              nextflow run elden.nf -entry run_riptide \\
-                  --timeseries_input_dir /path/to/TIMESERIES \\
-                  --riptide.backend peasoup
-            """
-        }
-        inf_files_ch = Channel.fromPath("${params.timeseries_input_dir}/*.inf")
-
-    } else {
-        error "ERROR: Unknown backend '${backend}'. Use 'presto' or 'peasoup'."
-    }
-
-    // Run riptide FFA search
-    riptide_search(inf_files_ch, config_file_ch)
-
-    emit:
-    candidates_csv = riptide_search.out.candidates_csv
-    candidate_plots = riptide_search.out.candidate_plots
 }
 
 
