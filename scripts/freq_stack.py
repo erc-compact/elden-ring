@@ -6,8 +6,14 @@ import numpy as np
 from sigpyproc.readers import FilReader
 
 
-def freq_stack(infiles, outfile, block_size=1024):
-    """Stack multiple .fil files in frequency, time-aligned with proper flipping."""
+def freq_stack(infiles, outfile, block_size=65536):
+    """Stack multiple .fil files in frequency, time-aligned with proper flipping.
+
+    Args:
+        infiles: List of input filterbank files
+        outfile: Output stacked filterbank file
+        block_size: Samples per I/O block (default 65536 for efficient disk access)
+    """
     # 1) Open all inputs
     readers = [FilReader(f) for f in infiles]
     headers = [r.header for r in readers]
@@ -86,14 +92,28 @@ def freq_stack(infiles, outfile, block_size=1024):
         )
 
     # 8) Process data with correct offsets
+    # Pre-allocate merged array outside loop for better performance
+    merged = np.zeros((block_size, nchan_total), dtype=np.uint8)
+
+    # Pre-compute reader indices for skip calculation
+    reader_indices = {id(props["reader"]): idx for idx, props in enumerate(file_props)}
+    for i, r in enumerate(readers):
+        reader_indices[id(r)] = i
+
     written = 0
     while written < total:
         nread = min(block_size, total - written)
-        merged = np.zeros((nread, nchan_total), dtype=np.uint8)
+
+        # Only reallocate if this is the last (smaller) block
+        if nread < block_size:
+            merged = np.zeros((nread, nchan_total), dtype=np.uint8)
+        else:
+            merged.fill(0)  # Reset to zeros (faster than reallocation)
 
         for props in file_props:
             r = props["reader"]
-            arr = r.read_block(skips[readers.index(r)] + written, nread).data.T
+            reader_idx = reader_indices[id(r)]
+            arr = r.read_block(skips[reader_idx] + written, nread).data.T
 
             if props["needs_flip"]:
                 arr = np.flip(arr, axis=1)
@@ -126,7 +146,11 @@ if __name__ == "__main__":
     p.add_argument("infiles", nargs="+", help="Input .fil files")
     p.add_argument("-o", "--output", required=True, help="Output file")
     p.add_argument(
-        "-B", "--block-size", type=int, default=1024, help="Samples per block"
+        "-B",
+        "--block-size",
+        type=int,
+        default=65536,
+        help="Samples per I/O block (default: 65536). Larger values = faster but more memory.",
     )
     args = p.parse_args()
 
