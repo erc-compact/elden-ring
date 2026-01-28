@@ -71,7 +71,7 @@ process {
     withLabel: 'search_fold_merge' {
         cpus       = 1
         memory     = '5 GB'
-        time       = '15m'
+        time       = '1h'
         queue      = 'short.q'
     }
 
