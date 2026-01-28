@@ -1668,10 +1668,10 @@ For single-file mode, provide:
                 tuple(pointing, fits_files, cluster, beam_name, beam_id, utc_start, ra, dec, cdm)
             }
 
-        // For each input file, find its time series directory
+        // For each input file, find its time series directory and collect all dat/inf files
         def timeseries_channel = input_channel.flatMap { pointing, fits_file, cluster, beam_name, beam_id, utc, ra, dec, cdm ->
             def base_path = "${params.basedir}/${params.runID}/${beam_name}"
-            def timeseries_dirs = []
+            def results = []
 
             def base_dir = file(base_path)
             if (base_dir.exists()) {
@@ -1679,52 +1679,56 @@ For single-file mode, provide:
                     if (dir.name == 'TIMESERIES' && dir.isDirectory()) {
                         def dat_files = file("${dir}/*.dat")
                         def inf_files = file("${dir}/*.inf")
-                        if (dat_files || inf_files) {
-                            timeseries_dirs << tuple(
-                                pointing, fits_file, cluster, beam_name, beam_id, utc, ra, dec, cdm,
-                                dir.toString()
-                            )
+                        // Handle both single file and list cases
+                        def dat_list = dat_files instanceof List ? dat_files : (dat_files ? [dat_files] : [])
+                        def inf_list = inf_files instanceof List ? inf_files : (inf_files ? [inf_files] : [])
+                        if (dat_list) {
+                            // Emit each dat/inf pair with metadata
+                            dat_list.eachWithIndex { dat, idx ->
+                                def inf = idx < inf_list.size() ? inf_list[idx] : null
+                                if (inf) {
+                                    results << tuple(
+                                        pointing, file(fits_file), cluster, beam_name, beam_id, utc, ra, dec, cdm,
+                                        dat, inf
+                                    )
+                                }
+                            }
                         }
                     }
                 }
             }
 
-            if (timeseries_dirs.isEmpty()) {
-                log.warn "No TIMESERIES directories found for beam ${beam_name} in ${base_path}"
+            if (results.isEmpty()) {
+                log.warn "No TIMESERIES files found for beam ${beam_name} in ${base_path}"
             }
 
-            return timeseries_dirs
+            return results
         }
 
-        // Process each beam's time series
-        timeseries_channel.map { pointing, fits_file, cluster, beam_name, beam_id, utc, ra, dec, cdm, ts_dir ->
-            def dat_files = file("${ts_dir}/*.dat")
-            def inf_files = file("${ts_dir}/*.inf")
-            tuple(
-                pointing, file(fits_file), cluster, beam_name, beam_id, utc, ra, dec, cdm,
-                dat_files, inf_files, ts_dir
-            )
-        }.set { beam_timeseries }
+        // Split into separate channels for the workflow
+        timeseries_channel.multiMap { pointing, fil_file, cluster, beam_name, beam_id, utc, ra, dec, cdm, dat, inf ->
+            dat: dat
+            inf: inf
+            fil: fil_file
+            meta: tuple(pointing, fil_file, cluster, beam_name, beam_id, utc, ra, dec, cdm)
+        }.set { ts_channels }
 
-        // Process each beam separately
-        beam_timeseries.each { pointing, fil_file, cluster, beam_name, beam_id, utc, ra, dec, cdm, dat_files, inf_files, ts_dir ->
-            log.info "Processing time series for beam ${beam_name} from ${ts_dir}"
-
-            def dat_ch = Channel.fromList(dat_files instanceof List ? dat_files : [dat_files])
-            def inf_ch = Channel.fromList(inf_files instanceof List ? inf_files : [inf_files])
-            def fil_ch = Channel.of(fil_file)
-            def meta_ch = Channel.of(tuple(pointing, fil_file, cluster, beam_name, beam_id, utc, ra, dec, cdm))
-
-            // Run Riptide FFA search if enabled (runs in parallel with accelsearch)
-            if (params.riptide?.run_ffa_search) {
-                log.info "Running Riptide FFA search for beam ${beam_name}"
-                def config_path = params.riptide?.config_file ?: "${params.basedir}/riptide_config.yml"
-                def config_file_ch = channel.fromPath(config_path)
-                riptide_ffa_search(inf_ch.collect(), config_file_ch)
-            }
-
-            presto_on_peasoup_timeseries(dat_ch, inf_ch, fil_ch, meta_ch)
+        // Run Riptide FFA search if enabled
+        if (params.riptide?.run_ffa_search) {
+            log.info "Running Riptide FFA search on time series"
+            def config_path = params.riptide?.config_file ?: "${params.basedir}/riptide_config.yml"
+            def config_file_ch = channel.fromPath(config_path)
+            riptide_ffa_search(ts_channels.inf.collect(), config_file_ch)
         }
+
+        // Process all time series through the PRESTO workflow
+        // Take first fil and meta (they should all be the same for a single-file test)
+        presto_on_peasoup_timeseries(
+            ts_channels.dat,
+            ts_channels.inf,
+            ts_channels.fil.first(),
+            ts_channels.meta.first()
+        )
     }
 }
 

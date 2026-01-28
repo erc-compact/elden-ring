@@ -139,6 +139,10 @@ The pipeline uses containerized tools. Required images:
 | `rusty_candypicker` | Candidate filtering (Rust implementation) |
 | `riptide_image` | Riptide FFA periodicity search |
 
+The pipeline automatically pulls these images from Docker Hub or Singularity Hub as needed. If you want to have more control over the images or the cpu, gpu, and memory resources allocated to each process, you can copy the configurations from `~/.nextflow/assets/erc-compact/elden-ring/conf/profiles/` into your own working directory and modify them as needed. Make sure to specify the custom config file with the `-c` flag when running the pipeline.
+
+base config files for HTCondor and SLURM clusters are provided in `conf/profiles/` as condor.config.example and slurm.config.example respectively.
+
 ## Installation
 
 ### Option 1: Clone the repository

@@ -1,3 +1,28 @@
+// Default 
+params {
+    pulsarx_image         = 'docker://wintervolcano/pulsarx:latest'
+    presto_image          = 'docker://vishnubk/presto5:latest'
+    peasoup_image         = 'docker://vishnubk/peasoup:sm89'
+    rfi_mitigation_image  = 'docker://wintervolcano/rfi-mitigation-nextflow:amd64'
+    pics_classifier_image = 'docker://vishnubk/pics:20230630_pics_model_update'
+    rusty_candypicker     = 'docker://wintervolcano/rusty_candypicker:latest'
+    // PrestoZL GPU-accelerated container
+    prestozl_image        = 'docker://zjlabastro/prestozl:v1.0'
+    // Filtools sig container
+    filtools_sig_image    = 'docker://wintervolcano/filtools:latest'
+    // Riptide FFA search container
+    riptide_image         = 'docker://wintervolcano/riptide:latest'
+
+    // Number of threads for processes
+    threads = 20  // Adjust as per the Edgar cluster's CPU availability
+
+    // Update splitcands threads
+    splitcands {
+        threads = 20
+    }
+}
+
+
 process {
     executor = 'condor'
 
@@ -186,29 +211,6 @@ process {
     }
 }
 
-// Define container image paths specific to Edgar cluster
-params {
-    pulsarx_image         = 'docker://wintervolcano/pulsarx:latest'
-    presto_image          = 'docker://vishnubk/presto5:latest'
-    peasoup_image         = 'docker://vishnubk/peasoup:sm89'
-    rfi_mitigation_image  = 'docker://wintervolcano/rfi-mitigation-nextflow:amd64'
-    pics_classifier_image = 'docker://vishnubk/pics:20230630_pics_model_update'
-    rusty_candypicker     = 'docker://wintervolcano/rusty_candypicker:latest'
-    // PrestoZL GPU-accelerated container
-    prestozl_image        = 'docker://zjlabastro/prestozl:v1.0'
-    // Filtools sig container
-    filtools_sig_image    = 'docker://wintervolcano/filtools:latest'
-    // Riptide FFA search container
-    riptide_image         = 'docker://wintervolcano/riptide:latest'
-
-    // Number of threads for processes
-    threads = 20  // Adjust as per the Edgar cluster's CPU availability
-
-    // Update splitcands threads
-    splitcands {
-        threads = 20
-    }
-}
 
 // Singularity configuration for Edgar
 apptainer {

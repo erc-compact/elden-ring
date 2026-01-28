@@ -1,0 +1,363 @@
+/*
+ * =============================================================================
+ * ELDEN-RING SLURM Cluster Configuration Example
+ * =============================================================================
+ *
+ * This is a template configuration for running the pipeline on a SLURM cluster.
+ * Copy this file to your working directory and modify the values according to
+ * your cluster's specifications.
+ *
+ * Usage:
+ *   nextflow run elden.nf -entry full -c params.config -c slurm.config
+ *
+ * Key things to customize:
+ *   1. Container image paths (singularity_image_dir and individual *_image params)
+ *   2. Queue/partition names (replace 'batch', 'gpu', 'short' with your cluster's names)
+ *   3. Resource limits (cpus, memory, time) based on your cluster's constraints
+ *   4. Apptainer/Singularity bind paths for your filesystem
+ *
+ * =============================================================================
+ */
+
+// Define container image paths for your cluster
+// By default, these point to Docker Hub images
+params {
+    // Container images - update paths as needed
+    pulsarx_image         = 'docker://wintervolcano/pulsarx:latest'
+    presto_image          = 'docker://vishnubk/presto5:latest'
+    peasoup_image         = 'docker://vishnubk/peasoup:sm89'
+    rfi_mitigation_image  = 'docker://wintervolcano/rfi-mitigation-nextflow:amd64'
+    pics_classifier_image = 'docker://vishnubk/pics:20230630_pics_model_update'
+    rusty_candypicker     = 'docker://wintervolcano/rusty_candypicker:latest'
+    // PrestoZL GPU-accelerated container
+    prestozl_image        = 'docker://zjlabastro/prestozl:v1.0'
+    // Filtools sig container
+    filtools_sig_image    = 'docker://wintervolcano/filtools:latest'
+    // Riptide FFA search container
+    riptide_image         = 'docker://wintervolcano/riptide:latest'
+
+    // Number of threads for multi-threaded processes
+    threads = 16  // Adjust based on your cluster's typical node configuration
+}
+
+
+process {
+    executor = 'slurm'
+    cache = 'lenient'
+
+    // =========================================================================
+    // Default process settings (can be overridden per-label below)
+    // =========================================================================
+    // Uncomment and modify if you want default settings for all processes:
+    // cpus = 1
+    // memory = '8 GB'
+    // time = '1h'
+    // queue = 'batch'
+
+    // =========================================================================
+    // Data Preprocessing Processes
+    // =========================================================================
+
+    // Filtool Process Configuration
+    withLabel: 'filtool' {
+        cpus           = 16
+        memory         = '64 GB'
+        time           = { 4.hour * task.attempt }
+        queue          = 'batch'
+        errorStrategy  = { task.exitStatus in (137..140) ? 'retry' : 'finish' }
+        maxRetries     = 2
+    }
+
+    // RFI Filter Generation
+    withLabel: 'generate_rfi_filter' {
+        cpus           = 16
+        memory         = '64 GB'
+        time           = '4h'
+        queue          = 'batch'
+        errorStrategy  = 'retry'
+        maxRetries     = 2
+    }
+
+    // Filterbank splitting
+    withLabel: 'split_filterbank' {
+        cpus       = 1
+        memory     = '20 GB'
+        time       = '1h'
+        queue      = 'batch'
+    }
+
+    // Filterbank merging
+    withLabel: 'merge_filterbanks' {
+        cpus           = 4
+        memory         = '50 GB'
+        time           = { 2.hour * task.attempt }
+        queue          = 'batch'
+        errorStrategy  = { task.exitStatus in (137..140) ? 'retry' : 'finish' }
+        maxRetries     = 2
+    }
+
+    // Readfile Process
+    withLabel: 'readfile' {
+        cpus           = 1
+        memory         = '10 GB'
+        time           = '15m'
+        queue          = 'batch'
+        errorStrategy  = 'retry'
+        maxRetries     = 1
+    }
+
+    // =========================================================================
+    // Peasoup GPU Search Processes
+    // =========================================================================
+
+    // Birdie detection (GPU)
+    withLabel: 'birdies' {
+        cpus           = 1
+        memory         = '100 GB'
+        time           = { 4.hour * task.attempt }
+        queue          = 'gpu'
+        clusterOptions = '--gres=gpu:1'
+        errorStrategy  = { task.exitStatus in (137..140) ? 'retry' : 'finish' }
+        maxRetries     = 2
+    }
+
+    // Peasoup GPU search
+    withLabel: 'peasoup' {
+        cpus           = 1
+        memory         = '200 GB'
+        time           = { 4.hour * task.attempt }
+        queue          = 'gpu'
+        clusterOptions = '--gres=gpu:1'
+        errorStrategy  = { task.exitStatus in (137..140) ? (task.attempt < 1 ? 'retry' : 'ignore') : task.exitStatus == 1 ? 'ignore' : 'finish' }
+        maxRetries     = 1
+    }
+
+    // =========================================================================
+    // PRESTO Pipeline Processes
+    // =========================================================================
+
+    // PRESTO CPU processes (rfifind, prepdata, prepsubband, prepfold, sifting)
+    withLabel: 'presto' {
+        cpus           = 8
+        memory         = '64 GB'
+        time           = { 4.hour * task.attempt }
+        queue          = 'batch'
+        errorStrategy  = { task.exitStatus in (137..140) ? 'retry' : 'finish' }
+        maxRetries     = 2
+        container      = "${params.prestozl_image}"
+    }
+
+    // PRESTO GPU processes (accelsearch with CUDA)
+    withLabel: 'presto_gpu' {
+        cpus           = 4
+        memory         = '128 GB'
+        time           = { 4.hour * task.attempt }
+        queue          = 'gpu'
+        clusterOptions = '--gres=gpu:1'
+        errorStrategy  = { task.exitStatus in (137..140) ? 'retry' : 'finish' }
+        maxRetries     = 2
+        container      = "${params.prestozl_image}"
+    }
+
+    // =========================================================================
+    // Folding and Classification Processes
+    // =========================================================================
+
+    // PulsarX folding
+    withLabel: 'pulsarx' {
+        cpus           = 16
+        memory         = '64 GB'
+        time           = { 4.hour * task.attempt }
+        queue          = 'batch'
+        errorStrategy  = { task.exitStatus in (137..140) ? 'retry' : 'finish' }
+        maxRetries     = 2
+        container      = "${params.pulsarx_image}"
+    }
+
+    // PsrFold Process
+    withLabel: 'psrfold' {
+        cpus           = 16
+        memory         = '64 GB'
+        time           = { 4.hour * task.attempt }
+        queue          = 'batch'
+        errorStrategy  = { task.exitStatus in (137..140) ? 'retry' : 'finish' }
+        maxRetries     = 2
+    }
+
+    // PICS Classifier
+    withLabel: 'pics_classifier' {
+        cpus       = 16
+        memory     = '64 GB'
+        time       = '4h'
+        queue      = 'batch'
+    }
+
+    // Alpha-Beta-Gamma scoring
+    withLabel: 'alpha_beta_gamma_test' {
+        cpus       = 4
+        memory     = '20 GB'
+        time       = '1h'
+        queue      = 'batch'
+    }
+
+    // =========================================================================
+    // Riptide FFA Pipeline Processes
+    // =========================================================================
+
+    // Riptide FFA search
+    withLabel: 'riptide' {
+        cpus           = 16
+        memory         = '64 GB'
+        time           = { 4.hour * task.attempt }
+        queue          = 'batch'
+        errorStrategy  = { task.exitStatus in (137..140) ? 'retry' : 'finish' }
+        maxRetries     = 2
+        container      = "${params.riptide_image}"
+    }
+
+    // =========================================================================
+    // Utility / Short Processes
+    // =========================================================================
+
+    // Parse XML
+    withLabel: 'parse_xml' {
+        cpus       = 1
+        memory     = '5 GB'
+        time       = '15m'
+        queue      = 'batch'
+    }
+
+    // Split candidates
+    withLabel: 'splitcands' {
+        cpus       = 1
+        memory     = '5 GB'
+        time       = '15m'
+        queue      = 'batch'
+    }
+
+    // Search-fold merge
+    withLabel: 'search_fold_merge' {
+        cpus       = 1
+        memory     = '5 GB'
+        time       = '15m'
+        queue      = 'batch'
+    }
+
+    // DM file generation
+    withLabel: 'generateDMFiles' {
+        cpus       = 1
+        memory     = '5 GB'
+        time       = '10m'
+        queue      = 'batch'
+    }
+
+    // Nearest power of two calculation
+    withLabel: 'nearest_power_two_calculator' {
+        cpus       = 1
+        memory     = '10 GB'
+        time       = '15m'
+        queue      = 'batch'
+    }
+
+    // Segmented parameters
+    withLabel: 'segmented_params' {
+        cpus       = 1
+        memory     = '10 GB'
+        time       = '15m'
+        queue      = 'batch'
+    }
+
+    // =========================================================================
+    // Time-based labels (used with other labels)
+    // =========================================================================
+
+    // Short processes (< 1 hour)
+    withLabel: 'short' {
+        time   = '1h'
+        queue  = 'batch'
+    }
+
+    // Medium processes (1-2 hours)
+    withLabel: 'medium' {
+        time   = '2h'
+        queue  = 'batch'
+    }
+
+    // Long processes (> 2 hours)
+    withLabel: 'long' {
+        time   = { 4.hour * task.attempt }
+        queue  = 'batch'
+    }
+
+    // =========================================================================
+    // CandyPolice Re-folding Processes
+    // =========================================================================
+
+    // CandyPolice with PulsarX
+    withLabel: 'candypolice_pulsarx' {
+        cpus           = 16
+        memory         = '64 GB'
+        time           = { 4.hour * task.attempt }
+        queue          = 'batch'
+        errorStrategy  = { task.exitStatus in (137..140) ? 'retry' : 'finish' }
+        maxRetries     = 2
+    }
+
+    // CandyPolice with PRESTO
+    withLabel: 'candypolice_presto' {
+        cpus           = 8
+        memory         = '64 GB'
+        time           = { 4.hour * task.attempt }
+        queue          = 'batch'
+        errorStrategy  = { task.exitStatus in (137..140) ? 'retry' : 'finish' }
+        maxRetries     = 2
+    }
+}
+
+
+// =============================================================================
+// Apptainer/Singularity Configuration
+// =============================================================================
+// Modify the runOptions to bind your cluster's filesystems
+
+apptainer {
+    enabled = true
+    autoMounts = true
+    // Update bind paths for your cluster's filesystem layout
+    // Common patterns:
+    //   -B /scratch/           - scratch space
+    //   -B /home/              - home directories
+    //   -B /data/              - data storage
+    //   -B /projects/          - project directories
+    //   --nv                   - enable NVIDIA GPU support
+    runOptions = '-B /scratch/ -B /home/ --nv'
+    envWhitelist = 'APPTAINER_BINDPATH, APPTAINER_LD_LIBRARY_PATH'
+}
+
+
+// =============================================================================
+// Report and Trace Settings
+// =============================================================================
+
+report {
+    overwrite = true
+}
+
+trace {
+    overwrite = true
+}
+
+
+// =============================================================================
+// Optional: Email notifications
+// =============================================================================
+// Uncomment and configure to receive email notifications
+//
+// mail {
+//     smtp.host = 'smtp.your-institution.edu'
+//     smtp.port = 587
+//     smtp.user = 'your-username'
+//     smtp.password = 'your-password'
+//     smtp.auth = true
+//     smtp.starttls.enable = true
+// }
