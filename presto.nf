@@ -1344,27 +1344,44 @@ workflow presto_full {
         tuple(range.dm_low, range.dm_high, range.dm_step, range.downsamp)
     }
 
-    // Combine input file, zerodm inf, and RFI artifacts for dedispersion
-    def dedisperse_input = fil_channel
-        .zip(birdie_out.zerodm_inf)
-        .zip(rfi_out.rfi_mask)
-        .zip(rfi_out.rfi_stats)
-        .map { tuple4 -> tuple4[0][0][0], tuple4[0][0][1], tuple4[0][1], tuple4[1] }
-
     // Run dedispersion for each DM range
+    // Combine file-related outputs with dm_ranges for cartesian product (each file × all DM ranges)
+    fil_channel
+        .merge(birdie_out.zerodm_inf, rfi_out.rfi_mask, rfi_out.rfi_stats)
+        .combine(dm_ranges)
+        .multiMap { fil, inf, mask, stats, dm_low, dm_high, dm_step, downsamp ->
+            fil: fil
+            inf: inf
+            mask: mask
+            stats: stats
+            dm: tuple(dm_low, dm_high, dm_step, downsamp)
+        }
+        .set { prepsubband_inputs }
+
     presto_prepsubband(
-        dedisperse_input.map { it[0] },   // input file
-        dedisperse_input.map { it[1] },   // zerodm inf
-        dedisperse_input.map { it[2] },   // rfi mask
-        dedisperse_input.map { it[3] },   // rfi stats
-        dm_ranges
+        prepsubband_inputs.fil,
+        prepsubband_inputs.inf,
+        prepsubband_inputs.mask,
+        prepsubband_inputs.stats,
+        prepsubband_inputs.dm
     ).set { subband_out }
 
     // Run acceleration search on all dedispersed data
+    // Combine zaplist with dat/inf files for cartesian product
+    subband_out.dat_files.flatten()
+        .merge(subband_out.inf_files.flatten())
+        .combine(birdie_out.zaplist.ifEmpty(file('NO_ZAPLIST')))
+        .multiMap { dat, inf, zap ->
+            dat: dat
+            inf: inf
+            zap: zap
+        }
+        .set { accel_inputs }
+
     presto_accelsearch(
-        subband_out.dat_files.flatten(),
-        subband_out.inf_files.flatten(),
-        birdie_out.zaplist.ifEmpty(file('NO_ZAPLIST'))
+        accel_inputs.dat,
+        accel_inputs.inf,
+        accel_inputs.zap
     ).set { accel_out }
 
     // Collect all ACCEL files and sift
