@@ -162,6 +162,7 @@ if should_run_test 5; then
         -c ${CONFIG_FILE} \
         --files_list ${INPUT_CSV} \
         --basedir ${BASE_OUTPUT}/output_hybrid_prepfold \
+        --metafile_source_path ${BASE_OUTPUT} \
         --target_name J0514_hybrid_prepfold \
         --tarball_prefix hybrid_prepfold_test \
         --search_backend peasoup \
@@ -193,6 +194,7 @@ if should_run_test 6; then
         -c ${CONFIG_FILE} \
         --files_list ${INPUT_CSV} \
         --basedir ${BASE_OUTPUT}/output_hybrid_pulsarx \
+        --metafile_source_path ${BASE_OUTPUT} \
         --target_name J0514_hybrid_pulsarx \
         --tarball_prefix hybrid_pulsarx_test \
         --search_backend peasoup \
@@ -203,8 +205,8 @@ if should_run_test 6; then
         --presto.fold_backend pulsarx \
         --presto.max_fold_cands 50 \
         --presto.fold_threads 8 \
-        --presto.zmax 100 \
-        --presto.wmax 0 \
+        --presto.zmax 200 \
+        --presto.wmax 400 \
         --ddplan.dm_start -2 \
         --ddplan.dm_end 2 \
         --ddplan.dm_step 0.2 \
@@ -225,6 +227,7 @@ if should_run_test 7; then
         -c ${CONFIG_FILE} \
         --files_list ${INPUT_CSV} \
         --basedir ${BASE_OUTPUT}/output_peasoup_ffa \
+        --metafile_source_path ${BASE_OUTPUT} \
         --target_name J0514_peasoup_ffa \
         --tarball_prefix peasoup_ffa_test \
         --peasoup.dump_timeseries true \
@@ -252,6 +255,7 @@ if should_run_test 8; then
         -c ${CONFIG_FILE} \
         --files_list ${INPUT_CSV} \
         --basedir ${BASE_OUTPUT}/output_presto_csv \
+        --metafile_source_path ${BASE_OUTPUT} \
         --target_name J0514_presto_csv \
         --tarball_prefix presto_csv_test \
         --presto.dm_ranges '[{"dm_low": 29.0, "dm_high": 31.0, "dm_step": 0.2, "downsamp": 1}]' \
@@ -283,6 +287,7 @@ if should_run_test 9; then
             -c ${CONFIG_FILE} \
             --state_file ${STATE_FILE} \
             --basedir ${BASE_OUTPUT}/output_presto_statefile \
+            --metafile_source_path ${BASE_OUTPUT} \
             --target_name J0514_statefile \
             --tarball_prefix statefile_test \
             --presto.fold_backend pulsarx \
@@ -314,6 +319,7 @@ if should_run_test 10; then
             -c ${CONFIG_FILE} \
             --files_list ${INPUT_CSV} \
             --basedir ${TIMESERIES_DIR} \
+            --metafile_source_path ${BASE_OUTPUT} \
             --runID J0514_peasoup_ffa \
             --target_name J0514_accelsearch \
             --tarball_prefix accelsearch_test \
