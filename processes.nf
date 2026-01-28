@@ -776,8 +776,9 @@ process search_fold_merge {
     master_cands_file=\$(ls *_master.cands 2>/dev/null | head -1)
 
     if [[ -f "\${master_cands_file}" ]]; then
-        # Skip header line and process each row
-        tail -n +2 "\${master_cands_file}" | while IFS=',' read -r id f0_new f1_new dm_new sn_new f0_old f1_old dm_old sn_old f0_err f1_err candidate_name filename rest; do
+        # Extract columns by header name using awk to handle varying column layouts
+        # (PulsarX .cands files may have different numbers of columns depending on config)
+        awk -F',' 'NR==1{for(i=1;i<=NF;i++)c[\$i]=i;next}{OFS=",";print \$(c["#id"]),\$(c["f0_new"]),\$(c["f1_new"]),\$(c["dm_new"]),\$(c["S/N_new"]),\$(c["candidate_name"]),\$(c["filename"])}' "\${master_cands_file}" | while IFS=',' read -r id f0_new f1_new dm_new sn_new candidate_name filename; do
             # candidate_name format: CLUSTER_CANDFILENUM_cdm_CDM_ckSEGMENT_PEPOCH_BEAM_CANDNUM.png
             # filename format: CLUSTER_CANDFILENUM_cdm_CDM_ckSEGMENT_PEPOCH_BEAM.cands
 
@@ -806,6 +807,12 @@ process search_fold_merge {
                 # But we need the original candidate ID within the candfile
                 # This is computed from the candidate_name's last field (the 5-digit number)
                 final_cand_num=\$(echo "\${candidate_name}" | rev | cut -d'_' -f1 | cut -d'.' -f2 | rev)
+                # Validate before converting to integer
+                final_cand_num=\$(echo "\${final_cand_num}" | tr -d '[:space:]')
+                if [[ -z "\${final_cand_num}" || "\${final_cand_num}" =~ [^0-9] ]]; then
+                    echo "WARNING: Could not parse candidate number from \${candidate_name}" >&2
+                    continue
+                fi
                 # Convert to integer (remove leading zeros)
                 final_cand_num=\$((10#\${final_cand_num}))
                 # Calculate original ID in candfile
