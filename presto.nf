@@ -1187,7 +1187,18 @@ workflow presto_search_fold {
     }
 
     // Run acceleration search
-    presto_accelsearch(dat_ch.flatten(), inf_ch.flatten(), zaplist_ch)
+    // Pair dat/inf files together, then combine with zaplist for each pair
+    dat_ch
+        .merge(inf_ch)
+        .combine(zaplist_ch)
+        .multiMap { dat, inf, zap ->
+            dat: dat
+            inf: inf
+            zap: zap
+        }
+        .set { accel_inputs }
+
+    presto_accelsearch(accel_inputs.dat, accel_inputs.inf, accel_inputs.zap)
         .set { accel_out }
 
     // Sift candidates
