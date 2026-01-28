@@ -112,7 +112,7 @@ process {
     withLabel: 'merge_filterbanks' {
         cpus       = 4
         memory     = '50 GB'
-        time       = '2h'
+        time       = '12h'
     }
 
     // segmented_params Process Configuration

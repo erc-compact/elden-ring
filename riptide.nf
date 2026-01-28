@@ -35,6 +35,12 @@
  * ============================================================================
  */
 
+// Import PRESTO processes for standalone riptide with PRESTO dedispersion
+include { presto_rfifind } from './presto'
+include { presto_prepdata_zerodm } from './presto'
+include { presto_accelsearch_zerodm } from './presto'
+include { presto_prepsubband } from './presto'
+
 
 /*
  * Riptide FFA Search
