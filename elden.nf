@@ -152,9 +152,11 @@ workflow rfi_clean {
 
     // Run RFI filter on cleaned data for QC verification
     if (params.generateRfiFilter.run_rfi_filter) {
-        new_fil.map { p,f,c,bn,bi,u,ra,dec,cdm -> tuple(p,f,c,bn,bi,u,ra,dec,cdm,f.getName()) }
-            | readfileCleaned
-            | { ch -> generateRfiFilterCleaned(ch, "_cleaned") }
+        cleaned_with_meta = new_fil.map { p,f,c,bn,bi,u,ra,dec,cdm ->
+            tuple(p,f,c,bn,bi,u,ra,dec,cdm,f.getName())
+        }
+        cleaned_rdout = readfileCleaned(cleaned_with_meta)
+        generateRfiFilterCleaned(cleaned_rdout, "_cleaned")
     }
 
     emit:
