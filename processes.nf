@@ -177,7 +177,7 @@ process generateRfiFilter {
     val(suffix)  // Suffix for output filenames (e.g., "" or "_cleaned")
 
     output:
-    tuple val(pointing), path(fits_files), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), env(rfi_filter_string) , val(tsamp), val(nsamples) , val(subintlength), path("*.png"), path("*.txt")
+    tuple val(pointing), path(fits_files), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), env(rfi_filter_string), val(tsamp), val(nsamples), val(subintlength), path("*.png"), path("*.txt")
 
     script:
     def num_intervals = Math.floor(time_per_file.toFloat()) as int

@@ -119,8 +119,9 @@ workflow rfi_filter {
     main:
     readfile(orig_fits_channel).set{ rdout }
 
+    def suffix = params.generateRfiFilter.suffix ?: ""
     if (params.generateRfiFilter.run_rfi_filter) {
-        fil_input = generateRfiFilter(rdout, "").map { p,f,c,bn,bi,u,ra,dec,cdm,rfi,ts,ns,si,png,txt ->
+        fil_input = generateRfiFilter(rdout, suffix).map { p,f,c,bn,bi,u,ra,dec,cdm,rfi,ts,ns,si,png,txt ->
             return tuple(p,f,c,bn,bi,u,ra,dec,cdm,rfi,ts,ns,si)
         }
     } else {
@@ -137,7 +138,7 @@ workflow rfi_filter {
     fil_input
 }
 
-// rfi_clean: read metadata → (opt) generateRfiFilter → filtool
+// rfi_clean: read metadata → (opt) generateRfiFilter → filtool → (opt) QC RFI filter
 workflow rfi_clean {
     take:
     fil_input
@@ -149,47 +150,15 @@ workflow rfi_clean {
         tuple(p,f,c,bn,bi,u,ra,dec,cdm)
     }
 
+    // Run RFI filter on cleaned data for QC verification
+    if (params.generateRfiFilter.run_rfi_filter) {
+        new_fil.map { p,f,c,bn,bi,u,ra,dec,cdm -> tuple(p,f,c,bn,bi,u,ra,dec,cdm,f.getName()) }
+            | readfileCleaned
+            | { ch -> generateRfiFilterCleaned(ch, "_cleaned") }
+    }
+
     emit:
     new_fil
-}
-
-// rfi_filter_cleaned: Run RFI filter on cleaned data for QC verification
-workflow rfi_filter_cleaned {
-    take:
-    cleaned_fil_channel  // tuple(p,f,c,bn,bi,u,ra,dec,cdm)
-
-    main:
-    // Add a dummy filename for readfile input compatibility
-    cleaned_with_filename = cleaned_fil_channel.map { p,f,c,bn,bi,u,ra,dec,cdm ->
-        def filename = f.getName()
-        tuple(p,f,c,bn,bi,u,ra,dec,cdm,filename)
-    }
-
-    // Read metadata from cleaned filterbank
-    readfileCleaned(cleaned_with_filename).set{ rdout_cleaned }
-
-    // Run RFI filter with "_cleaned" suffix for comparison
-    if (params.generateRfiFilter.run_rfi_filter) {
-        generateRfiFilterCleaned(rdout_cleaned, "_cleaned")
-    }
-}
-
-// Entry point for running rfi_filter_cleaned on a single file
-// Usage: nextflow run elden.nf -entry run_rfi_filter_cleaned --fil_path /path/to/file.fil --cluster X --beam_name Y --cdm Z
-workflow run_rfi_filter_cleaned {
-    main:
-    input_ch = Channel.of(tuple(
-        params.pointing ?: "standalone",
-        file(params.fil_path),
-        params.cluster ?: "unknown",
-        params.beam_name ?: "unknown",
-        params.beam_id ?: "0",
-        params.utc_start ?: "unknown",
-        params.ra ?: "00:00:00",
-        params.dec ?: "00:00:00",
-        params.cdm ?: "0"
-    ))
-    rfi_filter_cleaned(input_ch)
 }
 
 workflow stack_by_cdm {
@@ -426,9 +395,6 @@ workflow full {
     def rfi_ch       = rfi_filter(intake_ch)
     def cleaned_ch   = rfi_clean(rfi_ch)
 
-    // Run RFI filter on cleaned data for QC verification
-    rfi_filter_cleaned(cleaned_ch)
-
     def cut_ch
     if (params.split_fil) {
         cut_ch    = split_filterbank(cleaned_ch)
@@ -459,9 +425,6 @@ workflow run_dada_search {
     def sf = dada_to_fits(dada_intake.out)
     def rfi_ch = rfi_filter(sf)
     def cleaned_ch   = rfi_clean(rfi_ch)
-
-    // Run RFI filter on cleaned data for QC verification
-    rfi_filter_cleaned(cleaned_ch)
 
     def cut_ch
     if (params.split_fil) {
@@ -501,9 +464,6 @@ workflow run_dada_clean_stack {
     def rfi_ch = rfi_filter(sf)
     def cleaned_ch   = rfi_clean(rfi_ch)
 
-    // Run RFI filter on cleaned data for QC verification
-    rfi_filter_cleaned(cleaned_ch)
-
     def cut_ch
     if (params.split_fil) {
         cut_ch    = split_filterbank(cleaned_ch)
@@ -527,8 +487,6 @@ workflow run_rfi_clean {
     intake()
     rfi_filter(intake.out)
     rfi_clean(rfi_filter.out)
-    // Run RFI filter on cleaned data for QC verification
-    rfi_filter_cleaned(rfi_clean.out)
 }
 
 // ---------- Run search and fold on filtooled files -----
@@ -565,8 +523,6 @@ workflow fold_par {
     intake()
     rfi_filter(intake.out)
     rfi_clean(rfi_filter.out)
-    // Run RFI filter on cleaned data for QC verification
-    rfi_filter_cleaned(rfi_clean.out)
     parfold(rfi_clean.out, parfile_ch)
         .set{ parfold_out }
 
