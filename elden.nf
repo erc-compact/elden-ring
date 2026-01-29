@@ -174,6 +174,24 @@ workflow rfi_filter_cleaned {
     }
 }
 
+// Entry point for running rfi_filter_cleaned on a single file
+// Usage: nextflow run elden.nf -entry run_rfi_filter_cleaned --fil_path /path/to/file.fil --cluster X --beam_name Y --cdm Z
+workflow run_rfi_filter_cleaned {
+    main:
+    input_ch = Channel.of(tuple(
+        params.pointing ?: "standalone",
+        file(params.fil_path),
+        params.cluster ?: "unknown",
+        params.beam_name ?: "unknown",
+        params.beam_id ?: "0",
+        params.utc_start ?: "unknown",
+        params.ra ?: "00:00:00",
+        params.dec ?: "00:00:00",
+        params.cdm ?: "0"
+    ))
+    rfi_filter_cleaned(input_ch)
+}
+
 workflow stack_by_cdm {
   take:
   new_fil
