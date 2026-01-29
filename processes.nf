@@ -167,19 +167,21 @@ process readfile {
 process generateRfiFilter {
     label 'generate_rfi_filter'
     container "${params.rfi_mitigation_image}"
-    tag "${cluster}_${beam_name}_cdm_${cdm}"
+    tag "${cluster}_${beam_name}_cdm_${cdm}${suffix}"
     cache 'lenient'
     // Don't use runID in publishDir for caching - use shared cache location
     publishDir "${params.basedir}/shared_cache/${cluster}/${beam_name}/RFIFILTER/", pattern: "*.{png,txt}", mode: 'copy'
 
     input:
     tuple val(pointing), path(fits_files), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(time_per_file), val(tsamp), val(nsamples), val(subintlength)
+    val(suffix)  // Suffix for output filenames (e.g., "" or "_cleaned")
 
     output:
     tuple val(pointing), path(fits_files), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), env(rfi_filter_string) , val(tsamp), val(nsamples) , val(subintlength), path("*.png"), path("*.txt")
 
     script:
     def num_intervals = Math.floor(time_per_file.toFloat()) as int
+    def output_suffix = suffix ?: ""
     """
     #!/bin/bash
     export MPLCONFIGDIR=/tmp
@@ -196,23 +198,23 @@ process generateRfiFilter {
       default_flag="${params.generateRfiFilter.default_flag} zdot"
     fi
     rfi_filter_string="\${default_flag} \${zap_commands}"
-    echo "\${rfi_filter_string}" > rfi_filter_string_cdm_${cdm}.txt
+    echo "\${rfi_filter_string}" > rfi_filter_string_cdm_${cdm}${output_suffix}.txt
 
-    mv combined_sk_heatmap_and_histogram.png ${beam_name}_cdm_${cdm}_rfi.png
-    mv combined_frequent_outliers.txt combined_frequent_outliers_${beam_name}_${cdm}.txt
-    mv block_bad_channel_percentages.txt block_bad_channel_percentages_${beam_name}_${cdm}.txt
+    mv combined_sk_heatmap_and_histogram.png ${beam_name}_cdm_${cdm}${output_suffix}_rfi.png
+    mv combined_frequent_outliers.txt combined_frequent_outliers_${beam_name}_${cdm}${output_suffix}.txt
+    mv block_bad_channel_percentages.txt block_bad_channel_percentages_${beam_name}_${cdm}${output_suffix}.txt
 
     # Also create symlinks in runID-specific directory for easy access
     if [[ -n "${params.runID}" ]]; then
         runid_dir="${params.basedir}/${params.runID}/${beam_name}/RFIFILTER"
         mkdir -p "\${runid_dir}"
 
-        ln -sf "${params.basedir}/shared_cache/${cluster}/${beam_name}/RFIFILTER/${beam_name}_cdm_${cdm}_rfi.png" "\${runid_dir}/"
-        ln -sf "${params.basedir}/shared_cache/${cluster}/${beam_name}/RFIFILTER/combined_frequent_outliers_${beam_name}_${cdm}.txt" "\${runid_dir}/"
-        ln -sf "${params.basedir}/shared_cache/${cluster}/${beam_name}/RFIFILTER/block_bad_channel_percentages_${beam_name}_${cdm}.txt" "\${runid_dir}/"
+        ln -sf "${params.basedir}/shared_cache/${cluster}/${beam_name}/RFIFILTER/${beam_name}_cdm_${cdm}${output_suffix}_rfi.png" "\${runid_dir}/"
+        ln -sf "${params.basedir}/shared_cache/${cluster}/${beam_name}/RFIFILTER/combined_frequent_outliers_${beam_name}_${cdm}${output_suffix}.txt" "\${runid_dir}/"
+        ln -sf "${params.basedir}/shared_cache/${cluster}/${beam_name}/RFIFILTER/block_bad_channel_percentages_${beam_name}_${cdm}${output_suffix}.txt" "\${runid_dir}/"
 
         # Verify symlinks were created
-        if [[ ! -L "\${runid_dir}/${beam_name}_cdm_${cdm}_rfi.png" ]]; then
+        if [[ ! -L "\${runid_dir}/${beam_name}_cdm_${cdm}${output_suffix}_rfi.png" ]]; then
             echo "WARNING: Failed to create symlink for RFI filter plots"
         fi
     fi

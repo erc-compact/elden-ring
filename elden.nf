@@ -20,6 +20,8 @@ include { psrfold } from './processes'
 include { pics_classifier } from './processes'
 include { readfile } from './processes'
 include { generateRfiFilter } from './processes'
+include { generateRfiFilter as generateRfiFilterCleaned } from './processes'
+include { readfile as readfileCleaned } from './processes'
 include { alpha_beta_gamma_test } from './processes'
 include { syncFiles } from './processes'
 include { create_candyjar_tarball } from './processes'
@@ -109,20 +111,20 @@ workflow dada_intake {
     dada_file_channel_and_meta
 }
 
-// generate_rfi_filter 
+// generate_rfi_filter
 workflow rfi_filter {
     take:
     orig_fits_channel
-    
+
     main:
     readfile(orig_fits_channel).set{ rdout }
 
     if (params.generateRfiFilter.run_rfi_filter) {
-        fil_input = generateRfiFilter(rdout).map { p,f,c,bn,bi,u,ra,dec,cdm,rfi,ts,ns,si,png,txt -> 
-            return tuple(p,f,c,bn,bi,u,ra,dec,cdm,rfi,ts,ns,si)   
+        fil_input = generateRfiFilter(rdout, "").map { p,f,c,bn,bi,u,ra,dec,cdm,rfi,ts,ns,si,png,txt ->
+            return tuple(p,f,c,bn,bi,u,ra,dec,cdm,rfi,ts,ns,si)
         }
     } else {
-        fil_input = rdout.map { p,f,c,bn,bi,u,ra,dec,cdm,tpf,ts,ns,si -> 
+        fil_input = rdout.map { p,f,c,bn,bi,u,ra,dec,cdm,tpf,ts,ns,si ->
             return tuple(
                 p,f,c,bn,bi,u,ra,dec,cdm,
                 params.filtool.rfi_filter_list[params.telescope],
@@ -131,7 +133,7 @@ workflow rfi_filter {
         }
     }
 
-    emit: 
+    emit:
     fil_input
 }
 
@@ -143,12 +145,33 @@ workflow rfi_clean {
     main:
     new_fil = params.filtool.run_filtool
     ? filtool(fil_input, params.threads, params.telescope)
-    : fil_input.map{ p,f,c,bn,bi,u,ra,dec,cdm,rfi,ts,ns,si -> 
+    : fil_input.map{ p,f,c,bn,bi,u,ra,dec,cdm,rfi,ts,ns,si ->
         tuple(p,f,c,bn,bi,u,ra,dec,cdm)
     }
 
     emit:
     new_fil
+}
+
+// rfi_filter_cleaned: Run RFI filter on cleaned data for QC verification
+workflow rfi_filter_cleaned {
+    take:
+    cleaned_fil_channel  // tuple(p,f,c,bn,bi,u,ra,dec,cdm)
+
+    main:
+    // Add a dummy filename for readfile input compatibility
+    cleaned_with_filename = cleaned_fil_channel.map { p,f,c,bn,bi,u,ra,dec,cdm ->
+        def filename = f.getName()
+        tuple(p,f,c,bn,bi,u,ra,dec,cdm,filename)
+    }
+
+    // Read metadata from cleaned filterbank
+    readfileCleaned(cleaned_with_filename).set{ rdout_cleaned }
+
+    // Run RFI filter with "_cleaned" suffix for comparison
+    if (params.generateRfiFilter.run_rfi_filter) {
+        generateRfiFilterCleaned(rdout_cleaned, "_cleaned")
+    }
 }
 
 workflow stack_by_cdm {
@@ -384,6 +407,10 @@ workflow full {
     def intake_ch    = intake()
     def rfi_ch       = rfi_filter(intake_ch)
     def cleaned_ch   = rfi_clean(rfi_ch)
+
+    // Run RFI filter on cleaned data for QC verification
+    rfi_filter_cleaned(cleaned_ch)
+
     def cut_ch
     if (params.split_fil) {
         cut_ch    = split_filterbank(cleaned_ch)
@@ -414,6 +441,9 @@ workflow run_dada_search {
     def sf = dada_to_fits(dada_intake.out)
     def rfi_ch = rfi_filter(sf)
     def cleaned_ch   = rfi_clean(rfi_ch)
+
+    // Run RFI filter on cleaned data for QC verification
+    rfi_filter_cleaned(cleaned_ch)
 
     def cut_ch
     if (params.split_fil) {
@@ -452,6 +482,10 @@ workflow run_dada_clean_stack {
     def sf = dada_to_fits(dada_intake.out)
     def rfi_ch = rfi_filter(sf)
     def cleaned_ch   = rfi_clean(rfi_ch)
+
+    // Run RFI filter on cleaned data for QC verification
+    rfi_filter_cleaned(cleaned_ch)
+
     def cut_ch
     if (params.split_fil) {
         cut_ch    = split_filterbank(cleaned_ch)
@@ -475,6 +509,8 @@ workflow run_rfi_clean {
     intake()
     rfi_filter(intake.out)
     rfi_clean(rfi_filter.out)
+    // Run RFI filter on cleaned data for QC verification
+    rfi_filter_cleaned(rfi_clean.out)
 }
 
 // ---------- Run search and fold on filtooled files -----
@@ -511,9 +547,11 @@ workflow fold_par {
     intake()
     rfi_filter(intake.out)
     rfi_clean(rfi_filter.out)
+    // Run RFI filter on cleaned data for QC verification
+    rfi_filter_cleaned(rfi_clean.out)
     parfold(rfi_clean.out, parfile_ch)
         .set{ parfold_out }
-    
+
     emit:
         parfold_out
 }
