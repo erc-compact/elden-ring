@@ -300,6 +300,7 @@ class CandidateProcessor:
                     os.path.splitext(row["fold_cands_filename"])[0] + ".png",
                 ),
                 axis=1,
+                result_type='reduce',
             )
             .unique()
             .tolist()
@@ -501,6 +502,7 @@ def process_pointing_group(args_tuple):
                 os.path.splitext(row["fold_cands_filename"])[0] + ".png",
             ),
             axis=1,
+            result_type='reduce',
         )
         .unique()
         .tolist()
@@ -528,6 +530,7 @@ def process_pointing_group(args_tuple):
                 os.path.splitext(row["fold_cands_filename"])[0] + ".png",
             ),
             axis=1,
+            result_type='reduce',
         )
         .unique()
         .tolist()
@@ -557,6 +560,7 @@ def process_pointing_group(args_tuple):
                 os.path.splitext(row["fold_cands_filename"])[0] + ".png",
             ),
             axis=1,
+            result_type='reduce',
         )
         .unique()
         .tolist()
@@ -603,6 +607,7 @@ def create_single_tarball(processor, meta_files, png_files, args, logger):
                 os.path.splitext(row["fold_cands_filename"])[0] + ".png",
             ),
             axis=1,
+            result_type='reduce',
         )
         .unique()
         .tolist()
@@ -634,6 +639,7 @@ def create_single_tarball(processor, meta_files, png_files, args, logger):
                 os.path.splitext(row["fold_cands_filename"])[0] + ".png",
             ),
             axis=1,
+            result_type='reduce',
         )
         .unique()
         .tolist()
