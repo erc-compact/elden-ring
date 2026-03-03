@@ -141,6 +141,7 @@ process presto_prepsubband {
     path input_inf
     path rfi_mask
     path rfi_stats
+    path rfi_inf
     tuple val(dm_low), val(dm_high), val(dm_step), val(downsamp)
 
     output:
@@ -154,6 +155,7 @@ process presto_prepsubband {
     def input_inf_name = input_inf.name
     def rfi_mask_name = rfi_mask.name
     def rfi_stats_name = rfi_stats.name
+    def rfi_inf_name = rfi_inf.name
     def nsub = params.presto?.nsub ?: 128
     def ndm = Math.max(1, ((dm_high.toFloat() - dm_low.toFloat()) / dm_step.toFloat()).toInteger() + 1)
     """
@@ -170,6 +172,11 @@ process presto_prepsubband {
 
     if [ ! -f "${rfi_stats_name}" ]; then
         echo "ERROR: RFI stats ${rfi_stats_name} not found"
+        exit 1
+    fi
+
+    if [ ! -f "${rfi_inf_name}" ]; then
+        echo "ERROR: RFI inf ${rfi_inf_name} not found"
         exit 1
     fi
 
@@ -1367,13 +1374,14 @@ workflow presto_full {
     // Run dedispersion for each DM range
     // Combine file-related outputs with dm_ranges for cartesian product (each file × all DM ranges)
     fil_channel
-        .merge(birdie_out.zerodm_inf, rfi_out.rfi_mask, rfi_out.rfi_stats)
+        .merge(birdie_out.zerodm_inf, rfi_out.rfi_mask, rfi_out.rfi_stats, rfi_out.rfi_inf)
         .combine(dm_ranges)
-        .multiMap { fil, inf, mask, stats, dm_low, dm_high, dm_step, downsamp ->
+        .multiMap { fil, inf, mask, stats, rfi_inf, dm_low, dm_high, dm_step, downsamp ->
             fil: fil
             inf: inf
             mask: mask
             stats: stats
+            rfi_inf: rfi_inf
             dm: tuple(dm_low, dm_high, dm_step, downsamp)
         }
         .set { prepsubband_inputs }
@@ -1383,6 +1391,7 @@ workflow presto_full {
         prepsubband_inputs.inf,
         prepsubband_inputs.mask,
         prepsubband_inputs.stats,
+        prepsubband_inputs.rfi_inf,
         prepsubband_inputs.dm
     ).set { subband_out }
 
