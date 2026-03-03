@@ -150,34 +150,38 @@ process presto_prepsubband {
 
     script:
     def basename = input_file.baseName
+    def input_name = input_file.name
+    def input_inf_name = input_inf.name
+    def rfi_mask_name = rfi_mask.name
+    def rfi_stats_name = rfi_stats.name
     def nsub = params.presto?.nsub ?: 128
     def ndm = Math.max(1, ((dm_high.toFloat() - dm_low.toFloat()) / dm_step.toFloat()).toInteger() + 1)
     """
     # Verify input files exist
-    if [ ! -f "${input_file}" ]; then
-        echo "ERROR: Input file ${input_file} not found"
+    if [ ! -f "${input_name}" ]; then
+        echo "ERROR: Input file ${input_name} not found"
         exit 1
     fi
 
-    if [ ! -f "${rfi_mask}" ]; then
-        echo "ERROR: RFI mask ${rfi_mask} not found"
+    if [ ! -f "${rfi_mask_name}" ]; then
+        echo "ERROR: RFI mask ${rfi_mask_name} not found"
         exit 1
     fi
 
-    if [ ! -f "${rfi_stats}" ]; then
-        echo "ERROR: RFI stats ${rfi_stats} not found"
+    if [ ! -f "${rfi_stats_name}" ]; then
+        echo "ERROR: RFI stats ${rfi_stats_name} not found"
         exit 1
     fi
 
     # Optional zerodm .inf file (prepsubband can operate without it for .fil)
-    if [ ! -f "${input_inf}" ]; then
-        echo "WARNING: zerodm .inf file ${input_inf} not found; continuing without it"
+    if [ ! -f "${input_inf_name}" ]; then
+        echo "WARNING: zerodm .inf file ${input_inf_name} not found; continuing without it"
     fi
 
     # Run prepsubband with correct flags (-lodm/-dmstep/-numdms)
     prepsubband -lodm ${dm_low} -dmstep ${dm_step} -numdms ${ndm} \
         -nsub ${nsub} -downsamp ${downsamp} \
-        -mask ${rfi_mask} -o ${basename} ${input_file}
+        -mask "${rfi_mask_name}" -o "${basename}" "${input_name}"
     """
 }
 
@@ -1737,4 +1741,3 @@ For single-file mode, provide:
 // ============================================================================
 // RIPTIDE FFA SEARCH WORKFLOW
 // ============================================================================
-

@@ -190,7 +190,7 @@ if [[ "${MODE}" == "dada" ]]; then
   done
 else
   echo "pointing,cluster,beam_name,beam_id,utc_start,ra,dec,fits_files,cdm" > "${OUTPUT}"
-  mapfile -t files < <(find "${DATA_DIRS[@]}" -type f \( -name "*.fil" -o -name "*.fits" -o -name "*.sf" -o -name "*.rf" \) | sort)
+  mapfile -t files < <(find "${DATA_DIRS[@]}" \( -type f -o -type l \) \( -name "*.fil" -o -name "*.fits" -o -name "*.sf" -o -name "*.rf" \) | sort)
   if [[ ${#files[@]} -eq 0 ]]; then
     echo "WARNING: no matching files found."
   fi
