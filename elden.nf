@@ -523,9 +523,11 @@ workflow run_search_fold {
 workflow fold_par {
     parfile_ch = Channel.fromPath("${params.parfold.parfile_path}")
 
-    run_rfi_clean()
+    intake()
+    rfi_filter(intake.out)
+    rfi_clean(rfi_filter.out)
 
-    parfold_input = run_rfi_clean.out.map { p, fil, c, bn, bi, u, ra, dec, ts, ns, si ->
+    parfold_input = rfi_clean.out.map { p, fil, c, bn, bi, u, ra, dec, ts, ns, si ->
         tuple(p, fil, c, bn, bi, u, ra, dec, ts, ns, si)
     }
 
@@ -535,6 +537,7 @@ workflow fold_par {
     emit:
     parfold_out
 }
+
 
 
 workflow candypolice {
