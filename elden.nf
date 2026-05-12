@@ -527,8 +527,8 @@ workflow fold_par {
     rfi_filter(intake.out)
     rfi_clean(rfi_filter.out)
 
-    parfold_input = rfi_clean.out.map { p, fil, c, bn, bi, u, ra, dec, ts, ns, si ->
-        tuple(p, fil, c, bn, bi, u, ra, dec, ts, ns, si)
+    parfold_input = rfi_clean.out.map { p, fil, c, bn, bi, u, ra, dec, dm ->
+    tuple(p, fil, c, bn, bi, u, ra, dec)
     }
 
     parfold(parfold_input, parfile_ch)

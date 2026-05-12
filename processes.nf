@@ -949,7 +949,7 @@ process parfold {
     publishDir "${params.parfold.output_path}/", pattern: "*.cands", mode: 'copy'
 
     input:
-    tuple val(pointing), path(fil_file), val(cluster),val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(tsamp), val(nsamples), val(subintlength)
+    tuple val(pointing), path(fil_file), val(cluster),val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec)
     each path(parfile_channel)
 
     output:
@@ -957,10 +957,12 @@ process parfold {
     
     script:
     def Outname = "${beam_name}_${parfile_channel.getName().replace(".par", "")}"
+    def subintlength = params.parfold.subintlength ?: 120
+    def nsubOpt = params.parfold.nsub ? "-n ${params.parfold.nsub}" : "-n 64"
     """
     #!/bin/bash
 
-    psrfold_fil --plotx --nosearch -v -t ${params.parfold.threads} --parfile ${parfile_channel} -n ${params.parfold.nsub} -b ${params.parfold.nbins} --nbinplan ${params.parfold.binplan} --template ${params.template_dir}/Effelsberg_${beam_id}.template --clfd ${params.parfold.clfd} -L ${subintlength} -f ${fil_file} -o ${Outname}
+    psrfold_fil --plotx --nosearch -v -t ${params.parfold.threads} --parfile ${parfile_channel} ${nsubOpt} -b ${params.parfold.nbins} --nbinplan ${params.parfold.binplan} --template ${params.template_dir}/Effelsberg_${beam_id}.template --clfd ${params.parfold.clfd} -L ${subintlength} -f ${fil_file} -o ${Outname}
     """
 }
 
