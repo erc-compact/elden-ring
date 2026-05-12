@@ -142,6 +142,7 @@ params {
         binplan             = "0.005 32 0.01 64 0.1 128"
         nsub                = null // give value if you want to subband. 
         clfd               = 2.0
+        template_file      = null // give value if you want to use a specific template file instead of the default one based on the beam id.
     }
 
     candypolice {

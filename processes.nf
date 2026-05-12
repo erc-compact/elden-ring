@@ -959,10 +959,11 @@ process parfold {
     def Outname = "${beam_name}_${parfile_channel.getName().replace(".par", "")}"
     def subintlength = params.parfold.subintlength ?: 120
     def nsubOpt = params.parfold.nsub ? "-n ${params.parfold.nsub}" : "-n 64"
+    def templateFile = params.parfold.template_file ?: "${params.template_dir}/meerkat_fold.template"
     """
     #!/bin/bash
 
-    psrfold_fil --plotx --nosearch -v -t ${params.parfold.threads} --parfile ${parfile_channel} ${nsubOpt} -b ${params.parfold.nbins} --nbinplan ${params.parfold.binplan} --template ${params.template_dir}/Effelsberg_${beam_id}.template --clfd ${params.parfold.clfd} -L ${subintlength} -f ${fil_file} -o ${Outname}
+    psrfold_fil --plotx --nosearch -v -t ${params.parfold.threads} --parfile ${parfile_channel} ${nsubOpt} -b ${params.parfold.nbins} --nbinplan ${params.parfold.binplan} --template ${templateFile} --clfd ${params.parfold.clfd} -L ${subintlength} -f ${fil_file} -o ${Outname}
     """
 }
 
