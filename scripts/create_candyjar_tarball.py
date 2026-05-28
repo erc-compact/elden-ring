@@ -182,9 +182,20 @@ class CandidateProcessor:
         coords = SkyCoord(ra=unique["ra"], dec=unique["dec"], unit=(u.hourangle, u.deg))
         unique["gl"] = coords.galactic.l.deg
         unique["gb"] = coords.galactic.b.deg
-        unique["mjd_start"] = Time(
-            unique["utc_start"].tolist(), format="isot", scale="utc"
-        ).mjd
+        try:
+            unique["mjd_start"] = Time(
+                unique["utc_start"].tolist(), format="isot", scale="utc"
+            ).mjd
+        except ValueError:
+            self.logger.warning(
+                "utc_start values not in ISOT format, attempting to fix date separators."
+            )
+            utc_fixed = unique["utc_start"].apply(
+                lambda x: x.replace(':', '-', 2) if len(x) > 10 and x[4] == ':' else x
+            )
+            unique["mjd_start"] = Time(
+                utc_fixed.tolist(), format="isot", scale="utc"
+            ).mjd
 
         max_dm = []
         for idx, row in unique.iterrows():
