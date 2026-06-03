@@ -903,13 +903,13 @@ process create_candyjar_tarball {
     container "${params.pulsarx_image}"
     tag "${output_tarball_name}"
     // Publish CSVs to dedicated directory for easy access
-    publishDir "${params.basedir}/${params.runID}/TARBALL_CSV/", pattern: "*_header.csv", mode: 'copy'
-    publishDir "${params.basedir}/${params.runID}/TARBALL_CSV/", pattern: "candidates.csv", mode: 'copy'
-    publishDir "${params.basedir}/${params.runID}/TARBALL_CSV/", pattern: "candidates_alpha_below_one.csv", mode: 'copy'
-    publishDir "${params.basedir}/${params.runID}/TARBALL_CSV/", pattern: "candidates_pics_above_threshold.csv", mode: 'copy'
+    publishDir "${params.basedir}/${params.runID}/TARBALL_CSV/${cluster}/", pattern: "*_header.csv", mode: 'copy'
+    publishDir "${params.basedir}/${params.runID}/TARBALL_CSV/${cluster}/", pattern: "candidates.csv", mode: 'copy'
+    publishDir "${params.basedir}/${params.runID}/TARBALL_CSV/${cluster}/", pattern: "candidates_alpha_below_one.csv", mode: 'copy'
+    publishDir "${params.basedir}/${params.runID}/TARBALL_CSV/${cluster}/", pattern: "candidates_pics_above_threshold.csv", mode: 'copy'
 
     input:
-    tuple path(candidate_results_file), val(output_tarball_name)
+    tuple val(cluster), path(candidate_results_file), val(output_tarball_name)
 
     output:
     tuple path("*_header.csv"), path("candidates.csv"), path("candidates_alpha_below_one.csv"), path("candidates_pics_above_threshold.csv")
@@ -924,8 +924,8 @@ process create_candyjar_tarball {
     echo "\$header" > "\$candidate_results_file_with_header"
     cat "${candidate_results_file}" >> "\$candidate_results_file_with_header"
 
-    publish_dir="${params.basedir}/${params.runID}/CANDIDATE_TARBALLS"
-    csv_dir="${params.basedir}/${params.runID}/TARBALL_CSV"
+    publish_dir="${params.basedir}/${params.runID}/CANDIDATE_TARBALLS/${cluster}"
+    csv_dir="${params.basedir}/${params.runID}/TARBALL_CSV/${cluster}"
     mkdir -p \${publish_dir}
     mkdir -p \${csv_dir}
 

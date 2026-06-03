@@ -128,7 +128,6 @@ params {
     alpha_beta_gamma {
         snr_min = 7.0 // if = 0, all are processed.
         create_candyjar_tarball = true
-        output_dir_alpha_pics_results = "NGC6656"
         threshold = 0.1
         snr_threshold = 6.0
     }

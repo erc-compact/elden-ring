@@ -354,13 +354,35 @@ workflow classify {
     def abg = alpha_beta_gamma_test(search_fold_merged)
     def pics = pics_classifier(search_fold_merged)
 
-    abg.join(pics, by: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10,11])
-        .map { row -> row.join(',') } // Convert each list to a CSV line
-        .collectFile(
-            name: 'alpha_beta_pics_combined.csv', 
-            newLine: true, 
-            storeDir: params.basedir
-        )
+    def joined = abg.join(pics, by: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10,11])
+        .map { row ->
+            def pointing = row[1]
+            def cluster  = row[2]
+            tuple(pointing, cluster, row.join(','))
+        }
+
+    // Collect lines into one CSV per (pointing, cluster) pair.
+    // collectFile drops the upstream tuple, so we track keys separately via an
+    // MD5 index and re-join — no parsing of filenames needed.
+    def keys = joined
+        .map { pointing, cluster, line -> tuple(pointing, cluster) }
+        .unique()
+        .map { pointing, cluster ->
+            def idx = "${pointing}_${cluster}".md5()
+            tuple(idx, pointing, cluster)
+        }
+
+    def csv_files = joined
+        .map { pointing, cluster, line ->
+            def idx = "${pointing}_${cluster}".md5()
+            tuple(idx, line)
+        }
+        .collectFile { idx, line -> [ "${idx}_combined.csv", line + '\n' ] }
+        .map { f -> tuple(f.getName().replace('_combined.csv', ''), f) }
+
+    keys
+        .join(csv_files)
+        .map { idx, pointing, cluster, f -> tuple(pointing, cluster, f) }
         .set{ abg_pics_combined_csv }
 
     emit:
@@ -369,12 +391,15 @@ workflow classify {
 
 workflow candyjar_tarball {
     take:
-    abg_pics_combined_csv
+    abg_pics_combined_csv  // tuple(pointing, cluster, csv_file)
 
     main:
     if (params.alpha_beta_gamma.create_candyjar_tarball) {
-        def tar_input = abg_pics_combined_csv.map { f ->
-            tuple(f, "${params.alpha_beta_gamma.output_dir_alpha_pics_results}.tar.gz") }
+        def tar_input = abg_pics_combined_csv.map { pointing, cluster, f ->
+            def safe_pointing = pointing.replaceAll(':', '-')
+            def tarball_name = "${cluster}_${safe_pointing}_${params.runID}.tar.gz"
+            tuple(cluster, f, tarball_name)
+        }
 
         create_candyjar_tarball(tar_input)
             .set { tarball_output }

@@ -391,10 +391,12 @@ class CandidateProcessor:
         )
 
         condition = (
-            (final_df["pics_trapum_ter5"] >= self.threshold)
-            | (final_df["pics_palfa"] >= self.threshold)
-            | (final_df["pics_palfa_meerkat_l_sband_best_fscore"] >= self.threshold)
-            | (final_df["pics_meerkat_l_sband_combined_best_recall"] >= self.threshold)
+            (
+                (final_df["pics_trapum_ter5"] >= self.threshold)
+                | (final_df["pics_palfa"] >= self.threshold)
+                | (final_df["pics_palfa_meerkat_l_sband_best_fscore"] >= self.threshold)
+                | (final_df["pics_meerkat_l_sband_combined_best_recall"] >= self.threshold)
+            )
             & (final_df["sn_fold"] >= self.snr_threshold)
         )
 
@@ -476,6 +478,7 @@ def process_pointing_group(args_tuple):
         output_prefix,
         metafile_source_path,
         threshold,
+        snr_threshold,
         output_path,
     ) = args_tuple
 
@@ -493,10 +496,13 @@ def process_pointing_group(args_tuple):
     alpha_df.to_csv(subset_alpha_csv, index=False)
 
     condition = (
-        (subset_df["pics_trapum_ter5"] >= threshold)
-        | (subset_df["pics_palfa"] >= threshold)
-        | (subset_df["pics_palfa_meerkat_l_sband_best_fscore"] >= threshold)
-        | (subset_df["pics_meerkat_l_sband_combined_best_recall"] >= threshold)
+        (
+            (subset_df["pics_trapum_ter5"] >= threshold)
+            | (subset_df["pics_palfa"] >= threshold)
+            | (subset_df["pics_palfa_meerkat_l_sband_best_fscore"] >= threshold)
+            | (subset_df["pics_meerkat_l_sband_combined_best_recall"] >= threshold)
+        )
+        & (subset_df["sn_fold"] >= snr_threshold)
     )
     pics_df = subset_df.loc[condition]
     pics_df.to_csv(subset_pics_csv, index=False)
@@ -712,6 +718,7 @@ def main():
                     output_prefix,
                     args.metafile_source_path,
                     args.threshold,
+                    args.snr_threshold,
                     args.output_path,
                 )
             )
