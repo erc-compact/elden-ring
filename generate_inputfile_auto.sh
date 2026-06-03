@@ -247,39 +247,54 @@ for filepath in "${ALL_FILES[@]}"; do
   printf '%s\t%s\t%s\t%s\n' "${filepath}" "${cluster}" "${ra}" "${dec}" >> "${CACHE_FILE}"
 done
 
-# Build pointing index keyed on cluster + YYYYMMDD + HH (hour).
-# Beams of the same observation start within seconds of each other so they
-# share the same hour. Observations of the same cluster on the same date but
-# different hours are genuinely different pointings and get different indices.
-# The canonical UTC (from the first beam seen) is stored and reused for all
-# beams of that pointing so every row in the output has an identical UTC string
-# — required for Nextflow to group them into the same tuple for stacking.
-declare -A KEY_TO_POINTING
-declare -A KEY_TO_UTC
-pointing_counter=0
+# Build pointing index:
+#   - Keyed on cluster + YYYYMMDD + HHMM so beams seconds apart share a key
+#   - Per-cluster counter starting at 1 (first obs of NGC1904 = 1, second = 2,
+#     independent of other clusters)
+#   - Canonical UTC stored from the first beam seen for each key so all beams
+#     of the same pointing write an identical UTC string to the output
+declare -A KEY_TO_POINTING   # point_key -> pointing index (1-based per cluster)
+declare -A KEY_TO_UTC        # point_key -> canonical UTC string
+declare -A CLUSTER_COUNTER   # cluster   -> next pointing index for that cluster
+
 for filepath in "${ALL_FILES[@]}"; do
   filename="$(basename "${filepath}")"
   utc_raw="$(extract_utc_from_filename "${filename}")"
   [[ -z "${utc_raw}" ]] && continue
-  if [[ -z "${RF_CACHE["${filepath}"]+x}" ]]; then continue; fi
+  [[ -z "${RF_CACHE["${filepath}"]+x}" ]] && continue
   IFS=$'\t' read -r cluster _ _ <<< "${RF_CACHE["${filepath}"]}"
+
+  # Apply avoid filters before assigning pointing (don't count skipped files)
+  [[ -n "${AVOID_PATTERN}" && "${filename}" == *"${AVOID_PATTERN}"* ]] && continue
+  skip=0
+  for avoid_name in "${AVOID[@]}"; do
+    [[ "${cluster}" == "${avoid_name}" ]] && { skip=1; break; }
+  done
+  [[ "${skip}" -eq 1 ]] && continue
+
   # utc_raw format: DD-MM-YYYYTHH:MM:SS
   date_key="${utc_raw:6:4}${utc_raw:3:2}${utc_raw:0:2}"  # YYYYMMDD
   hhmm_key="${utc_raw:11:2}${utc_raw:14:2}"               # HHMM
   point_key="${cluster}_${date_key}_${hhmm_key}"
+
   if [[ -z "${KEY_TO_POINTING["${point_key}"]+x}" ]]; then
-    KEY_TO_POINTING["${point_key}"]="${pointing_counter}"
+    next="${CLUSTER_COUNTER["${cluster}"]:-1}"
+    KEY_TO_POINTING["${point_key}"]="${next}"
     KEY_TO_UTC["${point_key}"]="${utc_raw}"
-    (( pointing_counter++ )) || true
+    CLUSTER_COUNTER["${cluster}"]=$(( next + 1 ))
   fi
 done
 
+total_pointings=0
+for _ in "${!KEY_TO_POINTING[@]}"; do (( total_pointings++ )) || true; done
+
 echo ""
-echo "Found ${pointing_counter} unique pointings (cluster + date + HHMM)."
+echo "Found ${total_pointings} unique pointings across ${#CLUSTER_COUNTER[@]} clusters."
 echo "Writing ${OUTPUT}..."
 
-echo "pointing,cluster,beam_name,beam_id,utc_start,ra,dec,fits_files,cdm" > "${OUTPUT}"
-
+# Collect all output rows into an array, then sort by cluster then pointing
+# so the file groups all beams of the same pointing together.
+declare -a ROWS=()
 skipped=0
 for filepath in "${ALL_FILES[@]}"; do
   filename="$(basename "${filepath}")"
@@ -317,23 +332,30 @@ for filepath in "${ALL_FILES[@]}"; do
   hhmm_key="${utc:11:2}${utc:14:2}"
   point_key="${cluster}_${date_key}_${hhmm_key}"
   pointing="${KEY_TO_POINTING["${point_key}"]}"
-  utc="${KEY_TO_UTC["${point_key}"]}"   # use canonical UTC for this pointing
+  utc="${KEY_TO_UTC["${point_key}"]}"
   read -r beam_id beam_name < <(extract_beam "${filename}" "${filepath}")
 
   if [[ ${#CDMS[@]} -gt 0 ]]; then
     for cdm in "${CDMS[@]}"; do
-      echo "${pointing},${cluster},${beam_name},${beam_id},${utc},${ra},${dec},${filepath},${cdm}" >> "${OUTPUT}"
+      ROWS+=("${cluster}|${pointing}|${pointing},${cluster},${beam_name},${beam_id},${utc},${ra},${dec},${filepath},${cdm}")
     done
   else
     cdm_from_file="$(extract_cdm "${filename}")"
     if [[ -n "${cdm_from_file}" ]]; then
-      echo "${pointing},${cluster},${beam_name},${beam_id},${utc},${ra},${dec},${filepath},${cdm_from_file}" >> "${OUTPUT}"
+      ROWS+=("${cluster}|${pointing}|${pointing},${cluster},${beam_name},${beam_id},${utc},${ra},${dec},${filepath},${cdm_from_file}")
     else
       echo "  WARNING: no CDM found for ${filename}, writing 0.0"
-      echo "${pointing},${cluster},${beam_name},${beam_id},${utc},${ra},${dec},${filepath},0.0" >> "${OUTPUT}"
+      ROWS+=("${cluster}|${pointing}|${pointing},${cluster},${beam_name},${beam_id},${utc},${ra},${dec},${filepath},0.0")
     fi
   fi
 done
+
+# Sort rows by cluster (field 1) then pointing index (field 2), then write
+echo "pointing,cluster,beam_name,beam_id,utc_start,ra,dec,fits_files,cdm" > "${OUTPUT}"
+printf '%s\n' "${ROWS[@]}" \
+  | sort -t'|' -k1,1 -k2,2n \
+  | cut -d'|' -f3- \
+  >> "${OUTPUT}"
 
 lines=$(( $(wc -l < "${OUTPUT}") - 1 ))
 echo ""
