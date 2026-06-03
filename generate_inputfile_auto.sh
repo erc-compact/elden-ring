@@ -1,7 +1,13 @@
 #!/bin/bash
 # Automatically generate inputfile.txt by running readfile via the presto
-# Singularity image on each FITS/filterbank file to extract cluster, RA, Dec,
-# and UTC from the file itself.
+# Singularity image to extract cluster, RA, Dec, and UTC from each FITS file.
+#
+# File structure assumed:
+#   search<beam_id>/<project>/<date>/<scan_no>/<receiver>/<SOURCE>_<FREQ>_<YYYYMMDD>-<HH:MM:SS>.fits
+#
+# Files sharing the same UTC timestamp across beams belong to the same pointing.
+# readfile is run once per unique UTC (i.e. one representative file per pointing)
+# to avoid redundant container launches. Results are cached for safe re-runs.
 #
 # Usage:
 #   bash generate_inputfile_auto.sh --sif /path/to/presto.sif [--cdm "47.0 101.0"] [--output FILE] DATA_DIR [DATA_DIR...]
@@ -18,12 +24,15 @@ USAGE:
 DESCRIPTION:
   Scans DATA_DIR(s) for .fits/.fil/.sf/.rf files, runs readfile inside the
   provided Presto Singularity image on each file, and extracts:
-    - cluster   : Source Name field
-    - ra        : RA J2000 field
-    - dec       : Dec J2000 field
-    - utc_start : parsed from the filename  (YYYYMMDD-HH:MM:SS -> DD-MM-YYYYTHH:MM:SS)
-  Beam info is extracted from the filename using the same patterns as
-  generate_inputfile.sh.
+    - cluster   : Source Name field from readfile output
+    - ra        : RA J2000 field from readfile output
+    - dec       : Dec J2000 field from readfile output
+    - utc_start : parsed from the filename (YYYYMMDD-HH:MM:SS -> DD-MM-YYYYTHH:MM:SS)
+    - beam_id   : extracted from search<N> in the directory path
+    - pointing  : auto-incremented per unique UTC timestamp (same UTC = same pointing)
+
+  readfile is run once per file. Results are cached so re-running is fast
+  and safe if the script is interrupted.
 
 OPTIONS:
   --sif FILE     Path to the Presto Singularity .sif image (required).
@@ -39,7 +48,10 @@ OPTIONS:
 
   --bind PATHS   Extra bind paths passed to singularity/apptainer -B flag.
                  Example: --bind "/data,/scratch"
-                 Default: attempts to bind the data directory automatically.
+
+  --avoid LIST   Space or comma-separated list of source/cluster names to skip.
+                 Matched against the Source Name field from readfile output.
+                 Example: --avoid "CAL,NGC1234" or --avoid "CAL NGC1234"
 
   -h, --help     Show this help message and exit.
 
@@ -47,21 +59,18 @@ OUTPUT FORMAT:
   pointing,cluster,beam_name,beam_id,utc_start,ra,dec,fits_files,cdm
 
 NOTES:
-  - UTC is extracted from the filename. Expected pattern: YYYYMMDD-HH:MM:SS
-    Output format: DD-MM-YYYYTHH:MM:SS
-  - All entries will have pointing=0
+  - File structure: search<N>/<project>/<date>/<scan>/<rcvr>/<SOURCE>_<FREQ>_<YYYYMMDD>-<HH:MM:SS>.fits
+  - beam_id/beam_name come from search<N> in the path; filename patterns
+    (cfbf, baseband, beam, Band) are checked first as a fallback.
+  - Pointing is assigned per unique UTC — all beams with the same UTC get
+    the same pointing index.
   - Supported file extensions: .fil, .fits, .sf, .rf
-  - Beam patterns recognised: cfbf[0-9]+, baseband[0-9]+, beam[0-9]+, Band[0-9]+
 
 EXAMPLES:
   bash generate_inputfile_auto.sh \
-    --sif /hercules/scratch/fkareem/singularity_img/presto4.sif \
-    --cdm "101.0" \
-    /bEDD/EDD_pipeline_data/production/pipeline_data/search1/107-23/2026-05-25/
-
-  bash generate_inputfile_auto.sh \
-    --sif docker://vishnubk/presto5:latest \
-    /bEDD/EDD_pipeline_data/production/pipeline_data/search1/107-23/2026-05-25/
+    --sif /fpra/timing/01/fazal/singularity_img/presto4.sif \
+    --cdm "360.0" \
+    /bEDD/EDD_pipeline_data/production/pipeline_data/search{3..7}/107-23/*/*/P170mm/
 
 USAGE
 }
@@ -70,6 +79,7 @@ SIF=""
 CDM_LIST=""
 OUTPUT="inputfile.txt"
 EXTRA_BIND=""
+AVOID_LIST=""
 DATA_DIRS=()
 
 while [[ $# -gt 0 ]]; do
@@ -78,6 +88,7 @@ while [[ $# -gt 0 ]]; do
     --cdm)    CDM_LIST="${2:-}";   shift 2 ;;
     --output) OUTPUT="${2:-}";     shift 2 ;;
     --bind)   EXTRA_BIND="${2:-}"; shift 2 ;;
+    --avoid)  AVOID_LIST="${2:-}"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) DATA_DIRS+=("$1"); shift ;;
   esac
@@ -106,19 +117,31 @@ else
   CDMS=()
 fi
 
+AVOID_CLEAN="$(echo "${AVOID_LIST}" | tr ',' ' ' | xargs)"
+if [[ -n "${AVOID_CLEAN}" ]]; then
+  read -r -a AVOID <<< "${AVOID_CLEAN}"
+else
+  AVOID=()
+fi
+
 # ---------------------------------------------------------------------------
-# extract_beam: identical logic to generate_inputfile.sh
+# extract_beam: directory path (search<N>) takes priority; filename patterns
+# (cfbf, baseband, beam, Band) are a fallback for other data layouts.
+# Returns: "<beam_id> <beam_name>"
 # ---------------------------------------------------------------------------
 extract_beam() {
-  local text="$1"
-  if [[ "${text}" =~ baseband([0-9]+) ]]; then
+  local filename="$1"
+  local filepath="$2"
+  if [[ "${filepath}" =~ /search([0-9]+)/ ]]; then
+    echo "${BASH_REMATCH[1]} search${BASH_REMATCH[1]}"
+  elif [[ "${filename}" =~ baseband([0-9]+) ]]; then
     local id="${BASH_REMATCH[1]}"
     printf "%s %s\n" "${id}" "$(printf "cfbf%05d" "${id}")"
-  elif [[ "${text}" =~ cfbf([0-9]+) ]]; then
+  elif [[ "${filename}" =~ cfbf([0-9]+) ]]; then
     echo "${BASH_REMATCH[1]} cfbf${BASH_REMATCH[1]}"
-  elif [[ "${text}" =~ beam([0-9]+) ]]; then
+  elif [[ "${filename}" =~ beam([0-9]+) ]]; then
     echo "${BASH_REMATCH[1]} beam${BASH_REMATCH[1]}"
-  elif [[ "${text}" =~ Band([0-9]+) ]]; then
+  elif [[ "${filename}" =~ Band([0-9]+) ]]; then
     echo "${BASH_REMATCH[1]} Band${BASH_REMATCH[1]}"
   else
     echo "0 beam0"
@@ -126,7 +149,7 @@ extract_beam() {
 }
 
 # ---------------------------------------------------------------------------
-# extract_cdm: identical logic to generate_inputfile.sh
+# extract_cdm: look for _cdm_<value> in filename
 # ---------------------------------------------------------------------------
 extract_cdm() {
   local filename="$1"
@@ -138,45 +161,29 @@ extract_cdm() {
 }
 
 # ---------------------------------------------------------------------------
-# extract_utc_from_filename: parse YYYYMMDD-HH:MM:SS from filename and
-# reformat to DD-MM-YYYYTHH:MM:SS
+# extract_utc_from_filename: YYYYMMDD-HH:MM:SS -> DD-MM-YYYYTHH:MM:SS
 # ---------------------------------------------------------------------------
 extract_utc_from_filename() {
   local filename="$1"
-  # Match YYYYMMDD-HH:MM:SS  (colons may be escaped as \: in the actual path
-  # but basename will have the real colon)
   if [[ "${filename}" =~ ([0-9]{8})-([0-9]{2}:[0-9]{2}:[0-9]{2}) ]]; then
-    local date_compact="${BASH_REMATCH[1]}"   # 20260525
-    local time_part="${BASH_REMATCH[2]}"      # 00:54:49
-    local yyyy="${date_compact:0:4}"
-    local mm="${date_compact:4:2}"
-    local dd="${date_compact:6:2}"
-    echo "${dd}-${mm}-${yyyy}T${time_part}"
+    local d="${BASH_REMATCH[1]}"
+    local t="${BASH_REMATCH[2]}"
+    echo "${d:6:2}-${d:4:2}-${d:0:4}T${t}"
   else
     echo ""
   fi
 }
 
 # ---------------------------------------------------------------------------
-# run_readfile: run readfile inside singularity on a single file and echo
-# the output. Bind the file's parent directory automatically.
+# run_readfile: one singularity exec per file, binding the storage root
 # ---------------------------------------------------------------------------
 run_readfile() {
   local filepath="$1"
-  local filedir
-  filedir="$(dirname "${filepath}")"
-
-  local bind_arg="-B ${filedir}"
-  if [[ -n "${EXTRA_BIND}" ]]; then
-    bind_arg="${bind_arg} -B ${EXTRA_BIND}"
-  fi
-
+  local bind_arg="-B $(dirname "${filepath}")"
+  [[ -n "${EXTRA_BIND}" ]] && bind_arg="${bind_arg} -B ${EXTRA_BIND}"
   "${SNG_BIN}" exec ${bind_arg} "${SIF}" readfile "${filepath}" 2>/dev/null
 }
 
-# ---------------------------------------------------------------------------
-# parse_readfile_output: extract Source Name, RA J2000, Dec J2000
-# ---------------------------------------------------------------------------
 parse_cluster() { grep -m1 'Source Name' <<< "$1" | awk -F'=' '{print $2}' | xargs; }
 parse_ra()      { grep -m1 'RA J2000 '  <<< "$1" | awk -F'=' '{print $2}' | xargs; }
 parse_dec()     { grep -m1 'Dec J2000 ' <<< "$1" | awk -F'=' '{print $2}' | xargs; }
@@ -184,50 +191,103 @@ parse_dec()     { grep -m1 'Dec J2000 ' <<< "$1" | awk -F'=' '{print $2}' | xarg
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
-echo "SIF image : ${SIF}"
-echo "Output    : ${OUTPUT}"
-echo "CDM list  : ${CDM_LIST_CLEAN:-<from filename>}"
-echo "Data dirs (${#DATA_DIRS[@]} total):"
-for d in "${DATA_DIRS[@]}"; do echo "  - $d"; done
+CACHE_FILE="${OUTPUT%.txt}.readfile_cache.tsv"
+
+echo "SIF image  : ${SIF}"
+echo "Output     : ${OUTPUT}"
+echo "Cache      : ${CACHE_FILE}"
+echo "CDM list   : ${CDM_LIST_CLEAN:-<from filename>}"
+echo "Avoid      : ${AVOID_CLEAN:-<none>}"
+echo "Data dirs  : ${#DATA_DIRS[@]} total"
 echo ""
 
-echo "pointing,cluster,beam_name,beam_id,utc_start,ra,dec,fits_files,cdm" > "${OUTPUT}"
+mapfile -t ALL_FILES < <(find "${DATA_DIRS[@]}" -type f \( -name "*.fil" -o -name "*.fits" -o -name "*.sf" -o -name "*.rf" \) | sort)
 
-pointing=0
-mapfile -t files < <(find "${DATA_DIRS[@]}" -type f \( -name "*.fil" -o -name "*.fits" -o -name "*.sf" -o -name "*.rf" \) | sort)
-
-if [[ ${#files[@]} -eq 0 ]]; then
+if [[ ${#ALL_FILES[@]} -eq 0 ]]; then
   echo "WARNING: no matching files found."
   exit 0
 fi
 
-for filepath in "${files[@]}"; do
-  filename="$(basename "${filepath}")"
-  echo "Processing: ${filename}"
+echo "Found ${#ALL_FILES[@]} files."
 
-  # --- readfile ---
-  rf_output="$(run_readfile "${filepath}")"
+# Load existing cache (filepath -> cluster<TAB>ra<TAB>dec)
+declare -A RF_CACHE
+if [[ -f "${CACHE_FILE}" ]]; then
+  echo "Loading cache from ${CACHE_FILE}"
+  while IFS=$'\t' read -r fp cluster ra dec; do
+    RF_CACHE["${fp}"]="${cluster}	${ra}	${dec}"
+  done < "${CACHE_FILE}"
+fi
 
-  cluster="$(parse_cluster "${rf_output}")"
-  ra="$(parse_ra "${rf_output}")"
-  dec="$(parse_dec "${rf_output}")"
-
-  if [[ -z "${cluster}" || -z "${ra}" || -z "${dec}" ]]; then
-    echo "  WARNING: readfile failed or missing fields for ${filename} — skipping."
+# Run readfile on any file not already cached
+echo "Running readfile on uncached files..."
+for filepath in "${ALL_FILES[@]}"; do
+  if [[ -n "${RF_CACHE["${filepath}"]+x}" ]]; then
     continue
   fi
+  filename="$(basename "${filepath}")"
+  echo "  readfile: ${filename}"
+  rf_out="$(run_readfile "${filepath}")"
+  cluster="$(parse_cluster "${rf_out}")"
+  ra="$(parse_ra "${rf_out}")"
+  dec="$(parse_dec "${rf_out}")"
+  if [[ -z "${cluster}" || -z "${ra}" || -z "${dec}" ]]; then
+    echo "  WARNING: readfile failed or missing fields for ${filename} — will skip."
+    continue
+  fi
+  RF_CACHE["${filepath}"]="${cluster}	${ra}	${dec}"
+  printf '%s\t%s\t%s\t%s\n' "${filepath}" "${cluster}" "${ra}" "${dec}" >> "${CACHE_FILE}"
+done
 
-  # --- UTC from filename ---
+# Build pointing index: unique UTC -> incrementing integer
+# Same UTC across different beams = same pointing
+declare -A UTC_TO_POINTING
+pointing_counter=0
+for filepath in "${ALL_FILES[@]}"; do
+  filename="$(basename "${filepath}")"
+  utc_raw="$(extract_utc_from_filename "${filename}")"
+  [[ -z "${utc_raw}" ]] && continue
+  if [[ -z "${UTC_TO_POINTING["${utc_raw}"]+x}" ]]; then
+    UTC_TO_POINTING["${utc_raw}"]="${pointing_counter}"
+    (( pointing_counter++ )) || true
+  fi
+done
+
+echo ""
+echo "Found ${pointing_counter} unique pointings (UTC timestamps)."
+echo "Writing ${OUTPUT}..."
+
+echo "pointing,cluster,beam_name,beam_id,utc_start,ra,dec,fits_files,cdm" > "${OUTPUT}"
+
+skipped=0
+for filepath in "${ALL_FILES[@]}"; do
+  filename="$(basename "${filepath}")"
+
+  if [[ -z "${RF_CACHE["${filepath}"]+x}" ]]; then
+    (( skipped++ )) || true
+    continue
+  fi
+  IFS=$'\t' read -r cluster ra dec <<< "${RF_CACHE["${filepath}"]}"
+
+  # Skip sources in the avoid list
+  for avoid_name in "${AVOID[@]}"; do
+    if [[ "${cluster}" == "${avoid_name}" ]]; then
+      echo "  [avoid] ${filename} (source: ${cluster})"
+      (( skipped++ )) || true
+      continue 2
+    fi
+  done
+
   utc="$(extract_utc_from_filename "${filename}")"
   if [[ -z "${utc}" ]]; then
-    echo "  WARNING: could not parse UTC from filename: ${filename} — skipping."
+    echo "  WARNING: could not parse UTC from ${filename} — skipping."
+    (( skipped++ )) || true
     continue
   fi
 
-  # --- beam ---
-  read -r beam_id beam_name < <(extract_beam "${filename}")
+  pointing="${UTC_TO_POINTING["${utc}"]}"
+  read -r beam_id beam_name < <(extract_beam "${filename}" "${filepath}")
 
-  # --- CDM ---
   if [[ ${#CDMS[@]} -gt 0 ]]; then
     for cdm in "${CDMS[@]}"; do
       echo "${pointing},${cluster},${beam_name},${beam_id},${utc},${ra},${dec},${filepath},${cdm}" >> "${OUTPUT}"
@@ -241,9 +301,8 @@ for filepath in "${files[@]}"; do
       echo "${pointing},${cluster},${beam_name},${beam_id},${utc},${ra},${dec},${filepath},0.0" >> "${OUTPUT}"
     fi
   fi
-
 done
 
 lines=$(( $(wc -l < "${OUTPUT}") - 1 ))
 echo ""
-echo "Generated ${OUTPUT} with ${lines} entries"
+echo "Generated ${OUTPUT} with ${lines} entries (${skipped} skipped)"
