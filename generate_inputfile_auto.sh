@@ -49,11 +49,16 @@ OPTIONS:
   --bind PATHS   Extra bind paths passed to singularity/apptainer -B flag.
                  Example: --bind "/data,/scratch"
 
-  --avoid LIST   Space or comma-separated list of source/cluster names to skip.
-                 Matched against the Source Name field from readfile output.
-                 Example: --avoid "CAL,NGC1234" or --avoid "CAL NGC1234"
+  --avoid LIST         Space or comma-separated list of source/cluster names to skip.
+                       Exact match against the Source Name field from readfile output.
+                       Example: --avoid "3C295,B0355+54"
 
-  -h, --help     Show this help message and exit.
+  --avoid-pattern PAT  Skip any file whose filename contains PAT (substring match).
+                       Useful when the same source name covers both valid and
+                       calibrator scans distinguishable only by filename.
+                       Example: --avoid-pattern "_R_"
+
+  -h, --help           Show this help message and exit.
 
 OUTPUT FORMAT:
   pointing,cluster,beam_name,beam_id,utc_start,ra,dec,fits_files,cdm
@@ -80,15 +85,17 @@ CDM_LIST=""
 OUTPUT="inputfile.txt"
 EXTRA_BIND=""
 AVOID_LIST=""
+AVOID_PATTERN=""
 DATA_DIRS=()
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --sif)    SIF="${2:-}";        shift 2 ;;
-    --cdm)    CDM_LIST="${2:-}";   shift 2 ;;
-    --output) OUTPUT="${2:-}";     shift 2 ;;
-    --bind)   EXTRA_BIND="${2:-}"; shift 2 ;;
-    --avoid)  AVOID_LIST="${2:-}"; shift 2 ;;
+    --sif)            SIF="${2:-}";            shift 2 ;;
+    --cdm)            CDM_LIST="${2:-}";       shift 2 ;;
+    --output)         OUTPUT="${2:-}";         shift 2 ;;
+    --bind)           EXTRA_BIND="${2:-}";     shift 2 ;;
+    --avoid)          AVOID_LIST="${2:-}";     shift 2 ;;
+    --avoid-pattern)  AVOID_PATTERN="${2:-}";  shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) DATA_DIRS+=("$1"); shift ;;
   esac
@@ -198,6 +205,7 @@ echo "Output     : ${OUTPUT}"
 echo "Cache      : ${CACHE_FILE}"
 echo "CDM list   : ${CDM_LIST_CLEAN:-<from filename>}"
 echo "Avoid      : ${AVOID_CLEAN:-<none>}"
+echo "Avoid pat  : ${AVOID_PATTERN:-<none>}"
 echo "Data dirs  : ${#DATA_DIRS[@]} total"
 echo ""
 
@@ -269,7 +277,14 @@ for filepath in "${ALL_FILES[@]}"; do
   fi
   IFS=$'\t' read -r cluster ra dec <<< "${RF_CACHE["${filepath}"]}"
 
-  # Skip sources in the avoid list
+  # Skip files whose filename contains the avoid pattern
+  if [[ -n "${AVOID_PATTERN}" && "${filename}" == *"${AVOID_PATTERN}"* ]]; then
+    echo "  [avoid-pattern] ${filename}"
+    (( skipped++ )) || true
+    continue
+  fi
+
+  # Skip sources matching an exact avoid name
   for avoid_name in "${AVOID[@]}"; do
     if [[ "${cluster}" == "${avoid_name}" ]]; then
       echo "  [avoid] ${filename} (source: ${cluster})"
