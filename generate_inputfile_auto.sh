@@ -247,22 +247,35 @@ for filepath in "${ALL_FILES[@]}"; do
   printf '%s\t%s\t%s\t%s\n' "${filepath}" "${cluster}" "${ra}" "${dec}" >> "${CACHE_FILE}"
 done
 
-# Build pointing index: unique UTC -> incrementing integer
-# Same UTC across different beams = same pointing
-declare -A UTC_TO_POINTING
+# Build pointing index keyed on cluster + YYYYMMDD + HH (hour).
+# Beams of the same observation start within seconds of each other so they
+# share the same hour. Observations of the same cluster on the same date but
+# different hours are genuinely different pointings and get different indices.
+# The canonical UTC (from the first beam seen) is stored and reused for all
+# beams of that pointing so every row in the output has an identical UTC string
+# — required for Nextflow to group them into the same tuple for stacking.
+declare -A KEY_TO_POINTING
+declare -A KEY_TO_UTC
 pointing_counter=0
 for filepath in "${ALL_FILES[@]}"; do
   filename="$(basename "${filepath}")"
   utc_raw="$(extract_utc_from_filename "${filename}")"
   [[ -z "${utc_raw}" ]] && continue
-  if [[ -z "${UTC_TO_POINTING["${utc_raw}"]+x}" ]]; then
-    UTC_TO_POINTING["${utc_raw}"]="${pointing_counter}"
+  if [[ -z "${RF_CACHE["${filepath}"]+x}" ]]; then continue; fi
+  IFS=$'\t' read -r cluster _ _ <<< "${RF_CACHE["${filepath}"]}"
+  # utc_raw format: DD-MM-YYYYTHH:MM:SS
+  date_key="${utc_raw:6:4}${utc_raw:3:2}${utc_raw:0:2}"  # YYYYMMDD
+  hhmm_key="${utc_raw:11:2}${utc_raw:14:2}"               # HHMM
+  point_key="${cluster}_${date_key}_${hhmm_key}"
+  if [[ -z "${KEY_TO_POINTING["${point_key}"]+x}" ]]; then
+    KEY_TO_POINTING["${point_key}"]="${pointing_counter}"
+    KEY_TO_UTC["${point_key}"]="${utc_raw}"
     (( pointing_counter++ )) || true
   fi
 done
 
 echo ""
-echo "Found ${pointing_counter} unique pointings (UTC timestamps)."
+echo "Found ${pointing_counter} unique pointings (cluster + date + HHMM)."
 echo "Writing ${OUTPUT}..."
 
 echo "pointing,cluster,beam_name,beam_id,utc_start,ra,dec,fits_files,cdm" > "${OUTPUT}"
@@ -300,7 +313,11 @@ for filepath in "${ALL_FILES[@]}"; do
     continue
   fi
 
-  pointing="${UTC_TO_POINTING["${utc}"]}"
+  date_key="${utc:6:4}${utc:3:2}${utc:0:2}"
+  hhmm_key="${utc:11:2}${utc:14:2}"
+  point_key="${cluster}_${date_key}_${hhmm_key}"
+  pointing="${KEY_TO_POINTING["${point_key}"]}"
+  utc="${KEY_TO_UTC["${point_key}"]}"   # use canonical UTC for this pointing
   read -r beam_id beam_name < <(extract_beam "${filename}" "${filepath}")
 
   if [[ ${#CDMS[@]} -gt 0 ]]; then
