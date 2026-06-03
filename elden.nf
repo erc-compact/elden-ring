@@ -593,76 +593,46 @@ workflow {
     else if (entry == 'fold_par')             fold_par()
     else if (entry == 'candypolice')          candypolice()
     else error "Unknown entry workflow: '${entry}'. Valid options: full, run_search_fold, run_dada_search, run_dada_clean_stack, run_digifits, generate_rfi_filter, run_rfi_clean, fold_par, candypolice"
+
+    workflow.onComplete { onComplete() }
+    workflow.onError    { onError()    }
 }
 
 // ============================================================================
 // WORKFLOW COMPLETION HANDLERS - Monitoring and Notifications
 // ============================================================================
 
-// Helper function to format duration in human-readable format
-def formatDuration(long millis) {
-    def totalSeconds = (millis / 1000L) as long
-    def seconds = totalSeconds % 60
-    def minutes = Math.floorDiv(totalSeconds, 60L) % 60
-    def hours = Math.floorDiv(totalSeconds, 3600L) % 24
-    def days = Math.floorDiv(totalSeconds, 86400L)
-
-    if (days > 0) {
-        return String.format("%dd %dh %dm %ds", days, hours, minutes, seconds)
-    } else if (hours > 0) {
-        return String.format("%dh %dm %ds", hours, minutes, seconds)
-    } else if (minutes > 0) {
-        return String.format("%dm %ds", minutes, seconds)
-    } else {
-        return String.format("%ds", seconds)
-    }
-}
-
-workflow.onComplete {
-    def duration = workflow.duration
-    def success = workflow.success
+def onComplete() {
+    def duration   = workflow.duration
+    def success    = workflow.success
     def exitStatus = workflow.exitStatus
-
-    // Safe access to params (defaults defined at top of this file)
-    def outputDir = params.basedir ?: '.'
-    def runIDStr = params.runID ?: 'N/A'
+    def outputDir  = params.basedir ?: '.'
+    def runIDStr   = params.runID ?: 'N/A'
     def notificationConfig = params.notification
 
-    // ========================================================================
     // Cumulative runtime tracking across resume runs
-    // ========================================================================
-    def runtimeFile = file("${outputDir}/.cumulative_runtime_${workflow.sessionId}.txt")
+    def runtimeFile      = file("${outputDir}/.cumulative_runtime_${workflow.sessionId}.txt")
     def cumulativeMillis = 0L
-    def runCount = 1
-
-    // Read previous cumulative time if exists
+    def runCount         = 1
     try {
         if (runtimeFile.exists()) {
             def lines = runtimeFile.readLines()
             if (lines.size() >= 2) {
                 cumulativeMillis = lines[0].toLong()
-                runCount = lines[1].toInteger() + 1
+                runCount         = lines[1].toInteger() + 1
             }
         }
     } catch (Exception e) {
         println "WARNING: Could not read cumulative runtime file: ${e.message}"
     }
-
-    // Add current run duration
     def currentMillis = duration.toMillis()
-    def totalMillis = cumulativeMillis + currentMillis
-
-    // Save updated cumulative time
+    def totalMillis   = cumulativeMillis + currentMillis
     try {
         runtimeFile.text = "${totalMillis}\n${runCount}\n"
     } catch (Exception e) {
         println "WARNING: Could not write cumulative runtime file: ${e.message}"
     }
 
-    def cumulativeDuration = formatDuration(totalMillis)
-    def currentDuration = formatDuration(currentMillis)
-
-    // Generate completion summary
     def summary = """
     ╔══════════════════════════════════════════════════════════════════════════════╗
     ║                      ELDEN-RING Pipeline Complete                            ║
@@ -678,9 +648,9 @@ workflow.onComplete {
 
     TIMING:
     -------
-    This run:              ${currentDuration}
-    Total (across resumes): ${cumulativeDuration}
-    Number of runs:        ${runCount}
+    This run:               ${formatDuration(currentMillis)}
+    Total (across resumes): ${formatDuration(totalMillis)}
+    Number of runs:         ${runCount}
 
     Completed:     ${workflow.complete}
 
@@ -695,7 +665,6 @@ workflow.onComplete {
 
     println summary
 
-    // Write summary to file
     def summaryFile = file("${outputDir}/pipeline_summary_${workflow.runName}.txt")
     try {
         summaryFile.text = summary
@@ -704,31 +673,23 @@ workflow.onComplete {
         println "WARNING: Could not write summary file: ${e.message}"
     }
 
-    // Send email notification if enabled
     if (notificationConfig?.enabled && notificationConfig?.email) {
-        def subject = "[ELDEN-RING] Pipeline ${success ? 'COMPLETED' : 'FAILED'}: ${runIDStr != 'N/A' ? runIDStr : workflow.runName}"
+        def subject    = "[ELDEN-RING] Pipeline ${success ? 'COMPLETED' : 'FAILED'}: ${runIDStr != 'N/A' ? runIDStr : workflow.runName}"
         def shouldSend = (success && notificationConfig?.on_complete) ||
                          (!success && notificationConfig?.on_fail)
-
         if (shouldSend) {
             try {
-                sendMail(
-                    to: notificationConfig.email,
-                    subject: subject,
-                    body: summary
-                )
+                sendMail(to: notificationConfig.email, subject: subject, body: summary)
                 println "Email notification sent to: ${notificationConfig.email}"
             } catch (Exception e) {
                 println "WARNING: Could not send email notification: ${e.message}"
-                println "Make sure your system has sendmail configured or SMTP settings are correct."
             }
         }
     }
 }
 
-workflow.onError {
-    // Safe access to params (defaults defined at top of this file)
-    def runIDStr = params.runID ?: 'N/A'
+def onError() {
+    def runIDStr           = params.runID ?: 'N/A'
     def notificationConfig = params.notification
 
     def errorMessage = """
@@ -748,16 +709,10 @@ workflow.onError {
 
     println errorMessage
 
-    // Send error notification if enabled
     if (notificationConfig?.enabled && notificationConfig?.email && notificationConfig?.on_error) {
         def subject = "[ELDEN-RING] Pipeline ERROR: ${runIDStr != 'N/A' ? runIDStr : workflow.runName}"
-
         try {
-            sendMail(
-                to: notificationConfig.email,
-                subject: subject,
-                body: errorMessage
-            )
+            sendMail(to: notificationConfig.email, subject: subject, body: errorMessage)
             println "Error notification sent to: ${notificationConfig.email}"
         } catch (Exception e) {
             println "WARNING: Could not send error notification: ${e.message}"
