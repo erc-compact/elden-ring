@@ -81,21 +81,17 @@ process {
     }
 }
 
-// Define container image paths specific to Edgar cluster
+// Define container image paths
 params {
-    // Container images for Edgar
-    singularity_image_dir = "/fpra/timing/01/fazal/singularity_img"
-    pulsarx_image         = "${singularity_image_dir}/pulsarx_latest.sif"
-    presto_image          = "${singularity_image_dir}/presto4.sif"
-    peasoup_image         = "${singularity_image_dir}/peasoup_sm89.sif"
-    psrchive_image        = "${singularity_image_dir}/trapum_pulsarx_fold_docker_20220411.sif"
-    rfi_mitigation_image  = "${singularity_image_dir}/rfi-mitigation-nextflow_amd64.sif"
-    presto5_image         = "${singularity_image_dir}/presto5_pddot.sif"
-    pics_classifier_image = "${singularity_image_dir}/trapum_pulsarx_fold_docker_20220411.sif"
-    rusty_candypicker     = "${singularity_image_dir}/rusty_candypicker_latest.sif"
-    filtools_sig_image    = "${singularity_image_dir}/filtools-image_sig.sif"
+    pulsarx_image         = 'docker://wintervolcano/pulsarx:latest'
+    presto_image          = 'docker://vishnubk/presto5:latest'
+    peasoup_image         = 'docker://vishnubk/peasoup:sm89'
+    rfi_mitigation_image  = 'docker://wintervolcano/rfi-mitigation-nextflow:amd64'
+    pics_classifier_image = 'docker://vishnubk/pics:20230630_pics_model_update'
+    rusty_candypicker     = 'docker://wintervolcano/rusty_candypicker:latest'
+
     // Number of threads for processes
-    threads = 20  // Adjust as per the Edgar cluster's CPU availability
+    threads = 20  // Adjust as per local CPU availability
 
     // Update splitcands threads
     splitcands {
@@ -103,12 +99,15 @@ params {
     }
 }
 
-// Singularity configuration for Edgar
+// Singularity configuration for local
 apptainer {
-        enabled = true
-        runOptions = '-B /fpra -B /beegfsEDD --nv'
-        envWhitelist = 'APPTAINER_BINDPATH, APPTAINER_LD_LIBRARY_PATH'
-    }
+    enabled      = true
+    autoMounts   = true
+    cacheDir     = "${projectDir}/.singularity"
+    ociAutoPull  = true
+    runOptions   = '-B /fpra -B /beegfsEDD --nv'
+    envWhitelist = 'APPTAINER_BINDPATH, APPTAINER_LD_LIBRARY_PATH'
+}
 
 // Report and trace settings
 report {
