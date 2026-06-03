@@ -506,15 +506,17 @@ workflow run_dada_clean_stack {
  
 // -------------Generate the rfi plots ----------
 workflow generate_rfi_filter {
-    intake()
-    rfi_filter(intake.out)
+    main:
+    def intake_ch = intake()
+    rfi_filter(intake_ch)
 }
 
 //-------------Filtool the files ----------------
 workflow run_rfi_clean {
-    intake()
-    rfi_filter(intake.out)
-    rfi_clean(rfi_filter.out)
+    main:
+    def intake_ch = intake()
+    def rfi_ch    = rfi_filter(intake_ch)
+    rfi_clean(rfi_ch)
 }
 
 // ---------- Run search and fold on filtooled files -----
@@ -547,18 +549,15 @@ workflow run_search_fold {
 
 //------------- parfold workflow ---------------
 workflow fold_par {
-    parfile_ch = Channel.fromPath("${params.parfold.parfile_path}")
-
-    intake()
-    rfi_filter(intake.out)
-    rfi_clean(rfi_filter.out)
-
-    parfold_input = rfi_clean.out.map { p, fil, c, bn, bi, u, ra, dec, dm ->
-    tuple(p, fil, c, bn, bi, u, ra, dec)
+    main:
+    def parfile_ch    = Channel.fromPath("${params.parfold.parfile_path}")
+    def intake_ch     = intake()
+    def rfi_ch        = rfi_filter(intake_ch)
+    def cleaned_ch    = rfi_clean(rfi_ch)
+    def parfold_input = cleaned_ch.map { p, fil, c, bn, bi, u, ra, dec, dm ->
+        tuple(p, fil, c, bn, bi, u, ra, dec)
     }
-
-    parfold(parfold_input, parfile_ch)
-        .set { parfold_out }
+    def parfold_out   = parfold(parfold_input, parfile_ch)
 
     emit:
     parfold_out
@@ -567,16 +566,16 @@ workflow fold_par {
 
 
 workflow candypolice {
-    intake()
-    readfile(intake.out).map{ p,f,c,bn,bi,u,ra,dec,tpf,ts,ns,si ->
+    main:
+    def intake_ch    = intake()
+    def rdout        = readfile(intake_ch).map { p,f,c,bn,bi,u,ra,dec,tpf,ts,ns,si ->
         tuple(p,f,c,bn,bi,u,ra,dec,ts,ns,si)
-    }.set{rdout}
-    candyjar_csv = Channel.fromPath("${params.candypolice.input_csv}")
-    candfiles = extract_candidates(candyjar_csv).flatMap{ cd, cf ->
+    }
+    def candyjar_csv = Channel.fromPath("${params.candypolice.input_csv}")
+    def candfiles    = extract_candidates(candyjar_csv).flatMap { cd, cf ->
         def cList = cf instanceof List ? cf : [cf]
         return tuple(cList)
     }
-    
     candypolice_pulsarx(rdout, candfiles)
 }
 
