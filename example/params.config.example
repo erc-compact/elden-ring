@@ -1,5 +1,10 @@
 params {
     cache           = 'lenient'
+    // Workflow entry point (replaces -entry CLI flag in Nextflow 26+)
+    // Options: full, run_search_fold, run_dada_search, run_dada_clean_stack,
+    //          run_digifits, generate_rfi_filter, run_rfi_clean, fold_par, candypolice
+    entry           = "full"
+
     // Base directories
     basedir         = "/b/PROCESSING_FAZAL/"
     runID          = "UBB_NGC6401_02_PERIODICITY"
@@ -12,7 +17,7 @@ params {
 
     // Input files
     files_list      = "${projectDir}/inputfile.txt"
-    metafile_source_path = "${basedir}/meta/"
+    metafile_source_path = "${params.basedir}/meta/"
 
     // Telescope configuration
     telescope       = "effelsberg"  // Options: 'meerkat', 'effelsberg', etc.
@@ -26,7 +31,7 @@ params {
     }
 
     dada{
-        dada_csv = "${basedir}/dada_files.csv"
+        dada_csv = "${params.basedir}/dada_files.csv"
         bits = 8
         nsblk = 4096
         nchan = 768
@@ -54,7 +59,7 @@ params {
     // Filtool Parameters
     filtool {
         run_filtool = true 
-        output_path = "${basedir}/Filtool"
+        output_path = "${params.basedir}/Filtool"
         td = 1    // time scrunch 
         fd = 1    // frequency scrunch
         flip = true
@@ -111,7 +116,7 @@ params {
 
     // PsrFold Parameters
     psrfold {
-        output_path = "${basedir}/PulsarX/Fold"
+        output_path = "${params.basedir}/PulsarX/Fold"
         // Define parameters for folding.
         fold_technique      = "pulsarx"  // Options: 'pulsarx', 'psrfold'
         nbins               = 32     // defaulf nbin for fold
@@ -134,7 +139,7 @@ params {
     }
 
     parfold {
-        output_path = "${basedir}/PulsarX/ParFold"
+        output_path = "${params.basedir}/PulsarX/ParFold"
         parfile_path = "/bscratch/fazal/meertime-ptuse_custom-052b72f73862/M28/J1824-2452C.par"
         threads = 48
         subintlength        = 10

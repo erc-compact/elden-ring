@@ -45,6 +45,7 @@ include { validate_inputs } from './utilities'
 // ============================================================================
 params.basedir = null
 params.runID = null
+params.entry = 'full'
 params.notification = [
     enabled: false,
     email: '',
@@ -579,9 +580,22 @@ workflow candypolice {
     candypolice_pulsarx(rdout, candfiles)
 }
 
-// Default to `full` if no --entry is given
+// Select workflow via params.entry (replaces the deprecated -entry CLI flag in NF26+)
+// Default: full
 workflow {
-    full()
+    switch (params.entry ?: 'full') {
+        case 'full':               full();               break
+        case 'run_search_fold':    run_search_fold();    break
+        case 'run_dada_search':    run_dada_search();    break
+        case 'run_dada_clean_stack': run_dada_clean_stack(); break
+        case 'run_digifits':       run_digifits();       break
+        case 'generate_rfi_filter': generate_rfi_filter(); break
+        case 'run_rfi_clean':      run_rfi_clean();      break
+        case 'fold_par':           fold_par();           break
+        case 'candypolice':        candypolice();        break
+        default:
+            error "Unknown entry workflow: '${params.entry}'. Valid options: full, run_search_fold, run_dada_search, run_dada_clean_stack, run_digifits, generate_rfi_filter, run_rfi_clean, fold_par, candypolice"
+    }
 }
 
 // ============================================================================
