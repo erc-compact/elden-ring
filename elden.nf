@@ -583,19 +583,17 @@ workflow candypolice {
 // Select workflow via params.entry (replaces the deprecated -entry CLI flag in NF26+)
 // Default: full
 workflow {
-    switch (params.entry ?: 'full') {
-        case 'full':               full();               break
-        case 'run_search_fold':    run_search_fold();    break
-        case 'run_dada_search':    run_dada_search();    break
-        case 'run_dada_clean_stack': run_dada_clean_stack(); break
-        case 'run_digifits':       run_digifits();       break
-        case 'generate_rfi_filter': generate_rfi_filter(); break
-        case 'run_rfi_clean':      run_rfi_clean();      break
-        case 'fold_par':           fold_par();           break
-        case 'candypolice':        candypolice();        break
-        default:
-            error "Unknown entry workflow: '${params.entry}'. Valid options: full, run_search_fold, run_dada_search, run_dada_clean_stack, run_digifits, generate_rfi_filter, run_rfi_clean, fold_par, candypolice"
-    }
+    def entry = params.entry ?: 'full'
+    if      (entry == 'full')                 full()
+    else if (entry == 'run_search_fold')      run_search_fold()
+    else if (entry == 'run_dada_search')      run_dada_search()
+    else if (entry == 'run_dada_clean_stack') run_dada_clean_stack()
+    else if (entry == 'run_digifits')         run_digifits()
+    else if (entry == 'generate_rfi_filter')  generate_rfi_filter()
+    else if (entry == 'run_rfi_clean')        run_rfi_clean()
+    else if (entry == 'fold_par')             fold_par()
+    else if (entry == 'candypolice')          candypolice()
+    else error "Unknown entry workflow: '${entry}'. Valid options: full, run_search_fold, run_dada_search, run_dada_clean_stack, run_digifits, generate_rfi_filter, run_rfi_clean, fold_par, candypolice"
 }
 
 // ============================================================================
