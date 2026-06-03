@@ -18,11 +18,12 @@ Examples:
 Author: Vishnu
 Date: 03-03-2025
 
-Updated: 03-03-2025
+Updated: 03-06-2026
 By: Fazal
 """
 
 import argparse
+import json
 import logging
 import os
 import sys
@@ -35,6 +36,53 @@ from astropy.coordinates import SkyCoord
 from astropy import units as u
 from astropy.time import Time
 import pygedm
+
+
+def generate_eff_metafile(utc_start: str, ra: str, dec: str, beams: list, run_id: str, path: str) -> None:
+    """Generate an Effelsberg-format .meta JSON file when no real one exists."""
+    coord = SkyCoord(ra=ra, dec=dec, unit=(u.hourangle, u.deg))
+    ra_hms  = coord.ra.to_string(unit=u.hourangle, sep=':', precision=2, pad=True)
+    dec_dms = coord.dec.to_string(unit=u.deg, sep=':', precision=1, alwayssign=True, pad=True)
+    source_name = (
+        coord.ra.to_string(unit=u.hourangle, sep='', precision=0, pad=True)[:4]
+        + coord.dec.to_string(unit=u.deg, sep='', precision=0, alwayssign=True, pad=True)[:5]
+    )
+    pointing_str = f"{source_name}, radec, {ra_hms},{dec_dms}"
+    boresight_str = f"{source_name}, radec Pulsars, {ra_hms},{dec_dms}"
+
+    # sb_id: YYYYMMDD-HHMM derived from utc_start (handles both 'T' and ' ' separator,
+    # and both '-' and ':' as time separators)
+    utc_clean = utc_start.replace('T', ' ').replace('/', '-')
+    date_part, time_part = utc_clean.split(' ')
+    date_compact = date_part.replace('-', '')
+    time_compact = time_part.replace(':', '')[:4]
+    sb_id = f"{date_compact}-{time_compact}"
+
+    # utc_start in meta format: YYYY/MM/DD HH:MM:SS
+    dt_parts = date_part.split('-')
+    t_parts   = time_part.split(':')
+    utc_meta  = f"{'/'.join(dt_parts)} {':'.join(t_parts[:3])}"
+
+    beams_dict = {b: pointing_str for b in beams}
+
+    meta = {
+        "incoherent_nchans": 768,
+        "project_name": run_id,
+        "sb_id": sb_id,
+        "beams": beams_dict,
+        "coherent_tsamp": 60e-6,
+        "beamshape": "{\"y\": 0.01, \"x\": 0.01, \"angle\": 90}",
+        "bandwidth": 750000000.0,
+        "utc_start": utc_meta,
+        "incoherent_tsamp": 60e-6,
+        "centre_frequency": 1614843750.0,
+        "boresight": boresight_str,
+        "output_dir": "",
+        "coherent_nchans": 768,
+    }
+
+    with open(path, "w") as f:
+        json.dump(meta, f, indent=2)
 
 
 def setup_logging(verbose: bool) -> logging.Logger:
@@ -56,6 +104,9 @@ class TarballCreator:
         tarball_name: str,
         additional_files: list,
         logger: logging.Logger = None,
+        telescope: str = "",
+        run_id: str = "",
+        utc_beam_map: dict = None,
     ) -> None:
         # If a logger is provided (i.e. in main process), log events; otherwise, skip logging.
         if logger:
@@ -74,14 +125,29 @@ class TarballCreator:
                         if logger:
                             logger.debug("Added metafile: %s", metafile)
                     else:
-                        # Create an empty temp file and add it
-                        with open(metafile, "w") as f:
-                            pass  # creates a blank file
-                        tar.add(metafile, arcname=arcname)
-                        if logger:
-                            logger.warning(
-                                "Metafile not found. Created blank: %s", metafile
+                        if telescope == "effelsberg" and utc_beam_map:
+                            # Derive utc_start from the metafile basename (strip .meta)
+                            utc_key = os.path.basename(metafile).replace(".meta", "")
+                            info = utc_beam_map.get(utc_key, {})
+                            generate_eff_metafile(
+                                utc_start=utc_key,
+                                ra=info.get("ra", ""),
+                                dec=info.get("dec", ""),
+                                beams=info.get("beams", []),
+                                run_id=run_id,
+                                path=metafile,
                             )
+                            if logger:
+                                logger.info("Generated Effelsberg metafile: %s", metafile)
+                        else:
+                            # Fallback: create an empty file
+                            with open(metafile, "w") as f:
+                                pass
+                            if logger:
+                                logger.warning(
+                                    "Metafile not found. Created blank: %s", metafile
+                                )
+                        tar.add(metafile, arcname=arcname)
                 # Add PNG images into the 'plots' folder.
                 for png in png_files:
                     # check if the file exists
@@ -124,6 +190,8 @@ class CandidateProcessor:
         threshold: float,
         snr_threshold: float,
         logger: logging.Logger,
+        telescope: str = "",
+        run_id: str = "",
     ):
         self.input_file = input_file
         self.output_tarball = output_tarball
@@ -132,6 +200,8 @@ class CandidateProcessor:
         self.threshold = threshold
         self.snr_threshold = snr_threshold
         self.logger = logger
+        self.telescope = telescope
+        self.run_id = run_id
 
         # Intermediate CSV filenames.
         self.candidates_csv = "candidates.csv"
@@ -368,17 +438,27 @@ class CandidateProcessor:
             for start in unique_starts
         ]
 
+        # Build a map of utc_start -> {ra, dec, beams} for metafile generation
+        utc_beam_map = {}
+        for utc in unique_starts:
+            subset = final_df[final_df["utc_start"] == utc]
+            utc_beam_map[utc] = {
+                "ra":    subset["ra"].iloc[0],
+                "dec":   subset["dec"].iloc[0],
+                "beams": sorted(subset["beam_name"].unique().tolist()),
+            }
+
         self.logger.info("Final DataFrame ready with %d rows.", final_df.shape[0])
-        
+
         final_df = final_df[final_df["sn_fold"] > self.snr_threshold]
-        
+
         self.logger.info(
             "Filtered DataFrame to %d rows with SNR threshold: %f",
             final_df.shape[0],
             self.snr_threshold,
         )
-        
-        return final_df, png_files, meta_files
+
+        return final_df, png_files, meta_files, utc_beam_map
 
     def filter_and_save(self, final_df: pd.DataFrame) -> None:
         final_df.to_csv(self.candidates_csv, index=False)
@@ -406,14 +486,14 @@ class CandidateProcessor:
             "Saved %d pics candidates to '%s'.", pics_df.shape[0], self.pics_csv
         )
 
-    def process(self) -> (list, list):
+    def process(self) -> (list, list, dict):
         df = self.load_input_dataframe()
         df = self.preprocess_dataframe(df)
         df = self.add_galactic_info(df)
         merged_df = self.merge_candidate_files(df)
-        final_df, png_files, meta_files = self.finalize_dataframe(merged_df)
+        final_df, png_files, meta_files, utc_beam_map = self.finalize_dataframe(merged_df)
         self.filter_and_save(final_df)
-        return png_files, meta_files
+        return png_files, meta_files, utc_beam_map
 
 
 def chunk_list(lst: list, n: int) -> list:
@@ -466,6 +546,16 @@ def parse_arguments() -> argparse.Namespace:
         ),
     )
     parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
+    parser.add_argument(
+        "--telescope",
+        default="",
+        help="Telescope name (e.g. 'effelsberg'). Used to generate metafiles when none exist.",
+    )
+    parser.add_argument(
+        "--run_id",
+        default="",
+        help="Run ID used as project_name in generated Effelsberg metafiles.",
+    )
     return parser.parse_args()
 
 
@@ -601,8 +691,7 @@ def process_pointing_group(args_tuple):
     )
 
 
-def create_single_tarball(processor, meta_files, png_files, args, logger):
-    # Comment this out if you want the tarball with all the candidates
+def create_single_tarball(processor, meta_files, png_files, args, logger, utc_beam_map):
     main_tarball = os.path.join(args.output_path, args.output_file)
     additional_files = [processor.alpha_csv, processor.pics_csv]
     TarballCreator.create_tarball(
@@ -612,6 +701,9 @@ def create_single_tarball(processor, meta_files, png_files, args, logger):
         tarball_name=main_tarball,
         additional_files=additional_files,
         logger=logger,
+        telescope=args.telescope,
+        run_id=args.run_id,
+        utc_beam_map=utc_beam_map,
     )
     logger.info("Created single tarball with all candidates: %s", args.output_file)
 
@@ -644,6 +736,9 @@ def create_single_tarball(processor, meta_files, png_files, args, logger):
         tarball_name=alpha_output_file,
         additional_files=[],
         logger=logger,
+        telescope=args.telescope,
+        run_id=args.run_id,
+        utc_beam_map=utc_beam_map,
     )
     logger.info("Created separate alpha tarball: %s", alpha_output_file)
 
@@ -676,6 +771,9 @@ def create_single_tarball(processor, meta_files, png_files, args, logger):
         tarball_name=pics_output_file,
         additional_files=[],
         logger=logger,
+        telescope=args.telescope,
+        run_id=args.run_id,
+        utc_beam_map=utc_beam_map,
     )
     logger.info("Created separate pics tarball: %s", pics_output_file)
 
@@ -693,10 +791,12 @@ def main():
         threshold=args.threshold,
         snr_threshold=args.snr_threshold,
         logger=logger,
+        telescope=args.telescope,
+        run_id=args.run_id,
     )
 
     # Process the candidate CSV and generate supporting files.
-    png_files, meta_files = processor.process()
+    png_files, meta_files, utc_beam_map = processor.process()
 
     if args.npointings > 0:
         logger.info(
@@ -727,7 +827,7 @@ def main():
         ) as pool:
             pool.map(process_pointing_group, args_list)
     else:
-        create_single_tarball(processor, meta_files, png_files, args, logger)
+        create_single_tarball(processor, meta_files, png_files, args, logger, utc_beam_map)
 
     logger.info("Candidate processing pipeline completed successfully.")
 

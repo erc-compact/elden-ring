@@ -932,7 +932,7 @@ process create_candyjar_tarball {
     # Run the tarball creation script
     # This creates candidates.csv, candidates_alpha_below_one.csv, and candidates_pics_above_threshold.csv
     # in the current working directory
-    python ${baseDir}/scripts/create_candyjar_tarball.py -i \$candidate_results_file_with_header -o ${output_tarball_name} --verbose --npointings 0 -m ${params.metafile_source_path} -d \${publish_dir} --threshold ${params.alpha_beta_gamma.threshold} --snr_threshold ${params.alpha_beta_gamma.snr_threshold}
+    python ${baseDir}/scripts/create_candyjar_tarball.py -i \$candidate_results_file_with_header -o ${output_tarball_name} --verbose --npointings 0 -m ${params.metafile_source_path} -d \${publish_dir} --threshold ${params.alpha_beta_gamma.threshold} --snr_threshold ${params.alpha_beta_gamma.snr_threshold} --telescope ${params.telescope} --run_id ${params.runID}
     """
 }
 
