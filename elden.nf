@@ -151,7 +151,7 @@ workflow rfi_clean {
     }
 
     // Run RFI filter on cleaned data for QC verification
-    if (params.generateRfiFilter.run_rfi_filter) {
+    if (params.generateRfiFilter.run_rfi_filter && params.generateRfiFilter.repeat_rfi_filter) {
         cleaned_with_meta = new_fil.map { p,f,c,bn,bi,u,ra,dec,cdm ->
             tuple(p,f,c,bn,bi,u,ra,dec,cdm,f.getName())
         }
