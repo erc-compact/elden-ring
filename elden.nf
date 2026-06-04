@@ -311,6 +311,10 @@ workflow xml_parse {
                 tuple(p,c,bn,bi,u,ra,dec,cdm,fft_size,seg,seg_id,fil_base,fil_file,start_sample,filtered_candidate_csv,candfile,metafile)
             }
         }
+        .filter { p,c,bn,bi,u,ra,dec,cdm,fft_size,seg,seg_id,fil_base,fil_file,start_sample,filtered_candidate_csv,candfile,metafile ->
+            // Skip candfiles with no candidates (header-only lines start with #)
+            candfile.readLines().any { !it.startsWith('#') && it.trim() }
+        }
         .set{ splitcands_ch }
 
     emit:
