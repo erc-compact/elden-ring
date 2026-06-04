@@ -489,7 +489,7 @@ workflow validate_inputs {
                                 missingFiles << "Row ${idx + 2}: File not found: ${fitsPath}"
                             }
                         }
-                        validRows++
+                        validRows += 1
                     }
                 }
             }
