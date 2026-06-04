@@ -1057,8 +1057,6 @@ process candypolice_pulsarx {
     tuple val(pointing), path(fil_file),val(cluster),val(beam_name),val(beam_id),val(utc_start),val(ra),val(dec),val(ts),val(ns),val(si)
     each path(candfile)
 
-    output:
-
     script:
     """
     #!/bin/bash
