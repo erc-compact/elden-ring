@@ -156,10 +156,10 @@ process readfile {
     #!/bin/bash
     output=\$(readfile ${fits_files})
     echo "\$output"
-    time_per_file=\$(echo "\$output" | grep "Time per file (sec)" | awk '{print \$6}')
-    tsamp=\$(echo "\$output" | grep "Sample time (us)" | awk '{print \$5}')
-    nsamples=\$(echo "\$output" | grep "Spectra per file" | awk '{print \$5}')
-    subintlength=\$(echo "scale=10; \$nsamples * \$tsamp * (1/1000000) / 64.0" | bc -l | awk '{print int(\$0)}')
+    export time_per_file=\$(echo "\$output" | grep "Time per file (sec)" | awk '{print \$6}')
+    export tsamp=\$(echo "\$output" | grep "Sample time (us)" | awk '{print \$5}')
+    export nsamples=\$(echo "\$output" | grep "Spectra per file" | awk '{print \$5}')
+    export subintlength=\$(echo "scale=10; \$nsamples * \$tsamp * (1/1000000) / 64.0" | bc -l | awk '{print int(\$0)}')
     echo "\${time_per_file}" > time_per_file.txt
     """
 }
@@ -197,7 +197,7 @@ process generateRfiFilter {
       echo "cdm = ${cdm}; using zdot"
       default_flag="${params.generateRfiFilter.default_flag} zdot"
     fi
-    rfi_filter_string="\${default_flag} \${zap_commands}"
+    export rfi_filter_string="\${default_flag} \${zap_commands}"
     echo "\${rfi_filter_string}" > rfi_filter_string_cdm_${cdm}${output_suffix}.txt
 
     mv combined_sk_heatmap_and_histogram.png ${beam_name}_cdm_${cdm}${output_suffix}_rfi.png
@@ -350,7 +350,7 @@ process merge_filterbanks {
     tuple val(pointing), val(cluster), val(utc), val(ra), val(dec), val(cdm), val(group_label), val(fil_files)
 
     output:
-    tuple val(pointing), path("*stacked.fil"), val(cluster), env(beam_name), val(group_label), val(utc), val(ra), val(dec), val(cdm)
+    tuple val(pointing), path("*stacked.fil"), val(cluster), val("cfbf${group_label}"), val(group_label), val(utc), val(ra), val(dec), val(cdm)
 
     script:
     def beam_name="cfbf${group_label}"
@@ -405,8 +405,8 @@ process segmented_params {
     #!/bin/bash
     output=\$(readfile ${fil_file})
     echo "\$output"
-    tsamp=\$(echo "\$output" | grep "Sample time (us)" | awk '{print \$5}')
-    nsamples=\$(echo "\$output" | grep "Spectra per file" | awk '{print \$5}')
+    export tsamp=\$(echo "\$output" | grep "Sample time (us)" | awk '{print \$5}')
+    export nsamples=\$(echo "\$output" | grep "Spectra per file" | awk '{print \$5}')
 
     # Calculate nsample/segments
     nsamples_per_segment=\$((\${nsamples}/${segments}))
@@ -720,7 +720,7 @@ process search_fold_merge {
     tuple val(pointing), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(fft_size), val(segments), val(segment_id), val(fil_base_name), path(filtered_candidate_csv), path(ars), path(cands)
 
     output:
-    tuple val(pointing), val(cluster),val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(fft_size), val(segments), val(segment_id), val(fil_base_name), path(filtered_candidate_csv), env(publish_dir), path(ars), path("*master.cands"), path("search_fold_cands*picked.csv")
+    tuple val(pointing), val(cluster),val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(fft_size), val(segments), val(segment_id), val(fil_base_name), path(filtered_candidate_csv), val("${params.basedir}/${params.runID}/${beam_name}/${utc_start}/segment_${segments}/${segments}${segment_id}/FOLDING/PNG"), path(ars), path("*master.cands"), path("search_fold_cands*picked.csv")
 
     script:
     """

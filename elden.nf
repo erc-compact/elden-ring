@@ -449,8 +449,7 @@ workflow full {
 
 workflow run_dada_search {
     main:
-    dada_intake()
-    def sf = dada_to_fits(dada_intake.out)
+    def sf = dada_to_fits(dada_intake())
     def rfi_ch = rfi_filter(sf)
     def cleaned_ch   = rfi_clean(rfi_ch)
 
@@ -479,16 +478,13 @@ workflow run_dada_search {
 // -------------DADA TO FITS conversion ----------
 workflow run_digifits {
     main:
-    dada_intake()
-    dada_to_fits(dada_intake.out)
-        .set{ digifits_out }
+    dada_to_fits(dada_intake()).set{ digifits_out }
 }
 
 // -------------DADA->SF->FIL->STACK--------------
 workflow run_dada_clean_stack {
     main:
-    dada_intake()
-    def sf = dada_to_fits(dada_intake.out)
+    def sf = dada_to_fits(dada_intake())
     def rfi_ch = rfi_filter(sf)
     def cleaned_ch   = rfi_clean(rfi_ch)
 
@@ -522,7 +518,8 @@ workflow run_rfi_clean {
 // ---------- Run search and fold on filtooled files -----
 // run_search assumes rfi_cleaned files inside the files_lists
 workflow run_search_fold {
-    def cleaned_ch   = intake().map{ p,f,c,bn,bi,u,ra,dec,cdm,fname -> 
+    main:
+    def cleaned_ch   = intake().map{ p,f,c,bn,bi,u,ra,dec,cdm,fname ->
         tuple(p,f,c,bn,bi,u,ra,dec,cdm)
     }
     def cut_ch
@@ -601,6 +598,18 @@ workflow {
 // ============================================================================
 // WORKFLOW COMPLETION HANDLERS - Monitoring and Notifications
 // ============================================================================
+
+def formatDuration(long millis) {
+    def totalSeconds = (millis / 1000L) as long
+    def seconds = totalSeconds % 60
+    def minutes = Math.floorDiv(totalSeconds, 60L) % 60
+    def hours   = Math.floorDiv(totalSeconds, 3600L) % 24
+    def days    = Math.floorDiv(totalSeconds, 86400L)
+    if      (days > 0)    return String.format("%dd %dh %dm %ds", days, hours, minutes, seconds)
+    else if (hours > 0)   return String.format("%dh %dm %ds", hours, minutes, seconds)
+    else if (minutes > 0) return String.format("%dm %ds", minutes, seconds)
+    else                  return String.format("%ds", seconds)
+}
 
 def onComplete() {
     def duration   = workflow.duration
