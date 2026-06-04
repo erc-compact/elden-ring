@@ -757,21 +757,17 @@ process search_fold_merge {
     # ========================================================================
     # Generate provenance tracking file
     # This links each candidate to its source candfile, .cands file, and #id
+    # All files are looked up in the work directory where they are staged.
     # ========================================================================
     provenance_file="${beam_name}_cdm_${cdm}_ck${segments}${segment_id}_provenance.csv"
 
-    # Get paths for XML and candfile directories
-    xml_dir="${params.basedir}/${params.runID}/${beam_name}/${utc_start}/segment_${segments}/${segments}${segment_id}/PARSEXML/XML"
-    parsexml_dir="${params.basedir}/${params.runID}/${beam_name}/${utc_start}/segment_${segments}/${segments}${segment_id}/PARSEXML"
+    # publishDir paths (used for absolute references in the output CSV)
     ar_dir="${params.basedir}/${params.runID}/${beam_name}/${utc_start}/segment_${segments}/${segments}${segment_id}/FOLDING/AR"
 
-    # Find XML files
-    xml_files=""
-    if [[ -d "\${xml_dir}" ]]; then
-        xml_files=\$(ls "\${xml_dir}"/*_picked.xml 2>/dev/null | tr '\\n' ';' | sed 's/;\$//')
-        if [[ -z "\${xml_files}" ]]; then
-            xml_files=\$(ls "\${xml_dir}"/*.xml 2>/dev/null | tr '\\n' ';' | sed 's/;\$//')
-        fi
+    # Find XML files staged into the work directory
+    xml_files=\$(ls *_picked.xml 2>/dev/null | tr '\\n' ';' | sed 's/;\$//')
+    if [[ -z "\${xml_files}" ]]; then
+        xml_files=\$(ls *.xml 2>/dev/null | tr '\\n' ';' | sed 's/;\$//')
     fi
     xml_files=\${xml_files:-"N/A"}
 
@@ -803,14 +799,10 @@ process search_fold_merge {
                 # The candfile number is the second field in the filename
                 candfile_num=\$(echo "\${filename}" | cut -d'_' -f2)
 
-                # Find the matching candfile
-                candfile_path=""
-                if [[ -d "\${parsexml_dir}" ]]; then
-                    # Look for candfile with matching pattern
-                    candfile_path=\$(ls "\${parsexml_dir}"/*_\${candfile_num}.candfile 2>/dev/null | head -1)
-                    if [[ -z "\${candfile_path}" ]]; then
-                        candfile_path=\$(ls "\${parsexml_dir}"/*.candfile 2>/dev/null | head -1)
-                    fi
+                # Find the matching candfile staged into the work directory
+                candfile_path=\$(ls *_\${candfile_num}.candfile 2>/dev/null | head -1)
+                if [[ -z "\${candfile_path}" ]]; then
+                    candfile_path=\$(ls *.candfile 2>/dev/null | head -1)
                 fi
                 candfile_path=\${candfile_path:-"N/A"}
 
