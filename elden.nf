@@ -118,12 +118,15 @@ workflow rfi_filter {
     orig_fits_channel
 
     main:
-    readfile(orig_fits_channel).set{ rdout }
+    // readfile now outputs path files for numeric values — read contents here
+    def rdout = readfile(orig_fits_channel).map { p,f,c,bn,bi,u,ra,dec,cdm,tpf_f,ts_f,ns_f,si_f ->
+        tuple(p,f,c,bn,bi,u,ra,dec,cdm,tpf_f.text.trim(),ts_f.text.trim(),ns_f.text.trim(),si_f.text.trim())
+    }
 
     def suffix = params.generateRfiFilter.suffix ?: ""
     if (params.generateRfiFilter.run_rfi_filter) {
-        fil_input = generateRfiFilter(rdout, suffix).map { p,f,c,bn,bi,u,ra,dec,cdm,rfi,ts,ns,si,png,txt ->
-            return tuple(p,f,c,bn,bi,u,ra,dec,cdm,rfi,ts,ns,si)
+        fil_input = generateRfiFilter(rdout, suffix).map { p,f,c,bn,bi,u,ra,dec,cdm,rfi_f,ts,ns,si,png ->
+            return tuple(p,f,c,bn,bi,u,ra,dec,cdm,rfi_f.text.trim(),ts,ns,si)
         }
     } else {
         fil_input = rdout.map { p,f,c,bn,bi,u,ra,dec,cdm,tpf,ts,ns,si ->
@@ -156,7 +159,9 @@ workflow rfi_clean {
         cleaned_with_meta = new_fil.map { p,f,c,bn,bi,u,ra,dec,cdm ->
             tuple(p,f,c,bn,bi,u,ra,dec,cdm,f.getName())
         }
-        cleaned_rdout = readfileCleaned(cleaned_with_meta)
+        cleaned_rdout = readfileCleaned(cleaned_with_meta).map { p,f,c,bn,bi,u,ra,dec,cdm,tpf_f,ts_f,ns_f,si_f ->
+            tuple(p,f,c,bn,bi,u,ra,dec,cdm,tpf_f.text.trim(),ts_f.text.trim(),ns_f.text.trim(),si_f.text.trim())
+        }
         generateRfiFilterCleaned(cleaned_rdout, "_cleaned")
     }
 
@@ -218,12 +223,14 @@ workflow segmentation {
                 tuple(p,fp,c,bn,bi,u,ra,dec,cdm,segments)
             }
         }
-    segmented_params(split_params)
-        .set{ seg_ch }
+    // segmented_params outputs tsamp/nsamples as path files — read contents here
+    def seg_ch = segmented_params(split_params).map { p,fp,c,bn,bi,u,ra,dec,cdm,ts_f,ns_f,seg,segf ->
+        tuple(p,fp,c,bn,bi,u,ra,dec,cdm,ts_f.text.trim(),ns_f.text.trim(),seg,segf)
+    }
 
     peasoup_input = seg_ch
-        .flatMap { p,fp,c,bn,bi,u,ra,dec,cdm,ts,ns,seg,segf -> 
-            segf.splitCsv(header : true, sep : ',').collect { row -> 
+        .flatMap { p,fp,c,bn,bi,u,ra,dec,cdm,ts,ns,seg,segf ->
+            segf.splitCsv(header : true, sep : ',').collect { row ->
                 tuple(
                     p,fp,c,bn,bi,u,ra,dec,cdm,ts,
                     row.nsamples_per_segment.trim(),

@@ -149,18 +149,19 @@ process readfile {
     tuple val(pointing), path(fits_files), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(filename)
 
     output:
-    tuple val(pointing), path(fits_files), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), env(time_per_file), env(tsamp), env(nsamples), env(subintlength)
+    tuple val(pointing), path(fits_files), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), path("time_per_file.txt"), path("tsamp.txt"), path("nsamples.txt"), path("subintlength.txt")
 
     script:
     """
     #!/bin/bash
     output=\$(readfile ${fits_files})
     echo "\$output"
-    export time_per_file=\$(echo "\$output" | grep "Time per file (sec)" | awk '{print \$6}')
-    export tsamp=\$(echo "\$output" | grep "Sample time (us)" | awk '{print \$5}')
-    export nsamples=\$(echo "\$output" | grep "Spectra per file" | awk '{print \$5}')
-    export subintlength=\$(echo "scale=10; \$nsamples * \$tsamp * (1/1000000) / 64.0" | bc -l | awk '{print int(\$0)}')
-    echo "\${time_per_file}" > time_per_file.txt
+    echo "\$output" | grep "Time per file (sec)" | awk '{print \$6}' > time_per_file.txt
+    echo "\$output" | grep "Sample time (us)"    | awk '{print \$5}' > tsamp.txt
+    echo "\$output" | grep "Spectra per file"    | awk '{print \$5}' > nsamples.txt
+    tsamp=\$(cat tsamp.txt)
+    nsamples=\$(cat nsamples.txt)
+    echo "scale=10; \$nsamples * \$tsamp * (1/1000000) / 64.0" | bc -l | awk '{print int(\$0)}' > subintlength.txt
     """
 }
 
@@ -177,7 +178,7 @@ process generateRfiFilter {
     val(suffix)  // Suffix for output filenames (e.g., "" or "_cleaned")
 
     output:
-    tuple val(pointing), path(fits_files), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), env(rfi_filter_string), val(tsamp), val(nsamples), val(subintlength), path("*.png"), path("*.txt")
+    tuple val(pointing), path(fits_files), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), path("rfi_filter_string.txt"), val(tsamp), val(nsamples), val(subintlength), path("*.png")
 
     script:
     def num_intervals = Math.floor(time_per_file.toFloat()) as int
@@ -197,7 +198,8 @@ process generateRfiFilter {
       echo "cdm = ${cdm}; using zdot"
       default_flag="${params.generateRfiFilter.default_flag} zdot"
     fi
-    export rfi_filter_string="\${default_flag} \${zap_commands}"
+    rfi_filter_string="\${default_flag} \${zap_commands}"
+    echo "\${rfi_filter_string}" > rfi_filter_string.txt
     echo "\${rfi_filter_string}" > rfi_filter_string_cdm_${cdm}${output_suffix}.txt
 
     mv combined_sk_heatmap_and_histogram.png ${beam_name}_cdm_${cdm}${output_suffix}_rfi.png
@@ -398,15 +400,17 @@ process segmented_params {
     tuple val(pointing), path(fil_file), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec),val(cdm), val(segments)
 
     output:
-    tuple val(pointing), path(fil_file), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), env(tsamp), env(nsamples), val(segments), path("*.csv")
+    tuple val(pointing), path(fil_file), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), path("tsamp.txt"), path("nsamples.txt"), val(segments), path("*.csv")
 
     script:
     """
     #!/bin/bash
     output=\$(readfile ${fil_file})
     echo "\$output"
-    export tsamp=\$(echo "\$output" | grep "Sample time (us)" | awk '{print \$5}')
-    export nsamples=\$(echo "\$output" | grep "Spectra per file" | awk '{print \$5}')
+    echo "\$output" | grep "Sample time (us)" | awk '{print \$5}' > tsamp.txt
+    echo "\$output" | grep "Spectra per file" | awk '{print \$5}' > nsamples.txt
+    tsamp=\$(cat tsamp.txt)
+    nsamples=\$(cat nsamples.txt)
 
     # Calculate nsample/segments
     nsamples_per_segment=\$((\${nsamples}/${segments}))
