@@ -145,16 +145,16 @@ process {
 params {
     // Container images for Edgar
     singularity_image_dir = "/fpra/timing/01/fazal/singularity_img"
-    pulsarx_image         = "${singularity_image_dir}/pulsarx_latest.sif"
-    presto_image          = "${singularity_image_dir}/presto4.sif"
-    peasoup_image         = "${singularity_image_dir}/peasoup_keplerian.sif"
-    psrchive_image        = "${singularity_image_dir}/trapum_pulsarx_fold_docker_20220411.sif"
-    rfi_mitigation_image  = "${singularity_image_dir}/rfi-mitigation-nextflow_amd64.sif"
-    presto5_image         = "${singularity_image_dir}/presto5_pddot.sif"
-    pics_classifier_image = "${singularity_image_dir}/trapum_pulsarx_fold_docker_20220411.sif"
-    edd_pulsar_image      = "${singularity_image_dir}/edd_pulsar_250626.0.sif"
-    filtools_sig_image    = "${singularity_image_dir}/filtools-image_sig.sif"
-    rusty_candypicker     = "${singularity_image_dir}/rusty_candypicker_latest.sif"
+    pulsarx_image         = "${params.singularity_image_dir}/pulsarx_latest.sif"
+    presto_image          = "${params.singularity_image_dir}/presto4.sif"
+    peasoup_image         = "${params.singularity_image_dir}/peasoup_keplerian.sif"
+    psrchive_image        = "${params.singularity_image_dir}/trapum_pulsarx_fold_docker_20220411.sif"
+    rfi_mitigation_image  = "${params.singularity_image_dir}/rfi-mitigation-nextflow_amd64.sif"
+    presto5_image         = "${params.singularity_image_dir}/presto5_pddot.sif"
+    pics_classifier_image = "${params.singularity_image_dir}/trapum_pulsarx_fold_docker_20220411.sif"
+    edd_pulsar_image      = "${params.singularity_image_dir}/edd_pulsar_250626.0.sif"
+    filtools_sig_image    = "${params.singularity_image_dir}/filtools-image_sig.sif"
+    rusty_candypicker     = "${params.singularity_image_dir}/rusty_candypicker_latest.sif"
 
     // Number of threads for processes
     threads = 20  // Adjust as per the Edgar cluster's CPU availability
