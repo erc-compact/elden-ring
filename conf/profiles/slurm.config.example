@@ -122,6 +122,7 @@ params {
     peasoup_image         = 'docker://vishnubk/peasoup:sm89'
     rfi_mitigation_image  = 'docker://wintervolcano/rfi-mitigation-nextflow:amd64'
     pics_classifier_image = 'docker://vishnubk/pics:20230630_pics_model_update'
+    pal_clean_image       = 'docker://wintervolcano/pal:latest'
     rusty_candypicker     = 'docker://wintervolcano/rusty_candypicker:latest'
 
     // Number of threads for processes used in filtool

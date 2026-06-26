@@ -70,9 +70,61 @@ params {
         run_filtool_cleanup = false // Deletes the original input files. Set to false to skip the cleanup process
     }
 
+    // pal-clean Parameters (alternative RFI cleaning method).
+    // When use_pal_clean = true, palClean REPLACES filtool in the rfi_clean stage.
+    // It generates a pal-clean.yaml from these values and does its own masking
+    // (cuda_fourier_mask + cuda_syevj_eigenclip); the generateRfiFilter zaplist is NOT used.
+    palClean {
+        use_pal_clean = false
+
+        // sigproc telescope_id written into the YAML observation_metadata
+        telescope_id_map = [ effelsberg: 8 ]
+
+        block_size            = 131072
+        apply_scloffs         = true
+        apply_channel_weights = true
+        bandflip_target_order = "descending"
+
+        fourier_mask {
+            fft_length                = 0       // chunk size in samples; 0 = whole block
+            noise_fraction            = 0.25    // top fraction of bins for noise floor estimate
+            use_log                   = true
+            strong_z                  = 5.0     // per-channel Z threshold (strong)
+            weak_z                    = 2.0     // per-channel Z threshold (weak)
+            channel_strong_z          = 5.0     // cross-channel Z threshold (strong)
+            channel_weak_z            = 2.0     // cross-channel Z threshold (weak)
+            min_weak_channel_fraction = 0.02    // global bin promotion threshold
+            neighbour_chan_radius     = 4
+            neighbour_bin_radius      = 2
+            dilate_chan               = 4
+            dilate_bin                = 2
+            k_min                     = 1       // skip DC bin
+            replacement               = "noise_floor"  // noise_floor or zero
+            scale_floor               = 1.0e-6
+        }
+
+        eigenclip {
+            block_size           = 4096
+            eigenvalue_threshold = 1.5
+            max_eigenvalues      = 256
+            power_normalise      = false
+        }
+
+        static_channel_mask {
+            frequency_ranges = [[600,1300], [4500,5000]]
+        }
+
+        output {
+            nbits                = 8
+            max_spectra_per_file = 10994480000000000
+            sigma_range          = 15.0
+        }
+    }
+
     // Dispersion Measure (DM) Plan
     ddplan {
         use_zero_dm = true // Whether to include DM=0 in the plan. 
+        use_cdm = true // Whether to use the coherent DM as the center of the plan.
         dm_start  = 85
         dm_end    = 95
         dm_step   = 0.1

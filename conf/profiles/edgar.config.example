@@ -154,6 +154,7 @@ params {
     pics_classifier_image = "${params.singularity_image_dir}/trapum_pulsarx_fold_docker_20220411.sif"
     edd_pulsar_image      = "${params.singularity_image_dir}/edd_pulsar_250626.0.sif"
     filtools_sig_image    = "${params.singularity_image_dir}/filtools-image_sig.sif"
+    pal_clean_image       = "${params.singularity_image_dir}/pal_latest.sif"
     rusty_candypicker     = "${params.singularity_image_dir}/rusty_candypicker_latest.sif"
 
     // Number of threads for processes

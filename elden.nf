@@ -10,6 +10,7 @@ nextflow.enable.dsl=2
 
 // Process includes
 include { filtool } from './processes'
+include { palClean } from './processes'
 include { generateDMFiles } from './processes'
 include { segmented_params } from './processes'
 include { peasoup } from './processes'
@@ -148,10 +149,18 @@ workflow rfi_clean {
     fil_input
 
     main:
-    new_fil = params.filtool.run_filtool
-    ? filtool(fil_input, params.threads, params.telescope)
-    : fil_input.map{ p,f,c,bn,bi,u,ra,dec,cdm,rfi,ts,ns,si ->
-        tuple(p,f,c,bn,bi,u,ra,dec,cdm)
+    // RFI cleaning method selection (priority order):
+    //   1. pal-clean (separate singularity, in-development method)
+    //   2. filtool
+    //   3. passthrough (no cleaning)
+    if (params.palClean.use_pal_clean) {
+        new_fil = palClean(fil_input, params.threads, params.telescope)
+    } else if (params.filtool.run_filtool) {
+        new_fil = filtool(fil_input, params.threads, params.telescope)
+    } else {
+        new_fil = fil_input.map{ p,f,c,bn,bi,u,ra,dec,cdm,rfi,ts,ns,si ->
+            tuple(p,f,c,bn,bi,u,ra,dec,cdm)
+        }
     }
 
     // Run RFI filter on cleaned data for QC verification

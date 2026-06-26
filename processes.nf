@@ -295,6 +295,125 @@ process filtool {
     """
 }
 
+process palClean {
+    label 'pal_clean'
+    container "${params.pal_clean_image}"
+    tag "${cluster}_${beam_name}_cdm_${cdm}"
+    cache 'lenient'
+    // Drop-in replacement for filtool in the rfi_clean workflow.
+    // Uses a separate singularity (params.pal_clean_image) and the in-development
+    // pal-clean RFI cleaning tool, driven by a generated pal-clean.yaml.
+    // The upstream rfi_filter_string (zaplist) is intentionally NOT used here:
+    // pal-clean does its own masking (cuda_fourier_mask + cuda_syevj_eigenclip).
+
+    input:
+    tuple val(pointing), path(fits_files), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(rfi_filter_string), val(tsamp), val(nsamples), val(subintlength)
+    val threads
+    val telescope
+
+    output:
+    tuple val(pointing), path("*clean_01.fil"), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm)
+
+    script:
+    def outputFile   = "${cluster.trim()}_${utc_start.trim()}_${beam_name.trim()}_cdm_${cdm}_clean"
+    def source_name  = "${cluster.trim()}"
+    def telescope_id = params.palClean.telescope_id_map[telescope]
+    if (telescope_id == null) {
+        error "palClean: no telescope_id defined for telescope '${telescope}' in params.palClean.telescope_id_map"
+    }
+    def pc = params.palClean
+    """
+    #!/bin/bash
+    set -euo pipefail
+    workdir=\$(pwd)
+    echo "Working directory: \${workdir}"
+
+    publish_dir="${params.basedir}/shared_cache/${cluster}/${beam_name}/CLEANEDFIL"
+    mkdir -p \${publish_dir}
+
+    input_files="${fits_files}"
+
+    # Generate pal-clean.yaml from the tunable params block.
+    cat > pal-clean.yaml <<YAML
+input_stream:
+  block_size: ${pc.block_size}
+  psrfits:
+    apply_scloffs: ${pc.apply_scloffs}
+    apply_channel_weights: ${pc.apply_channel_weights}
+bandflip:
+  implementation:
+    type: cpu_bandflip
+  target_order: ${pc.bandflip_target_order}
+rfi_mitigation:
+  implementation:
+    type: cpu_rfi_chain
+    chain:
+      - implementation:
+          type: cuda_fourier_mask
+          fft_length: ${pc.fourier_mask.fft_length}
+          noise_fraction: ${pc.fourier_mask.noise_fraction}
+          use_log: ${pc.fourier_mask.use_log}
+          strong_z: ${pc.fourier_mask.strong_z}
+          weak_z: ${pc.fourier_mask.weak_z}
+          channel_strong_z: ${pc.fourier_mask.channel_strong_z}
+          channel_weak_z: ${pc.fourier_mask.channel_weak_z}
+          min_weak_channel_fraction: ${pc.fourier_mask.min_weak_channel_fraction}
+          neighbour_chan_radius: ${pc.fourier_mask.neighbour_chan_radius}
+          neighbour_bin_radius: ${pc.fourier_mask.neighbour_bin_radius}
+          dilate_chan: ${pc.fourier_mask.dilate_chan}
+          dilate_bin: ${pc.fourier_mask.dilate_bin}
+          k_min: ${pc.fourier_mask.k_min}
+          replacement: ${pc.fourier_mask.replacement}
+          scale_floor: ${pc.fourier_mask.scale_floor}
+      - implementation:
+          type: cuda_syevj_eigenclip
+          block_size: ${pc.eigenclip.block_size}
+          eigenvalue_threshold: ${pc.eigenclip.eigenvalue_threshold}
+          max_eigenvalues: ${pc.eigenclip.max_eigenvalues}
+          power_normalise: ${pc.eigenclip.power_normalise}
+      - implementation:
+          type: cpu_static_channel_mask
+          frequency_ranges:
+            ${pc.static_channel_mask.frequency_ranges.collect { range -> "  - [${range[0]}, ${range[1]}]" }.join('\n')}        
+output:
+  nbits: ${pc.output.nbits}
+  max_spectra_per_file: ${pc.output.max_spectra_per_file}
+  quantisation:
+    sigma_range: ${pc.output.sigma_range}
+  observation_metadata:
+    source_name: ${source_name}
+    telescope_id: ${telescope_id}
+YAML
+
+    echo "Generated pal-clean.yaml:"
+    cat pal-clean.yaml
+
+    echo "Running: pal-clean -i \${input_files} -o . -c pal-clean.yaml"
+    pal-clean -i \${input_files} -o . -c pal-clean.yaml
+
+    produced=\$(find . -maxdepth 1 -name '*.fil' -print -quit)
+    if [[ -z "\${produced}" ]]; then
+        echo "ERROR: pal-clean produced no .fil output" >&2
+        exit 1
+    fi
+    mv "\${produced}" "\${publish_dir}/${outputFile}_01.fil"
+
+    # Also create symlink in runID-specific directory for easy access
+    if [[ -n "${params.runID}" ]]; then
+        runid_dir="${params.basedir}/${params.runID}/${beam_name}/CLEANEDFIL"
+        mkdir -p "\${runid_dir}"
+        ln -sf "\${publish_dir}/${outputFile}_01.fil" "\${runid_dir}/${outputFile}_01.fil"
+
+        if [[ ! -L "\${runid_dir}/${outputFile}_01.fil" ]]; then
+            echo "WARNING: Failed to create symlink at \${runid_dir}/${outputFile}_01.fil"
+        fi
+    fi
+
+    # Symlink the cleaned file into the work directory for the output glob.
+    ln -s "\${publish_dir}/${outputFile}_01.fil" "${outputFile}_01.fil"
+    """
+}
+
 process split_filterbank {
     label 'split_filterbank'
     container "${params.filtools_sig_image}"
@@ -504,7 +623,8 @@ process generateDMFiles {
     """
     #!/usr/bin/env python3
     import numpy as np
-
+    # use cdm only if use_cdm is true, otherwise use 0.0
+    cdm = ${cdm} if ${params.ddplan.use_cdm ? 'True' : 'False'} else 0.0
     # Generate the DM file
     dm_start = ${cdm} + ${params.ddplan.dm_start}
     dm_end = ${cdm} + ${params.ddplan.dm_end}
