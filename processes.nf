@@ -154,7 +154,8 @@ process readfile {
     script:
     """
     #!/bin/bash
-    output=\$(readfile ${fits_files})
+    first_file=\$(echo ${fits_files} | awk '{print \$1}')
+    output=\$(readfile \${first_file})
     echo "\$output"
     echo "\$output" | grep "Time per file (sec)" | awk '{print \$6}' > time_per_file.txt
     echo "\$output" | grep "Sample time (us)"    | awk '{print \$5}' > tsamp.txt
@@ -252,17 +253,14 @@ process filtool {
     #!/bin/bash
     workdir=\$(pwd)
     echo "Working directory: \${workdir}"
+    first_file=\$(echo ${fits_files} | awk '{print \$1}')
+    file_extension="\$(basename "\${first_file}" | sed 's/.*\\.//')"
+    input_files="\${workdir}/*.\${file_extension}"
+
     # Use shared cache location independent of runID
     publish_dir="${params.basedir}/shared_cache/${cluster}/${beam_name}/CLEANEDFIL"
     mkdir -p \${publish_dir}
     cd \${publish_dir}
-
-    # Get the first file from the inputFile string
-    # This is used to determine the file extension
-    first_file=\$(echo ${fits_files} | awk '{print \$1}')
-
-    # Extract the file extension from the first file
-    file_extension="\$(basename "\${first_file}" | sed 's/.*\\.//')"
 
     flip_flag=""
     if [[ ${params.filtool.flip} == true ]]; then
@@ -270,11 +268,11 @@ process filtool {
     fi
 
     if [[ "\${file_extension}" == "fits" || "\${file_extension}" == "sf" || "\${file_extension}" == "rf" ]]; then
-        echo "Running: filtool --psrfits --scloffs \${flip_flag} --td ${params.filtool.td} --fd ${params.filtool.fd} -t ${threads} --telescope ${telescope} ${zaplist} -o ${outputFile} -f \${workdir}/${fits_files} -s ${source_name}"
-        filtool --psrfits --scloffs \${flip_flag} --td ${params.filtool.td} --fd ${params.filtool.fd} -t ${threads} --telescope ${telescope} ${zaplist} -o ${outputFile} -f \${workdir}/${fits_files} -s ${source_name}
+        echo "Running: filtool --psrfits --scloffs \${flip_flag} --td ${params.filtool.td} --fd ${params.filtool.fd} -t ${threads} --telescope ${telescope} ${zaplist} -o ${outputFile} -f \${input_files} -s ${source_name}"
+        filtool --psrfits --scloffs \${flip_flag} --td ${params.filtool.td} --fd ${params.filtool.fd} -t ${threads} --telescope ${telescope} ${zaplist} -o ${outputFile} -f \${input_files} -s ${source_name}
     else
-        echo "Running: filtool \${flip_flag} --td ${params.filtool.td} --fd ${params.filtool.fd} -t ${threads} --telescope ${telescope} ${zaplist} -o ${outputFile} -f \${workdir}/${fits_files} -s ${source_name}"
-        filtool \${flip_flag} --td ${params.filtool.td} --fd ${params.filtool.fd} -t ${threads} --telescope ${telescope} ${zaplist} -o ${outputFile} -f \${workdir}/${fits_files} -s ${source_name}
+        echo "Running: filtool \${flip_flag} --td ${params.filtool.td} --fd ${params.filtool.fd} -t ${threads} --telescope ${telescope} ${zaplist} -o ${outputFile} -f \${input_files} -s ${source_name}"
+        filtool \${flip_flag} --td ${params.filtool.td} --fd ${params.filtool.fd} -t ${threads} --telescope ${telescope} ${zaplist} -o ${outputFile} -f \${input_files} -s ${source_name}
     fi
 
     # Also create symlink in runID-specific directory for easy access
@@ -300,11 +298,6 @@ process palClean {
     container "${params.pal_clean_image}"
     tag "${cluster}_${beam_name}_cdm_${cdm}"
     cache 'lenient'
-    // Drop-in replacement for filtool in the rfi_clean workflow.
-    // Uses a separate singularity (params.pal_clean_image) and the in-development
-    // pal-clean RFI cleaning tool, driven by a generated pal-clean.yaml.
-    // The upstream rfi_filter_string (zaplist) is intentionally NOT used here:
-    // pal-clean does its own masking (cuda_fourier_mask + cuda_syevj_eigenclip).
 
     input:
     tuple val(pointing), path(fits_files), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(rfi_filter_string), val(tsamp), val(nsamples), val(subintlength)
@@ -331,9 +324,10 @@ process palClean {
     publish_dir="${params.basedir}/shared_cache/${cluster}/${beam_name}/CLEANEDFIL"
     mkdir -p \${publish_dir}
 
-    input_files="${fits_files}"
+    first_file=\$(echo ${fits_files} | awk '{print \$1}')
+    file_extension="\$(basename "\${first_file}" | sed 's/.*\\.//')"
+    input_files="*.\${file_extension}"
 
-    # Generate pal-clean.yaml from the tunable params block.
     cat > pal-clean.yaml <<YAML
 input_stream:
   block_size: ${pc.block_size}
@@ -374,7 +368,7 @@ rfi_mitigation:
       - implementation:
           type: cpu_static_channel_mask
           frequency_ranges:
-            ${pc.static_channel_mask.frequency_ranges.collect { range -> "  - [${range[0]}, ${range[1]}]" }.join('\n')}        
+${pc.static_channel_mask.frequency_ranges.collect { range -> "            - [${range[0]}, ${range[1]}]" }.join('\n')}
 output:
   nbits: ${pc.output.nbits}
   max_spectra_per_file: ${pc.output.max_spectra_per_file}

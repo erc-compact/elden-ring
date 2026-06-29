@@ -60,9 +60,16 @@ workflow intake {
     // Parse the CSV file to get the list of FITS files and parameters
     fits_file_channel_and_meta = Channel.fromPath("${params.files_list}")
         .splitCsv(header : true, sep : ',')
-        .map { row -> 
+        .map { row ->
             def pointing = row.pointing.trim()
-            def fits_files = row.fits_files.trim()
+            def fits_pattern = row.fits_files.trim()
+            def fits_files = file(fits_pattern)
+            if (fits_files instanceof List) {
+                if (fits_files.isEmpty()) {
+                    error "No files matched fits_files pattern '${fits_pattern}' for ${row.cluster}/${row.beam_name}"
+                }
+                fits_files = fits_files.sort()
+            }
             def cluster = row.cluster.trim()
             def beam_name = row.beam_name.trim()
             def beam_id = row.beam_id.trim()
@@ -70,8 +77,7 @@ workflow intake {
             def ra = row.ra.trim()
             def dec = row.dec.trim()
             def cdm = row.cdm.trim()
-            // extract file name from path
-            def filename = fits_files.tokenize("/")[-1]
+            def filename = (fits_files instanceof List ? fits_files[0] : fits_files).getName()
             return tuple(pointing,fits_files, cluster, beam_name, beam_id, utc_start, ra, dec, cdm, filename)
         }
 
@@ -149,10 +155,6 @@ workflow rfi_clean {
     fil_input
 
     main:
-    // RFI cleaning method selection (priority order):
-    //   1. pal-clean (separate singularity, in-development method)
-    //   2. filtool
-    //   3. passthrough (no cleaning)
     if (params.palClean.use_pal_clean) {
         new_fil = palClean(fil_input, params.threads, params.telescope)
     } else if (params.filtool.run_filtool) {
