@@ -1054,9 +1054,9 @@ process parfold {
     tag "${beam_name}_${parfile_channel.getName()}"
     cache 'lenient'
     maxForks 100
-    publishDir "${params.parfold.output_path}/", pattern: "*.png", mode: 'copy'
-    publishDir "${params.parfold.output_path}/", pattern: "*.ar", mode: 'copy'
-    publishDir "${params.parfold.output_path}/", pattern: "*.cands", mode: 'copy'
+    publishDir { "${params.parfold.output_path}/" }, pattern: "*.png", mode: 'copy'
+    publishDir { "${params.parfold.output_path}/" }, pattern: "*.ar", mode: 'copy'
+    publishDir { "${params.parfold.output_path}/" }, pattern: "*.cands", mode: 'copy'
 
     input:
     tuple val(pointing), path(fil_file), val(cluster),val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec)
@@ -1082,7 +1082,7 @@ process parfold {
 process extract_candidates {
     container "${params.pulsarx_image}"
     tag "extract_${csv_file.baseName}"
-    publishDir "${params.candypolice.output_dir}", pattern: "*{txt,candfile}", mode: 'copy'
+    publishDir { "${params.candypolice.output_dir}" }, pattern: "*{txt,candfile}", mode: 'copy'
     input:
     path csv_file
 
@@ -1161,7 +1161,7 @@ process candypolice_pulsarx {
     container "${params.pulsarx_image}"
     tag "${cluster}_${beam_name}_${candfile.baseName}"
     cache 'lenient'
-    publishDir "${params.candypolice.output_path}", pattern: "**/*.{ar,png,cands}", mode: 'copy'
+    publishDir { "${params.candypolice.output_path}" }, pattern: "**/*.{ar,png,cands}", mode: 'copy'
 
     input:
     tuple val(pointing), path(fil_file),val(cluster),val(beam_name),val(beam_id),val(utc_start),val(ra),val(dec),val(ts),val(ns),val(si)
@@ -1194,7 +1194,7 @@ process candypolice_presto {
     label "candypolice_presto"
     container "${params.presto_image}"
     scratch true
-    publishDir "${params.candypolice.output_path}", pattern: "**/*.{ps,png,pfd}", mode: 'copy'
+    publishDir { "${params.candypolice.output_path}" }, pattern: "**/*.{ps,png,pfd}", mode: 'copy'
     
     input:
     each candidate_details_line
