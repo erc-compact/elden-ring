@@ -611,7 +611,11 @@ workflow {
     else if (entry == 'run_rfi_clean')        run_rfi_clean()
     else if (entry == 'fold_par')             fold_par()
     else if (entry == 'candypolice')          candypolice()
-    else error "Unknown entry workflow: '${entry}'. Valid options: full, run_search_fold, run_dada_search, run_dada_clean_stack, run_digifits, generate_rfi_filter, run_rfi_clean, fold_par, candypolice"
+    else if (entry == 'setup_basedir')        setup_basedir()
+    else if (entry == 'help')                 help()
+    else if (entry == 'validate_inputs')      validate_inputs()
+    else if (entry == 'cleanup_cache')        cleanup_cache()
+    else error "Unknown entry workflow: '${entry}'. Valid options: full, run_search_fold, run_dada_search, run_dada_clean_stack, run_digifits, generate_rfi_filter, run_rfi_clean, fold_par, candypolice, setup_basedir, help, validate_inputs, cleanup_cache"
 
     workflow.onComplete { onComplete() }
     workflow.onError    { onError()    }
