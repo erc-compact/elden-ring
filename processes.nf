@@ -620,8 +620,8 @@ process generateDMFiles {
     # use cdm only if use_cdm is true, otherwise use 0.0
     cdm = ${cdm} if ${params.ddplan.use_cdm ? 'True' : 'False'} else 0.0
     # Generate the DM file
-    dm_start = ${cdm} + ${params.ddplan.dm_start}
-    dm_end = ${cdm} + ${params.ddplan.dm_end}
+    dm_start = cdm + ${params.ddplan.dm_start}
+    dm_end = cdm + ${params.ddplan.dm_end}
     dm_step = ${params.ddplan.dm_step}
     dm_sample = ${params.ddplan.dm_sample}
 
