@@ -379,8 +379,10 @@ workflow classify {
 
     def joined = abg.join(pics, by: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10,11])
         .map { row ->
-            def pointing = row[1]
-            def cluster  = row[2]
+            // join(by:[1..11]) pulls the key fields to the front in listed order,
+            // so after the join: row[0]=pointing, row[1]=cluster, row[2]=beam_name, ...
+            def pointing = row[0]
+            def cluster  = row[1]
             tuple(pointing, cluster, row.join(','))
         }
 
