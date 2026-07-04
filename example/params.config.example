@@ -2,7 +2,8 @@ params {
     cache           = 'lenient'
     // Workflow entry point (replaces -entry CLI flag in Nextflow 26+)
     // Options: full, run_search_fold, run_dada_search, run_dada_clean_stack,
-    //          run_digifits, generate_rfi_filter, run_rfi_clean, fold_par, candypolice
+    //          run_digifits, generate_rfi_filter, run_rfi_clean, fold_par, candypolice,
+    //          run_followup
     entry           = "full"
 
     // Base directories
@@ -210,6 +211,49 @@ params {
         nbins = 32
         binplan = "0.005 32 0.01 64 0.1 128"
         clfd = 2.0
+    }
+
+    // =========================================================================
+    // Followup / confirmation workflow (entry = "run_followup")
+    // Re-find the T1/T2 candidates from a PREVIOUS search (input_csv) in a
+    // DIFFERENT observation whose filterbanks are listed in params.files_list
+    // (inputfile.txt). Ports CaReFuL's DM + acceleration confirmation logic.
+    // =========================================================================
+    followup {
+        input_csv    = "/path/to/T1_T2_candidates.csv"  // CandyJar CSV from the ORIGINAL search
+        // NOTE: the filterbanks to search come from params.files_list (inputfile.txt) -- the NEW observation
+        overlap_csv  = null      // MeerKAT only: overlapping_beams.csv (orig_beam,neighbour1,neighbour2,...)
+        output_dir   = "${params.basedir}/${params.runID}/FOLLOWUP"
+
+        // Per-candidate DM band = dm_opt +/- dm_tol, stepped by dm_step.
+        // The DM file is the SPARSE UNION of these bands (not a filled range).
+        dm_tol       = 10.0      // half-width of each candidate's DM band (pc/cc); also the match DM tolerance
+        dm_step      = 0.1
+        use_zero_dm  = false
+
+        // Acceleration (CaReFuL logic): search +/- max|acc_opt| * acc_scale
+        acc_scale    = 1.2
+        accel_tol    = 1.05
+
+        // peasoup search knobs
+        min_snr      = 7.0
+        nharmonics   = 4
+        total_cands  = 5000
+        ram_limit_gb = 90.0
+
+        // Matching tolerances (a candidate is confirmed only if BOTH match)
+        ptol         = 0.01      // fractional spin-period tolerance
+        ncands       = 1000      // cap on folds; topped up by S/N after matches
+        remove_birdies = true
+        birdies      = "0.004615,0.179999,0.18000,0.004614,0.004616,0.001513"
+
+        // Folding (psrfold_fil2, matching scripts/pulsarx_fold.py)
+        template_file   = null   // override; default is templates/Effelsberg_<beam_id>.template
+        pulsarx_threads = 20
+        nsub            = 64
+        nbins           = 32
+        binplan         = "0.005 32 0.01 64 0.1 128"
+        clfd            = 2.0
     }
 
     // =========================================================================

@@ -56,6 +56,7 @@ workflow help {
     Utility Workflows:
       fold_par             Fold with a known pulsar .par file
       candypolice          Re-fold candidates from a CandyJar CSV
+      run_followup         Re-find T1/T2 candidates in a different observation
       setup_basedir        Initialize a new project directory
       validate_inputs      Validate input files and parameters before running
       cleanup_cache        Manage shared cache (find orphaned files)

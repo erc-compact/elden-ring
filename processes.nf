@@ -552,7 +552,7 @@ process segmented_params {
 
     # Create symlink in runID-specific directory for easy access
     if [[ -n "${params.runID}" ]]; then
-        runid_dir="${params.basedir}/${params.runID}/${beam_name}/${utc_start}/segment_${segments}/SEGPARAMS"
+        runid_dir="${params.basedir}/${params.runID}/${cluster}/${utc_start}/${beam_name}/segment_${segments}/SEGPARAMS"
         mkdir -p "\${runid_dir}"
         ln -sf "\${publish_dir}/\${output_file}" "\${runid_dir}/\${output_file}"
 
@@ -574,7 +574,7 @@ process birdies {
     container "${params.peasoup_image}"
     tag "${cluster}_${beam_name}_seg${segments}${segment_id}_cdm_${cdm}"
     cache 'lenient'
-    publishDir { "${params.basedir}/${params.runID}/${beam_name}/${utc_start}/segment_${segments}/${segments}${segment_id}/BIRDIES/" }, pattern: "*.{xml,txt}", mode: 'copy'
+    publishDir { "${params.basedir}/${params.runID}/${cluster}/${utc_start}/${beam_name}/segment_${segments}/${segments}${segment_id}/BIRDIES/" }, pattern: "*.{xml,txt}", mode: 'copy'
 
     input:
     tuple val(pointing), path(fil_file), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(tsamp), val(nsamples), val(segments), val(segment_id), val(fft_size), val(start_sample)
@@ -647,7 +647,7 @@ process peasoup {
     label 'peasoup'
     container "${params.peasoup_image}"
     tag "${cluster}_${beam_name}_seg${segments}${segment_id}_cdm_${cdm}_${dm_file.baseName}"
-    publishDir { "${params.basedir}/${params.runID}/${beam_name}/${utc_start}/segment_${segments}/${segments}${segment_id}/SEARCH/" }, pattern: "*.xml", mode: 'copy'
+    publishDir { "${params.basedir}/${params.runID}/${cluster}/${utc_start}/${beam_name}/segment_${segments}/${segments}${segment_id}/SEARCH/" }, pattern: "*.xml", mode: 'copy'
     cache 'lenient'
 
     input:
@@ -680,7 +680,7 @@ process parse_xml {
     container "${params.rusty_candypicker}"
     tag "${cluster}_${beam_name}_seg${segments}${segment_id}_cdm_${cdm}"
     cache 'lenient'
-    publishDir { "${params.basedir}/${params.runID}/${beam_name}/${utc_start}/segment_${segments}/${segments}${segment_id}/PARSEXML/" }, pattern: "*.{csv,meta,txt,candfile}", mode: 'copy'
+    publishDir { "${params.basedir}/${params.runID}/${cluster}/${utc_start}/${beam_name}/segment_${segments}/${segments}${segment_id}/PARSEXML/" }, pattern: "*.{csv,meta,txt,candfile}", mode: 'copy'
 
     input:
     tuple val(pointing), val(cluster),val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(fft_size), val(segments), val(segment_id), val(dm_file), val(fil_file_base), path(fil_file), path(xml_files), val(start_sample)
@@ -740,7 +740,7 @@ process parse_xml {
             mv pivots.csv "pivots_${beam_name}_cdm_${cdm}_ck${segments}${segment_id}.csv"
         fi
 
-        PICKED_XML_DIR="${params.basedir}/${params.runID}/${beam_name}/${utc_start}/segment_${segments}/${segments}${segment_id}/PARSEXML/XML"
+        PICKED_XML_DIR="${params.basedir}/${params.runID}/${cluster}/${utc_start}/${beam_name}/segment_${segments}/${segments}${segment_id}/PARSEXML/XML"
         mkdir -p "\${PICKED_XML_DIR}"
         cp "\${picked_xml_files[@]}" "\${PICKED_XML_DIR}/"
         cp -f *pivots*.csv "\${PICKED_XML_DIR}/" 2>/dev/null || true
@@ -748,7 +748,7 @@ process parse_xml {
     else
         echo "Not picking candies"
         picked_xml_files=( *overview.xml )
-        PICKED_XML_DIR="${params.basedir}/${params.runID}/${beam_name}/${utc_start}/segment_${segments}/${segments}${segment_id}/PARSEXML/XML"
+        PICKED_XML_DIR="${params.basedir}/${params.runID}/${cluster}/${utc_start}/${beam_name}/segment_${segments}/${segments}${segment_id}/PARSEXML/XML"
         mkdir -p "\${PICKED_XML_DIR}"
         cp "\${picked_xml_files[@]}" "\${PICKED_XML_DIR}/"
     fi
@@ -777,9 +777,9 @@ process psrfold {
     cache 'lenient'
     // maxForks 100
     // Organized output: separate directories for PNG, AR, and CANDS files
-    publishDir { "${params.basedir}/${params.runID}/${beam_name}/${utc_start}/segment_${segments}/${segments}${segment_id}/FOLDING/PNG/" }, pattern: "*.png", mode: 'copy'
-    publishDir { "${params.basedir}/${params.runID}/${beam_name}/${utc_start}/segment_${segments}/${segments}${segment_id}/FOLDING/AR/" }, pattern: "*.ar", mode: 'copy'
-    publishDir { "${params.basedir}/${params.runID}/${beam_name}/${utc_start}/segment_${segments}/${segments}${segment_id}/FOLDING/CANDS/" }, pattern: "*.cands", mode: 'copy'
+    publishDir { "${params.basedir}/${params.runID}/${cluster}/${utc_start}/${beam_name}/segment_${segments}/${segments}${segment_id}/FOLDING/PNG/" }, pattern: "*.png", mode: 'copy'
+    publishDir { "${params.basedir}/${params.runID}/${cluster}/${utc_start}/${beam_name}/segment_${segments}/${segments}${segment_id}/FOLDING/AR/" }, pattern: "*.ar", mode: 'copy'
+    publishDir { "${params.basedir}/${params.runID}/${cluster}/${utc_start}/${beam_name}/segment_${segments}/${segments}${segment_id}/FOLDING/CANDS/" }, pattern: "*.cands", mode: 'copy'
 
     input:
     tuple val(pointing), val(cluster),val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(fft_size), val(segments), val(segment_id), val(fil_base_name), path(fil_file), val(start_sample), path(filtered_candidate_csv), path(candfile), path(metafile)
@@ -831,22 +831,22 @@ process search_fold_merge {
     container "${params.rusty_candypicker}"
     tag "${cluster}_${beam_name}_seg${segments}${segment_id}_cdm_${cdm}"
     cache 'lenient'
-    publishDir { "${params.basedir}/${params.runID}/${beam_name}/${utc_start}/segment_${segments}/${segments}${segment_id}/FOLDING/CSV/" }, pattern: "*{.csv,master.cands}", mode: 'copy'
-    publishDir { "${params.basedir}/${params.runID}/${beam_name}/${utc_start}/segment_${segments}/${segments}${segment_id}/FOLDING/PROVENANCE/" }, pattern: "*_provenance.csv", mode: 'copy'
+    publishDir { "${params.basedir}/${params.runID}/${cluster}/${utc_start}/${beam_name}/segment_${segments}/${segments}${segment_id}/FOLDING/CSV/" }, pattern: "{search_fold_cands*.csv,*master.cands}", mode: 'copy'
+    publishDir { "${params.basedir}/${params.runID}/${cluster}/${utc_start}/${beam_name}/segment_${segments}/${segments}${segment_id}/FOLDING/PROVENANCE/" }, pattern: "*_provenance.csv", mode: 'copy'
 
     input:
     tuple val(pointing), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(fft_size), val(segments), val(segment_id), val(fil_base_name), path(filtered_candidate_csv), path(ars), path(cands)
 
     output:
-    tuple val(pointing), val(cluster),val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(fft_size), val(segments), val(segment_id), val(fil_base_name), path(filtered_candidate_csv), val("${params.basedir}/${params.runID}/${beam_name}/${utc_start}/segment_${segments}/${segments}${segment_id}/FOLDING/PNG"), path(ars), path("*master.cands"), path("search_fold_cands*picked.csv")
+    tuple val(pointing), val(cluster),val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(fft_size), val(segments), val(segment_id), val(fil_base_name), path(filtered_candidate_csv), val("${params.basedir}/${params.runID}/${cluster}/${utc_start}/${beam_name}/segment_${segments}/${segments}${segment_id}/FOLDING/PNG"), path(ars), path("*master.cands"), path("search_fold_cands*picked.csv")
 
     script:
     """
     # Base publish directory for PNG files (needed by downstream processes)
-    publish_dir="${params.basedir}/${params.runID}/${beam_name}/${utc_start}/segment_${segments}/${segments}${segment_id}/FOLDING/PNG"
+    publish_dir="${params.basedir}/${params.runID}/${cluster}/${utc_start}/${beam_name}/segment_${segments}/${segments}${segment_id}/FOLDING/PNG"
     mkdir -p \${publish_dir}
-    mkdir -p "${params.basedir}/${params.runID}/${beam_name}/${utc_start}/segment_${segments}/${segments}${segment_id}/FOLDING/CSV"
-    mkdir -p "${params.basedir}/${params.runID}/${beam_name}/${utc_start}/segment_${segments}/${segments}${segment_id}/FOLDING/PROVENANCE"
+    mkdir -p "${params.basedir}/${params.runID}/${cluster}/${utc_start}/${beam_name}/segment_${segments}/${segments}${segment_id}/FOLDING/CSV"
+    mkdir -p "${params.basedir}/${params.runID}/${cluster}/${utc_start}/${beam_name}/segment_${segments}/${segments}${segment_id}/FOLDING/PROVENANCE"
 
     fold_cands=\$(ls -v *.ar)
     pulsarx_cands_file=\$(ls -v *.cands)
@@ -876,7 +876,7 @@ process search_fold_merge {
     provenance_file="${beam_name}_cdm_${cdm}_ck${segments}${segment_id}_provenance.csv"
 
     # publishDir paths (used for absolute references in the output CSV)
-    ar_dir="${params.basedir}/${params.runID}/${beam_name}/${utc_start}/segment_${segments}/${segments}${segment_id}/FOLDING/AR"
+    ar_dir="${params.basedir}/${params.runID}/${cluster}/${utc_start}/${beam_name}/segment_${segments}/${segments}${segment_id}/FOLDING/AR"
 
     # Find XML files staged into the work directory
     xml_files=\$(ls *_picked.xml 2>/dev/null | tr '\\n' ';' | sed 's/;\$//')
@@ -969,8 +969,8 @@ process alpha_beta_gamma_test {
     container "${params.pulsarx_image}"
     tag "${cluster}_${beam_name}_seg${segments}${segment_id}_cdm_${cdm}"
     cache 'lenient'
-    publishDir { "${params.basedir}/${params.runID}/${beam_name}/${utc_start}/segment_${segments}/${segments}${segment_id}/ZERODM/" }, pattern: "DM0*.png", mode: 'copy'
-    publishDir { "${params.basedir}/${params.runID}/${beam_name}/${utc_start}/segment_${segments}/${segments}${segment_id}/ABG" }, pattern: "*alpha_beta_gamma.csv", mode: 'copy'
+    publishDir { "${params.basedir}/${params.runID}/${cluster}/${utc_start}/${beam_name}/segment_${segments}/${segments}${segment_id}/ZERODM/" }, pattern: "DM0*.png", mode: 'copy'
+    publishDir { "${params.basedir}/${params.runID}/${cluster}/${utc_start}/${beam_name}/segment_${segments}/${segments}${segment_id}/ABG" }, pattern: "*alpha_beta_gamma.csv", mode: 'copy'
 
     input:
     tuple val(pointing), val(cluster),val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(fft_size), val(segments), val(segment_id), val(fil_base_name), path(filtered_candidate_csv), val(png_source_dir), path(ars), path(master_cands), path(search_fold_cands_csv)
@@ -981,7 +981,7 @@ process alpha_beta_gamma_test {
     script:
     """
     #!/bin/bash
-    publish_dir="${params.basedir}/${params.runID}/${beam_name}/${utc_start}/segment_${segments}/${segments}${segment_id}/ABG"
+    publish_dir="${params.basedir}/${params.runID}/${cluster}/${utc_start}/${beam_name}/segment_${segments}/${segments}${segment_id}/ABG"
     mkdir -p \${publish_dir}
     python3 ${baseDir}/scripts/calculate_alpha_beta_gamma_dmffdot.py -i ${search_fold_cands_csv} -o ${cluster}_${beam_name}_cdm_${cdm}_ck${segments}${segment_id}_alpha_beta_gamma.csv -t ${params.alpha_beta_gamma.snr_min} -p \${publish_dir} -s ${png_source_dir} -c
     """
@@ -992,7 +992,7 @@ process pics_classifier {
     container "${params.pics_classifier_image}"
     tag "${cluster}_${beam_name}_seg${segments}${segment_id}_cdm_${cdm}"
     cache 'lenient'
-    publishDir { "${params.basedir}/${params.runID}/${beam_name}/${utc_start}/segment_${segments}/${segments}${segment_id}/CLASSIFICATION/" }, pattern: "*scored.csv", mode: 'copy'
+    publishDir { "${params.basedir}/${params.runID}/${cluster}/${utc_start}/${beam_name}/segment_${segments}/${segments}${segment_id}/CLASSIFICATION/" }, pattern: "*scored.csv", mode: 'copy'
 
     input:
     tuple val(pointing), val(cluster),val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(fft_size), val(segments), val(segment_id), val(fil_base_name), path(filtered_candidate_csv), val(png_source_dir), path(ars), path(master_cands), path(search_fold_cands_csv)
@@ -1244,5 +1244,166 @@ process candypolice_presto {
     processes = [subprocess.Popen(cmd, shell=True) for cmd in commands]
     for p in processes:
         p.wait()
+    """
+}
+
+// ============================================================================
+// FOLLOWUP: re-find T1/T2 candidates from one search in a different observation
+// Targets (DM/acc/F0) come from a CandyJar CSV; the filterbanks to search come
+// from inputfile.txt (params.files_list). CaReFuL's DM+acceleration logic.
+// ============================================================================
+
+process followup_prepare {
+    label "followup_prepare"
+    container "${params.pulsarx_image}"
+    tag "followup_prepare"
+    cache 'lenient'
+    publishDir { "${params.followup.output_dir}/TARGETS" }, pattern: "*.{candfile,dm}", mode: 'copy'
+
+    input:
+    path candidate_csv
+
+    output:
+    tuple path("input.candfile"), path("targets.dm")
+
+    script:
+    def per_beam = (params.telescope != 'effelsberg') ? "--per-beam" : ""
+    def zero_dm  = params.followup.use_zero_dm ? "--use_zero_dm" : ""
+    """
+    #!/bin/bash
+    python3 ${projectDir}/scripts/followup_candfile.py --mode prepare \
+        --input_csv ${candidate_csv} \
+        --dm_tol ${params.followup.dm_tol} \
+        --dm_step ${params.followup.dm_step} \
+        ${zero_dm} ${per_beam} \
+        --out_dir .
+    """
+}
+
+process followup_peasoup {
+    // fft_size / start_sample come from the existing segmentation workflow
+    // (segmented_params runs readfile in the presto container), so this process
+    // only runs peasoup in the peasoup container.
+    label "followup_peasoup"
+    container "${params.peasoup_image}"
+    tag "${cluster}_${beam_name}_cdm_${cdm}_seg${segments}${segment_id}"
+    cache 'lenient'
+    publishDir { "${params.followup.output_dir}/${cluster}/${utc_start}/${beam_name}/segment_${segments}/${segments}${segment_id}/SEARCH" }, pattern: "*.xml", mode: 'copy'
+
+    input:
+    tuple val(pointing), path(fil_file), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(tsamp), val(nsamples), val(segments), val(segment_id), val(fft_size), val(start_sample), path(candfile), path(dm_file)
+
+    output:
+    tuple val(pointing), path(fil_file, followLinks: false), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(segments), val(segment_id), path(candfile), path("*_overview.xml")
+
+    script:
+    """
+    #!/bin/bash
+    set -euo pipefail
+
+    # Acceleration range from the candfile (CaReFuL logic): max|acc| * acc_scale
+    max_acc=\$(grep -v '#' ${candfile} | awk '{print \$3}' | tr -s "-" " " | sort -g | tail -n 1)
+    acc_range=\$(echo \${max_acc} ${params.followup.acc_scale} | awk '{print \$1*\$2}')
+    acc_start=\$(echo \${acc_range} | awk '{print \$1*-1}')
+    acc_end=\$(echo \${acc_range} | awk '{print \$1*1}')
+    echo "max_acc=\${max_acc} acc_start=\${acc_start} acc_end=\${acc_end} fft_size=${fft_size}"
+
+    peasoup -i ${fil_file} --cdm ${cdm} --fft_size ${fft_size} \
+        --limit ${params.followup.total_cands} -m ${params.followup.min_snr} \
+        -t ${params.peasoup.ngpus} -n ${params.followup.nharmonics} \
+        --acc_start \${acc_start} --acc_end \${acc_end} \
+        --acc_tol ${params.followup.accel_tol} \
+        --ram_limit_gb ${params.followup.ram_limit_gb} \
+        --dm_file ${dm_file} --start_sample ${start_sample} -o .
+
+    mv **/*.xml ${beam_name}_cdm_${cdm}_ck${segments}${segment_id}_overview.xml
+    """
+}
+
+process followup_match {
+    label "followup_match"
+    container "${params.pulsarx_image}"
+    tag "${cluster}_${beam_name}_cdm_${cdm}_seg${segments}${segment_id}"
+    cache 'lenient'
+    publishDir { "${params.followup.output_dir}/${cluster}/${utc_start}/${beam_name}/segment_${segments}/${segments}${segment_id}/MATCH" }, pattern: "*.{candfile,csv}", mode: 'copy'
+
+    input:
+    tuple val(pointing), path(fil_file), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(segments), val(segment_id), path(candfile), path(xml_file)
+
+    output:
+    tuple val(pointing), path(fil_file, followLinks: false), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(segments), val(segment_id), path("output.candfile"), path("matches.csv"), path(xml_file)
+
+    script:
+    def birdie_flag = params.followup.remove_birdies ? "--birdies \"${params.followup.birdies}\"" : ""
+    """
+    #!/bin/bash
+    python3 ${projectDir}/scripts/followup_candfile.py --mode match \
+        --input_candfile ${candfile} \
+        --xml ${xml_file} \
+        --ptol ${params.followup.ptol} \
+        --dm_tol ${params.followup.dm_tol} \
+        --ncands ${params.followup.ncands} \
+        ${birdie_flag} \
+        --out_dir .
+
+    mv matches.csv matches_${beam_name}_cdm_${cdm}_ck${segments}${segment_id}.csv
+    cp matches_${beam_name}_cdm_${cdm}_ck${segments}${segment_id}.csv matches.csv
+    """
+}
+
+process followup_fold {
+    label "followup_fold"
+    container "${params.pulsarx_image}"
+    tag "${cluster}_${beam_name}_cdm_${cdm}_seg${segments}${segment_id}"
+    cache 'lenient'
+    publishDir { "${params.followup.output_dir}/${cluster}/${utc_start}/${beam_name}/segment_${segments}/${segments}${segment_id}/FOLD" }, pattern: "*.{ar,png,cands}", mode: 'copy'
+    publishDir { "${params.followup.output_dir}/${cluster}/${utc_start}/${beam_name}/segment_${segments}/${segments}${segment_id}/FOLD" }, pattern: "matches*.csv", mode: 'copy'
+
+    input:
+    tuple val(pointing), path(fil_file), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(segments), val(segment_id), path(candfile), path(matches_csv), path(xml_file)
+
+    output:
+    tuple val(pointing), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(segments), val(segment_id), path("*.ar"), path("*.png"), path(matches_csv)
+
+    script:
+    def template = params.followup.template_file ?: "${params.template_dir}/Effelsberg_${beam_id}.template"
+    """
+    #!/bin/bash
+    set -euo pipefail
+
+    # Only fold if there are candidates to fold (header line only => skip)
+    ncand=\$(grep -vc '#' ${candfile} || true)
+    if [ "\${ncand}" -eq 0 ]; then
+        echo "No candidates matched for ${beam_name} cdm ${cdm}; nothing to fold."
+        # emit empty placeholders so downstream globs don't fail
+        touch _no_candidates.ar _no_candidates.png
+        exit 0
+    fi
+
+    # Pull folding params from the peasoup XML of the searched observation
+    pepoch=\$(grep -oP '(?<=<segment_pepoch>)[^<]+' ${xml_file} | head -n1)
+    tsamp=\$(grep -oP '(?<=<tsamp>)[^<]+' ${xml_file} | head -n1)
+    nsamples=\$(grep -oP '(?<=<nsamples>)[^<]+' ${xml_file} | head -n1)
+    seg_start=\$(grep -oP '(?<=<segment_start_sample>)[^<]+' ${xml_file} | head -n1)
+    seg_nsamp=\$(grep -oP '(?<=<segment_nsamples>)[^<]+' ${xml_file} | head -n1)
+
+    start_frac=\$(awk -v s=\${seg_start} -v n=\${nsamples} 'BEGIN{printf "%.3f", s/n}')
+    end_frac=\$(awk -v s=\${seg_start} -v sn=\${seg_nsamp} -v n=\${nsamples} 'BEGIN{printf "%.3f", (s+sn)/n}')
+    subint_length=\$(awk -v ts=\${tsamp} -v sn=\${seg_nsamp} 'BEGIN{printf "%d", (ts*sn)/64}')
+
+    # beam tag: cfbf/ifbf handling mirrors pulsarx_fold.py
+    if [[ "${beam_name}" == *ifbf* ]]; then
+        beam_tag="--incoherent -i ${beam_id}"
+    else
+        beam_tag="-i ${beam_id}"
+    fi
+
+    # psrfold_fil2 invocation matching scripts/pulsarx_fold.py
+    psrfold_fil2 -v --render --plotx --output_width --cdm ${cdm} \
+        -t ${params.followup.pulsarx_threads} --candfile ${candfile} \
+        -n ${params.followup.nsub} -b ${params.followup.nbins} --nbinplan ${params.followup.binplan} \
+        \${beam_tag} --template ${template} --clfd ${params.followup.clfd} \
+        -L \${subint_length} -f ${fil_file} -o ${beam_name}_cdm_${cdm}_ck${segments}${segment_id} \
+        --srcname ${cluster} --pepoch \${pepoch} --frac \${start_frac} \${end_frac}
     """
 }

@@ -29,6 +29,10 @@ include { create_candyjar_tarball } from './processes'
 include { parfold } from './processes'
 include { candypolice_pulsarx} from './processes'
 include { extract_candidates } from './processes'
+include { followup_prepare } from './processes'
+include { followup_peasoup } from './processes'
+include { followup_match } from './processes'
+include { followup_fold } from './processes'
 include { dada_to_fits } from './processes'
 include { merge_filterbanks } from './processes'
 include { split_filterbank } from './processes.nf'
@@ -600,6 +604,59 @@ workflow candypolice {
     candypolice_pulsarx(rdout, candfiles)
 }
 
+// ----------------Followup / confirmation workflow -----------------
+// Re-find T1/T2 candidates from a previous search (params.followup.input_csv)
+// Effelsberg: concentric beams -> every filterbank searches all targets.
+// MeerKAT: search each target only against its neighbouring beams (overlap_csv).
+workflow run_followup {
+    main:
+    // Candidate targets: one shared (input.candfile, targets.dm)
+    def targets = followup_prepare(Channel.fromPath("${params.followup.input_csv}"))
+
+    def rfi_ch  = rfi_filter(intake())
+    def cleaned = rfi_clean(rfi_ch)
+    def fil_ch  = segmentation(cleaned)   // 15-tuple: (...,cdm,tsamp,nsamples,segments,seg_id,fft_size,start_sample)
+
+    def search_in
+    if (params.telescope == 'effelsberg') {
+        // Concentric beams: broadcast the shared candfile/dm-file to every fil/segment
+        search_in = fil_ch.combine(targets)
+    } else {
+        // MeerKAT: build orig_beam -> Set(neighbour beams) from the overlap CSV,
+        // then keep only (filterbank, target) pairs whose beam is a neighbour.
+        if (!params.followup.overlap_csv) {
+            error "followup: params.followup.overlap_csv is required for telescope '${params.telescope}'"
+        }
+        def neighbour_map = [:]
+        file("${params.followup.overlap_csv}").readLines().drop(1).each { line ->
+            def cols = line.split(',').collect { it.trim() }
+            if (cols.size() >= 2 && cols[0]) {
+                def orig = cols[0]
+                def neigh = cols[1..-1].findAll { it }
+                neighbour_map[orig] = (neighbour_map.getOrDefault(orig, [] as Set) + neigh) as Set
+            }
+        }
+        // Any beam that appears as an original also confirms against itself
+        neighbour_map.each { k, v -> v.add(k) }
+        def all_neighbours = neighbour_map.values().flatten() as Set
+
+        // NOTE: filterbanks whose beam is a neighbour of at least one candidate beam
+        // are searched with the shared (all-target) candfile. Per-beam target narrowing
+        // (only searching a fil with the targets whose orig beam neighbours it) uses the
+        // per-beam candfiles emitted by followup_prepare --per-beam and can be wired in
+        // later; the match step still enforces per-candidate period+DM tolerances.
+        search_in = fil_ch
+            .combine(targets)
+            .filter { p,f,c,bn,bi,u,ra,dec,cdm,ts,ns,seg,seg_id,fft,ss,candfile,dmfile ->
+                all_neighbours.contains(bn)
+            }
+    }
+
+    def searched = followup_peasoup(search_in)
+    def matched  = followup_match(searched)
+    followup_fold(matched)
+}
+
 // Select workflow via params.entry (replaces the deprecated -entry CLI flag in NF26+)
 // Default: full
 workflow {
@@ -613,11 +670,12 @@ workflow {
     else if (entry == 'run_rfi_clean')        run_rfi_clean()
     else if (entry == 'fold_par')             fold_par()
     else if (entry == 'candypolice')          candypolice()
+    else if (entry == 'run_followup')         run_followup()
     else if (entry == 'setup_basedir')        setup_basedir()
     else if (entry == 'help')                 help()
     else if (entry == 'validate_inputs')      validate_inputs()
     else if (entry == 'cleanup_cache')        cleanup_cache()
-    else error "Unknown entry workflow: '${entry}'. Valid options: full, run_search_fold, run_dada_search, run_dada_clean_stack, run_digifits, generate_rfi_filter, run_rfi_clean, fold_par, candypolice, setup_basedir, help, validate_inputs, cleanup_cache"
+    else error "Unknown entry workflow: '${entry}'. Valid options: full, run_search_fold, run_dada_search, run_dada_clean_stack, run_digifits, generate_rfi_filter, run_rfi_clean, fold_par, candypolice, run_followup, setup_basedir, help, validate_inputs, cleanup_cache"
 
     workflow.onComplete { onComplete() }
     workflow.onError    { onError()    }
