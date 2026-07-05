@@ -31,12 +31,12 @@ process dada_to_fits {
     // runID symlink created in afterScript (excluded from task hash) so runID changes don't bust the cache
     afterScript {
         if (!params.runID) return 'true'
-        def filename = "${cluster}_${utc_start}_${beam_name}_cdm_${cdm}.sf"
+        def fits_name = "${cluster}_${utc_start}_${beam_name}_cdm_${cdm}.sf"
         def shared = "${params.basedir}/shared_cache/${cluster}/FITS"
         def runid_dir = "${params.basedir}/${params.runID}/${beam_name}/FITS"
         """
         mkdir -p "${runid_dir}"
-        ln -sf "${shared}/${filename}" "${runid_dir}/${filename}"
+        ln -sf "${shared}/${fits_name}" "${runid_dir}/${fits_name}"
         """
     }
 
