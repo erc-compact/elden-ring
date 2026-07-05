@@ -28,6 +28,17 @@ process dada_to_fits {
     container "${params.edd_pulsar_image}"
     tag "${cluster}_${beam_name}_cdm_${cdm}"
     cache 'lenient'
+    // runID symlink created in afterScript (excluded from task hash) so runID changes don't bust the cache
+    afterScript {
+        if (!params.runID) return 'true'
+        def filename = "${cluster}_${utc_start}_${beam_name}_cdm_${cdm}.sf"
+        def shared = "${params.basedir}/shared_cache/${cluster}/FITS"
+        def runid_dir = "${params.basedir}/${params.runID}/${beam_name}/FITS"
+        """
+        mkdir -p "${runid_dir}"
+        ln -sf "${shared}/${filename}" "${runid_dir}/${filename}"
+        """
+    }
 
     input:
     tuple val(pointing), val(dada_files), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm)
@@ -122,18 +133,6 @@ process dada_to_fits {
     # Move the output file to the publish directory
     mv "${filename}" "${publish_dir}/${filename}"
 
-    # Create symlink in runID-specific directory for easy access
-    if [[ -n "${params.runID}" ]]; then
-        runid_dir="${params.basedir}/${params.runID}/${beam_name}/FITS"
-        mkdir -p "\${runid_dir}"
-        ln -sf "${publish_dir}/${filename}" "\${runid_dir}/${filename}"
-
-        # Verify symlink was created
-        if [[ ! -L "\${runid_dir}/${filename}" ]]; then
-            echo "WARNING: Failed to create symlink at \${runid_dir}/${filename}"
-        fi
-    fi
-
     # Create symlink in work directory
     ln -s "${publish_dir}/${filename}" "${filename}"
     """
@@ -173,6 +172,19 @@ process generateRfiFilter {
     cache 'lenient'
     // Don't use runID in publishDir for caching - use shared cache location
     publishDir { "${params.basedir}/shared_cache/${cluster}/${beam_name}/RFIFILTER/" }, pattern: "*.{png,txt}", mode: 'copy'
+    // runID symlinks created in afterScript (excluded from task hash) so runID changes don't bust the cache
+    afterScript {
+        if (!params.runID) return 'true'
+        def output_suffix = suffix ?: ""
+        def shared = "${params.basedir}/shared_cache/${cluster}/${beam_name}/RFIFILTER"
+        def runid_dir = "${params.basedir}/${params.runID}/${beam_name}/RFIFILTER"
+        """
+        mkdir -p "${runid_dir}"
+        ln -sf "${shared}/${beam_name}_cdm_${cdm}${output_suffix}_rfi.png" "${runid_dir}/"
+        ln -sf "${shared}/combined_frequent_outliers_${beam_name}_${cdm}${output_suffix}.txt" "${runid_dir}/"
+        ln -sf "${shared}/block_bad_channel_percentages_${beam_name}_${cdm}${output_suffix}.txt" "${runid_dir}/"
+        """
+    }
 
     input:
     tuple val(pointing), path(fits_files), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(time_per_file), val(tsamp), val(nsamples), val(subintlength)
@@ -206,21 +218,6 @@ process generateRfiFilter {
     mv combined_sk_heatmap_and_histogram.png ${beam_name}_cdm_${cdm}${output_suffix}_rfi.png
     mv combined_frequent_outliers.txt combined_frequent_outliers_${beam_name}_${cdm}${output_suffix}.txt
     mv block_bad_channel_percentages.txt block_bad_channel_percentages_${beam_name}_${cdm}${output_suffix}.txt
-
-    # Also create symlinks in runID-specific directory for easy access
-    if [[ -n "${params.runID}" ]]; then
-        runid_dir="${params.basedir}/${params.runID}/${beam_name}/RFIFILTER"
-        mkdir -p "\${runid_dir}"
-
-        ln -sf "${params.basedir}/shared_cache/${cluster}/${beam_name}/RFIFILTER/${beam_name}_cdm_${cdm}${output_suffix}_rfi.png" "\${runid_dir}/"
-        ln -sf "${params.basedir}/shared_cache/${cluster}/${beam_name}/RFIFILTER/combined_frequent_outliers_${beam_name}_${cdm}${output_suffix}.txt" "\${runid_dir}/"
-        ln -sf "${params.basedir}/shared_cache/${cluster}/${beam_name}/RFIFILTER/block_bad_channel_percentages_${beam_name}_${cdm}${output_suffix}.txt" "\${runid_dir}/"
-
-        # Verify symlinks were created
-        if [[ ! -L "\${runid_dir}/${beam_name}_cdm_${cdm}${output_suffix}_rfi.png" ]]; then
-            echo "WARNING: Failed to create symlink for RFI filter plots"
-        fi
-    fi
     """
 }
 
@@ -231,6 +228,18 @@ process filtool {
     cache 'lenient'
     // publishDir { "${params.basedir}/${cluster}/CLEANEDFIL/" }, pattern: "*.fil", mode: 'symlink'
     // removed publishDir to avoid symlinks, now using publishDir in the script
+    // runID-specific convenience symlink is created in afterScript (not script:) so that
+    // changing runID does NOT alter the task hash and invalidate the shared cache.
+    afterScript {
+        if (!params.runID) return 'true'
+        def outputFile = "${cluster.trim()}_${utc_start.trim()}_${beam_name.trim()}_cdm_${cdm}_clean"
+        def shared = "${params.basedir}/shared_cache/${cluster}/${beam_name}/CLEANEDFIL"
+        def runid_dir = "${params.basedir}/${params.runID}/${beam_name}/CLEANEDFIL"
+        """
+        mkdir -p "${runid_dir}"
+        ln -sf "${shared}/${outputFile}_01.fil" "${runid_dir}/${outputFile}_01.fil"
+        """
+    }
 
     input:
     tuple val(pointing), path(fits_files), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(rfi_filter_string), val(tsamp), val(nsamples) , val(subintlength)
@@ -275,18 +284,6 @@ process filtool {
         filtool \${flip_flag} --td ${params.filtool.td} --fd ${params.filtool.fd} -t ${threads} --telescope ${telescope} ${zaplist} -o ${outputFile} -f \${input_files} -s ${source_name}
     fi
 
-    # Also create symlink in runID-specific directory for easy access
-    if [[ -n "${params.runID}" ]]; then
-        runid_dir="${params.basedir}/${params.runID}/${beam_name}/CLEANEDFIL"
-        mkdir -p "\${runid_dir}"
-        ln -sf "\${publish_dir}/${outputFile}_01.fil" "\${runid_dir}/${outputFile}_01.fil"
-
-        # Verify symlink was created
-        if [[ ! -L "\${runid_dir}/${outputFile}_01.fil" ]]; then
-            echo "WARNING: Failed to create symlink at \${runid_dir}/${outputFile}_01.fil"
-        fi
-    fi
-
     # create a symlink to the cleaned file in the work directory
     cd \${workdir}
     ln -s "\${publish_dir}/${outputFile}_01.fil" "${outputFile}_01.fil"
@@ -298,6 +295,17 @@ process palClean {
     container "${params.pal_clean_image}"
     tag "${cluster}_${beam_name}_cdm_${cdm}"
     cache 'lenient'
+    // runID symlink created in afterScript (excluded from task hash) so runID changes don't bust the cache
+    afterScript {
+        if (!params.runID) return 'true'
+        def outputFile = "${cluster.trim()}_${utc_start.trim()}_${beam_name.trim()}_cdm_${cdm}_clean"
+        def shared = "${params.basedir}/shared_cache/${cluster}/${beam_name}/CLEANEDFIL"
+        def runid_dir = "${params.basedir}/${params.runID}/${beam_name}/CLEANEDFIL"
+        """
+        mkdir -p "${runid_dir}"
+        ln -sf "${shared}/${outputFile}_01.fil" "${runid_dir}/${outputFile}_01.fil"
+        """
+    }
 
     input:
     tuple val(pointing), path(fits_files), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(rfi_filter_string), val(tsamp), val(nsamples), val(subintlength)
@@ -392,17 +400,6 @@ YAML
     fi
     mv "\${produced}" "\${publish_dir}/${outputFile}_01.fil"
 
-    # Also create symlink in runID-specific directory for easy access
-    if [[ -n "${params.runID}" ]]; then
-        runid_dir="${params.basedir}/${params.runID}/${beam_name}/CLEANEDFIL"
-        mkdir -p "\${runid_dir}"
-        ln -sf "\${publish_dir}/${outputFile}_01.fil" "\${runid_dir}/${outputFile}_01.fil"
-
-        if [[ ! -L "\${runid_dir}/${outputFile}_01.fil" ]]; then
-            echo "WARNING: Failed to create symlink at \${runid_dir}/${outputFile}_01.fil"
-        fi
-    fi
-
     # Symlink the cleaned file into the work directory for the output glob.
     ln -s "\${publish_dir}/${outputFile}_01.fil" "${outputFile}_01.fil"
     """
@@ -413,6 +410,19 @@ process split_filterbank {
     container "${params.filtools_sig_image}"
     tag "${cluster}_${beam_name}_cdm_${cdm}"
     cache 'lenient'
+    // runID symlink created in afterScript (excluded from task hash) so runID changes don't bust the cache
+    afterScript {
+        if (!params.runID) return 'true'
+        def outputFile = "${cluster.trim()}_${utc_start.trim()}_${beam_name.trim()}_cdm_${cdm}_clean"
+        def shared = "${params.basedir}/shared_cache/${cluster}/${beam_name}/CLEANEDFIL"
+        def runid_dir = "${params.basedir}/${params.runID}/${beam_name}/CLEANEDFIL"
+        """
+        if [ -f "${shared}/${outputFile}_cut.fil" ]; then
+            mkdir -p "${runid_dir}"
+            ln -sf "${shared}/${outputFile}_cut.fil" "${runid_dir}/${outputFile}_cut.fil"
+        fi
+        """
+    }
 
     input:
     tuple val(pointing), path(fil_file), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm)
@@ -439,17 +449,6 @@ process split_filterbank {
       fi
     fi
 
-    # Create symlink in runID-specific directory for easy access
-    if [[ -n "${params.runID}" && -f "\${outputFile}_cut.fil" ]]; then
-        runid_dir="${params.basedir}/${params.runID}/${beam_name}/CLEANEDFIL"
-        mkdir -p "\${runid_dir}"
-        ln -sf "\${publish_dir}/\${outputFile}_cut.fil" "\${runid_dir}/\${outputFile}_cut.fil"
-
-        # Verify symlink was created
-        if [[ ! -L "\${runid_dir}/\${outputFile}_cut.fil" ]]; then
-            echo "WARNING: Failed to create symlink at \${runid_dir}/\${outputFile}_cut.fil"
-        fi
-    fi
     """
   }
 
@@ -460,6 +459,17 @@ process merge_filterbanks {
     tag "${cluster}_cfbf${group_label}_cdm_${cdm}"
     cache 'lenient'
     // publishDir { "${params.basedir}/${cluster}/${beam_name}/MERGED/" }, pattern: "*.fil", mode: 'copy'
+    // runID symlink created in afterScript (excluded from task hash) so runID changes don't bust the cache
+    afterScript {
+        if (!params.runID) return 'true'
+        def outputFile = "${cluster}.${utc}_cfbf${group_label}_cdm_${cdm}_stacked.fil"
+        def shared = "${params.basedir}/shared_cache/${cluster}/cfbf${group_label}/MERGED"
+        def runid_dir = "${params.basedir}/${params.runID}/cfbf${group_label}/MERGED"
+        """
+        mkdir -p "${runid_dir}"
+        ln -sf "${shared}/${outputFile}" "${runid_dir}/${outputFile}"
+        """
+    }
 
     input:
     tuple val(pointing), val(cluster), val(utc), val(ra), val(dec), val(cdm), val(group_label), val(fil_files)
@@ -485,18 +495,6 @@ process merge_filterbanks {
 
     echo "Merged file created: ${outputFile}"
 
-    # Also create symlink in runID-specific directory for easy access
-    if [[ -n "${params.runID}" ]]; then
-        runid_dir="${params.basedir}/${params.runID}/cfbf${group_label}/MERGED"
-        mkdir -p "\${runid_dir}"
-        ln -sf "${publishDir}/${outputFile}" "\${runid_dir}/${outputFile}"
-
-        # Verify symlink was created
-        if [[ ! -L "\${runid_dir}/${outputFile}" ]]; then
-            echo "WARNING: Failed to create symlink at \${runid_dir}/${outputFile}"
-        fi
-    fi
-
     cd \${workdir}
     ln -s "${publishDir}/${outputFile}" "${outputFile}"
     """
@@ -508,6 +506,17 @@ process segmented_params {
     tag "${cluster}_${beam_name}_cdm_${cdm}_seg${segments}"
     cache 'lenient'
     // Don't use publishDir directive - handle publishing in script for shared cache approach
+    // runID symlink created in afterScript (excluded from task hash) so runID changes don't bust the cache
+    afterScript {
+        if (!params.runID) return 'true'
+        def output_file = "${beam_name}_cdm_${cdm}_segments_${segments}_params.csv"
+        def shared = "${params.basedir}/shared_cache/${cluster}/${beam_name}/segment_${segments}/SEGPARAMS"
+        def runid_dir = "${params.basedir}/${params.runID}/${cluster}/${utc_start}/${beam_name}/segment_${segments}/SEGPARAMS"
+        """
+        mkdir -p "${runid_dir}"
+        ln -sf "${shared}/${output_file}" "${runid_dir}/${output_file}"
+        """
+    }
 
     input:
     tuple val(pointing), path(fil_file), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec),val(cdm), val(segments)
@@ -549,18 +558,6 @@ process segmented_params {
         echo "\$i,\$fft_size,\$start_sample,\$nsamples_per_segment" >> "\${output_file}"
         start_sample=\$((start_sample + nsamples_per_segment))
     done
-
-    # Create symlink in runID-specific directory for easy access
-    if [[ -n "${params.runID}" ]]; then
-        runid_dir="${params.basedir}/${params.runID}/${cluster}/${utc_start}/${beam_name}/segment_${segments}/SEGPARAMS"
-        mkdir -p "\${runid_dir}"
-        ln -sf "\${publish_dir}/\${output_file}" "\${runid_dir}/\${output_file}"
-
-        # Verify symlink was created
-        if [[ ! -L "\${runid_dir}/\${output_file}" ]]; then
-            echo "WARNING: Failed to create symlink at \${runid_dir}/\${output_file}"
-        fi
-    fi
 
     # Create symlink in work directory
     workdir="\$(pwd | sed 's|/shared_cache/.*||')/\$(basename \$(pwd))"
