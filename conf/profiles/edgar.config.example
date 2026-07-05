@@ -41,6 +41,36 @@ process {
         clusterOptions = ['+AccountingGroup="g_compact.fkareem"', 'request_gpus = 1']
     }
 
+    // palClean Process Configuration (GPU RFI cleaning via pal-clean CUDA pipeline)
+    withLabel: 'pal_clean' {
+        cpus           = 10
+        memory         = '100 GB'
+        clusterOptions = ['+AccountingGroup="g_compact.fkareem"', 'request_gpus = 1']
+    }
+
+    // followup_peasoup Process Configuration (GPU periodicity search)
+    withLabel: 'followup_peasoup' {
+        cpus           = 1
+        memory         = '150 GB'
+        clusterOptions = ['+AccountingGroup="g_compact.fkareem"', 'request_gpus = 1']
+    }
+
+    // Followup CPU processes
+    withLabel: 'followup_prepare' {
+        cpus           = 1
+        memory         = '10 GB'
+    }
+
+    withLabel: 'followup_match' {
+        cpus           = 1
+        memory         = '10 GB'
+    }
+
+    withLabel: 'followup_fold' {
+        cpus           = 20
+        memory         = '200 GB'
+    }
+
     // PsrFold Process Configuration
     withLabel: 'psrfold' {
         cpus           = 60

@@ -43,6 +43,46 @@ process {
         maxRetries     = 1
     }
 
+    // palClean Process Configuration (GPU RFI cleaning via pal-clean CUDA pipeline)
+    withLabel: 'pal_clean' {
+        cpus           = 1
+        memory         = '100 GB'
+        time           = { 4.hour * task.attempt }
+        queue          = { (task.time <= 4.hour) ? 'short.q' : 'gpu.q' }
+        clusterOptions = '--gres=gpu:1'
+    }
+
+    // followup_peasoup Process Configuration (GPU periodicity search)
+    withLabel: 'followup_peasoup' {
+        cpus           = 1
+        memory         = '200 GB'
+        time           = { 4.hour * task.attempt }
+        queue          = { (task.time <= 4.hour) ? 'short.q' : 'gpu.q' }
+        clusterOptions = '--gres=gpu:1'
+    }
+
+    // Followup CPU processes
+    withLabel: 'followup_prepare' {
+        cpus           = 1
+        memory         = '10 GB'
+        time           = '15m'
+        queue          = 'short.q'
+    }
+
+    withLabel: 'followup_match' {
+        cpus           = 1
+        memory         = '10 GB'
+        time           = '15m'
+        queue          = 'short.q'
+    }
+
+    withLabel: 'followup_fold' {
+        cpus           = 48
+        memory         = '360 GB'
+        time           = { 4.hour * task.attempt }
+        queue          = { (task.time <= 4.hour) ? 'short.q' : 'long.q' }
+    }
+
     // PsrFold Process Configuration
     withLabel: 'psrfold' {
         cpus           = 48
