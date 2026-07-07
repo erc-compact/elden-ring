@@ -1266,15 +1266,20 @@ process followup_prepare {
     tuple path("tiers.csv"), path("*.candfile"), path("*.dm")
 
     script:
-    def zero_dm  = params.followup.use_zero_dm ? "--use_zero_dm" : ""
+    // Fall back to sensible defaults when a param is unset (Nextflow would otherwise
+    // pass the literal string "null" and argparse would reject it). Treat null and any
+    // non-numeric (e.g. empty ConfigObject) as "unset".
+    def acc_floor = (params.followup.acc_floor instanceof Number) ? params.followup.acc_floor : 50.0
+    def mid_cap   = (params.followup.mid_cap   instanceof Number) ? params.followup.mid_cap   : 150.0
+    def zero_dm   = params.followup.use_zero_dm ? "--use_zero_dm" : ""
     """
     #!/bin/bash
     python3 ${projectDir}/scripts/followup_candfile.py --mode prepare \
         --input_csv ${candidate_csv} \
         --dm_tol ${params.followup.dm_tol} \
         --dm_step ${params.followup.dm_step} \
-        --acc_floor ${params.followup.acc_floor} \
-        --mid_cap ${params.followup.mid_cap} \
+        --acc_floor ${acc_floor} \
+        --mid_cap ${mid_cap} \
         ${zero_dm} \
         --out_dir .
     """
