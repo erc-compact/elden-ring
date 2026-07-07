@@ -231,9 +231,18 @@ params {
         dm_step      = 0.1
         use_zero_dm  = false
 
-        // Acceleration (CaReFuL logic): search +/- max|acc_opt| * acc_scale
-        acc_scale    = 1.2
-        accel_tol    = 1.05
+        // Acceleration tiering (keeps high-acc candidates from making the whole
+        // search span huge). Candidates are split into 3 tiers; each tier searches
+        // ONLY its own candidates' DMs, at its own acc span:
+        //   Tier 1 (bulk): |acc| <= cap, where cap = max(median|acc|, acc_floor)
+        //                  -> search +/- cap  (most candidates, cheap)
+        //   Tier 2 (mid) : cap < |acc| <= mid_cap  -> search +/- mid_cap
+        //   Tier 3 (high): |acc| > mid_cap         -> search +/- max|acc| of that tier
+        // Because the wide span (tier 3) only runs over the few high-acc DMs, the
+        // expensive full-range search stays small enough to complete.
+        acc_floor    = 50.0      // floor for the tier-1 cap (max(median, acc_floor))
+        mid_cap      = 150.0     // tier-2 upper bound; above this -> per-tier max|acc|
+        accel_tol    = 1.05      // peasoup --acc_tol (trial spacing)
 
         // peasoup search knobs
         min_snr      = 7.0

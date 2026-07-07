@@ -1255,16 +1255,17 @@ process followup_prepare {
     container "${params.pulsarx_image}"
     tag "followup_prepare"
     cache 'lenient'
-    publishDir { "${params.followup.output_dir}/TARGETS" }, pattern: "*.{candfile,dm}", mode: 'copy'
+    publishDir { "${params.followup.output_dir}/TARGETS" }, pattern: "*.{candfile,dm,csv}", mode: 'copy'
 
     input:
     path candidate_csv
 
     output:
-    tuple path("input.candfile"), path("targets.dm")
+    // acceleration-tiered targets: manifest + all per-tier candfiles/dm-files.
+    // Emitted together so the workflow can join manifest rows to their files.
+    tuple path("tiers.csv"), path("*.candfile"), path("*.dm")
 
     script:
-    def per_beam = (params.telescope != 'effelsberg') ? "--per-beam" : ""
     def zero_dm  = params.followup.use_zero_dm ? "--use_zero_dm" : ""
     """
     #!/bin/bash
@@ -1272,7 +1273,9 @@ process followup_prepare {
         --input_csv ${candidate_csv} \
         --dm_tol ${params.followup.dm_tol} \
         --dm_step ${params.followup.dm_step} \
-        ${zero_dm} ${per_beam} \
+        --acc_floor ${params.followup.acc_floor} \
+        --mid_cap ${params.followup.mid_cap} \
+        ${zero_dm} \
         --out_dir .
     """
 }
@@ -1283,57 +1286,56 @@ process followup_peasoup {
     // only runs peasoup in the peasoup container.
     label "followup_peasoup"
     container "${params.peasoup_image}"
-    tag "${cluster}_${beam_name}_cdm_${cdm}_seg${segments}${segment_id}"
+    tag "${cluster}_${beam_name}_cdm_${cdm}_seg${segments}${segment_id}_${tier}"
     cache 'lenient'
     publishDir { "${params.followup.output_dir}/${cluster}/${utc_start}/${beam_name}/segment_${segments}/${segments}${segment_id}/SEARCH" }, pattern: "*.xml", mode: 'copy'
 
     input:
-    tuple val(pointing), path(fil_file), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(tsamp), val(nsamples), val(segments), val(segment_id), val(fft_size), val(start_sample), path(candfile), path(dm_file)
+    tuple val(pointing), path(fil_file), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(tsamp), val(nsamples), val(segments), val(segment_id), val(fft_size), val(start_sample), val(tier), path(candfile), path(dm_file), val(acc_start), val(acc_end)
 
     output:
-    tuple val(pointing), path(fil_file, followLinks: false), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(segments), val(segment_id), path(candfile), path("*_overview.xml")
+    tuple val(pointing), path(fil_file, followLinks: false), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(segments), val(segment_id), val(tier), path(candfile), path("*_overview.xml")
 
     script:
     """
     #!/bin/bash
     set -euo pipefail
 
-    # Acceleration range from the candfile (CaReFuL logic): max|acc| * acc_scale
-    max_acc=\$(grep -v '#' ${candfile} | awk '{print \$3}' | tr -s "-" " " | sort -g | tail -n 1)
-    acc_range=\$(echo \${max_acc} ${params.followup.acc_scale} | awk '{print \$1*\$2}')
-    acc_start=\$(echo \${acc_range} | awk '{print \$1*-1}')
-    acc_end=\$(echo \${acc_range} | awk '{print \$1*1}')
-    echo "max_acc=\${max_acc} acc_start=\${acc_start} acc_end=\${acc_end} fft_size=${fft_size}"
+    # Acceleration span for this tier is set by followup_prepare (median/50, 150,
+    # or max|acc| of the high tier), so only that tier's DMs pay for a wide span.
+    echo "tier=${tier} acc_start=${acc_start} acc_end=${acc_end} fft_size=${fft_size}"
 
     peasoup -i ${fil_file} --cdm ${cdm} --fft_size ${fft_size} \
         --limit ${params.followup.total_cands} -m ${params.followup.min_snr} \
         -t ${params.peasoup.ngpus} -n ${params.followup.nharmonics} \
-        --acc_start \${acc_start} --acc_end \${acc_end} \
+        --acc_start ${acc_start} --acc_end ${acc_end} \
         --acc_tol ${params.followup.accel_tol} \
         --ram_limit_gb ${params.followup.ram_limit_gb} \
         --dm_file ${dm_file} --start_sample ${start_sample} -o .
 
-    mv **/*.xml ${beam_name}_cdm_${cdm}_ck${segments}${segment_id}_overview.xml
+    mv **/*.xml ${beam_name}_cdm_${cdm}_ck${segments}${segment_id}_${tier}_overview.xml
     """
 }
 
 process followup_match {
     label "followup_match"
     container "${params.pulsarx_image}"
-    tag "${cluster}_${beam_name}_cdm_${cdm}_seg${segments}${segment_id}"
+    tag "${cluster}_${beam_name}_cdm_${cdm}_seg${segments}${segment_id}_${tier}"
     cache 'lenient'
     publishDir { "${params.followup.output_dir}/${cluster}/${utc_start}/${beam_name}/segment_${segments}/${segments}${segment_id}/MATCH" }, pattern: "*.{candfile,csv}", mode: 'copy'
 
     input:
-    tuple val(pointing), path(fil_file), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(segments), val(segment_id), path(candfile), path(xml_file)
+    tuple val(pointing), path(fil_file), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(segments), val(segment_id), val(tier), path(candfile), path(xml_file)
 
     output:
-    tuple val(pointing), path(fil_file, followLinks: false), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(segments), val(segment_id), path("output.candfile"), path("matches.csv"), path(xml_file)
+    tuple val(pointing), path(fil_file, followLinks: false), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(segments), val(segment_id), val(tier), path("output.candfile"), path("matches.csv"), path(xml_file)
 
     script:
     def birdie_flag = params.followup.remove_birdies ? "--birdies \"${params.followup.birdies}\"" : ""
     """
     #!/bin/bash
+    # Match against this tier's candfile only, so a candidate is confirmed within
+    # its own tier (period + DM tolerance still enforced per candidate).
     python3 ${projectDir}/scripts/followup_candfile.py --mode match \
         --input_candfile ${candfile} \
         --xml ${xml_file} \
@@ -1343,24 +1345,24 @@ process followup_match {
         ${birdie_flag} \
         --out_dir .
 
-    mv matches.csv matches_${beam_name}_cdm_${cdm}_ck${segments}${segment_id}.csv
-    cp matches_${beam_name}_cdm_${cdm}_ck${segments}${segment_id}.csv matches.csv
+    mv matches.csv matches_${beam_name}_cdm_${cdm}_ck${segments}${segment_id}_${tier}.csv
+    cp matches_${beam_name}_cdm_${cdm}_ck${segments}${segment_id}_${tier}.csv matches.csv
     """
 }
 
 process followup_fold {
     label "followup_fold"
     container "${params.pulsarx_image}"
-    tag "${cluster}_${beam_name}_cdm_${cdm}_seg${segments}${segment_id}"
+    tag "${cluster}_${beam_name}_cdm_${cdm}_seg${segments}${segment_id}_${tier}"
     cache 'lenient'
     publishDir { "${params.followup.output_dir}/${cluster}/${utc_start}/${beam_name}/segment_${segments}/${segments}${segment_id}/FOLD" }, pattern: "*.{ar,png,cands}", mode: 'copy'
     publishDir { "${params.followup.output_dir}/${cluster}/${utc_start}/${beam_name}/segment_${segments}/${segments}${segment_id}/FOLD" }, pattern: "matches*.csv", mode: 'copy'
 
     input:
-    tuple val(pointing), path(fil_file), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(segments), val(segment_id), path(candfile), path(matches_csv), path(xml_file)
+    tuple val(pointing), path(fil_file), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(segments), val(segment_id), val(tier), path(candfile), path(matches_csv), path(xml_file)
 
     output:
-    tuple val(pointing), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(segments), val(segment_id), path("*.ar"), path("*.png"), path(matches_csv)
+    tuple val(pointing), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(segments), val(segment_id), val(tier), path("*.ar"), path("*.png"), path(matches_csv)
 
     script:
     def template = params.followup.template_file ?: "${params.template_dir}/Effelsberg_${beam_id}.template"
@@ -1400,7 +1402,7 @@ process followup_fold {
         -t ${params.followup.pulsarx_threads} --candfile ${candfile} \
         -n ${params.followup.nsub} -b ${params.followup.nbins} --nbinplan ${params.followup.binplan} \
         \${beam_tag} --template ${template} --clfd ${params.followup.clfd} \
-        -L \${subint_length} -f ${fil_file} -o ${beam_name}_cdm_${cdm}_ck${segments}${segment_id} \
+        -L \${subint_length} -f ${fil_file} -o ${beam_name}_cdm_${cdm}_ck${segments}${segment_id}_${tier} \
         --srcname ${cluster} --pepoch \${pepoch} --frac \${start_frac} \${end_frac}
     """
 }

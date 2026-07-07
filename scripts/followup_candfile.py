@@ -101,29 +101,69 @@ def build_dm_file(path, dm_values, dm_tol, dm_step, use_zero_dm=False):
 # ---------------------------------------------------------------------------
 # prepare mode
 # ---------------------------------------------------------------------------
+def assign_tiers(df, acc_floor, mid_cap):
+    """Split candidates into acceleration tiers and give each an acc search span.
+
+    Rationale: a few extreme-acceleration candidates would otherwise force the
+    whole search to a huge acc range. Instead we search each group only over its
+    own candidates' DMs, at an acc span sized to that group:
+
+      * Tier 1 (bulk): |acc| <= cap, where cap = max(median|acc|, acc_floor).
+                       search span = +/- cap.
+      * Tier 2 (mid):  cap < |acc| <= mid_cap.   search span = +/- mid_cap.
+      * Tier 3 (high): |acc| > mid_cap.          search span = +/- max(|acc|) of tier.
+
+    Each tier searches ONLY its own candidates' DM bands (the sparse union of
+    those bands), so the expensive high-acc span never runs over the full DM set.
+    Returns a list of dicts: {name, df, acc_span}.
+    """
+    ab = df["acc"].abs()
+    cap = max(float(np.median(ab)), float(acc_floor))
+    print("[followup] median|acc|=%.1f  cap=max(median,%.0f)=%.1f  mid_cap=%.0f"
+          % (np.median(ab), acc_floor, cap, mid_cap))
+
+    tiers = []
+    t1 = df[ab <= cap]
+    if len(t1):
+        tiers.append({"name": "t1_bulk", "df": t1, "acc_span": cap})
+    t2 = df[(ab > cap) & (ab <= mid_cap)]
+    if len(t2):
+        tiers.append({"name": "t2_mid", "df": t2, "acc_span": float(mid_cap)})
+    t3 = df[ab > mid_cap]
+    if len(t3):
+        tiers.append({"name": "t3_high", "df": t3, "acc_span": float(t3["acc"].abs().max())})
+
+    for t in tiers:
+        print("[followup]   %-8s: %2d cands, acc=+/-%.0f"
+              % (t["name"], len(t["df"]), t["acc_span"]))
+    return tiers
+
+
 def mode_prepare(args):
     df = read_t1t2_candidates(args.input_csv)
     print("[followup] %d T1/T2 candidates read from %s" % (len(df), args.input_csv))
 
+    # Full input.candfile is kept for reference/matching top-up; matching itself
+    # uses the per-tier candfile so a candidate is only matched to its own tier.
     write_candfile(os.path.join(args.out_dir, "input.candfile"), df)
-    build_dm_file(
-        os.path.join(args.out_dir, "targets.dm"),
-        df["dm"].values, args.dm_tol, args.dm_step, args.use_zero_dm,
-    )
-    print("[followup] wrote input.candfile and targets.dm to %s" % args.out_dir)
 
-    if args.per_beam:
-        # MeerKAT: emit one candfile + dm file per ORIGINAL beam so neighbour-beam
-        # joining can pick the right targets for each filterbank being searched.
-        for beam, sub in df.groupby("orig_beam"):
-            safe = beam.replace("/", "_") or "unknown"
-            write_candfile(os.path.join(args.out_dir, "%s.candfile" % safe), sub)
+    tiers = assign_tiers(df, args.acc_floor, args.mid_cap)
+
+    # Emit one candfile + dm file per tier, and a manifest Nextflow fans out over.
+    manifest = os.path.join(args.out_dir, "tiers.csv")
+    with open(manifest, "w") as mf:
+        mf.write("tier,candfile,dmfile,acc_start,acc_end\n")
+        for t in tiers:
+            cf = "%s.candfile" % t["name"]
+            dmf = "%s.dm" % t["name"]
+            write_candfile(os.path.join(args.out_dir, cf), t["df"])
             build_dm_file(
-                os.path.join(args.out_dir, "%s.dm" % safe),
-                sub["dm"].values, args.dm_tol, args.dm_step, args.use_zero_dm,
+                os.path.join(args.out_dir, dmf),
+                t["df"]["dm"].values, args.dm_tol, args.dm_step, args.use_zero_dm,
             )
-        print("[followup] wrote per-beam candfiles/dm-files (%d beams)"
-              % df["orig_beam"].nunique())
+            mf.write("%s,%s,%s,%.6f,%.6f\n"
+                     % (t["name"], cf, dmf, -t["acc_span"], t["acc_span"]))
+    print("[followup] wrote %d tier(s) and manifest %s" % (len(tiers), manifest))
 
 
 # ---------------------------------------------------------------------------
@@ -259,8 +299,13 @@ def parse_args():
                    help="Half-width of each candidate's DM band (pc/cc)")
     p.add_argument("--dm_step", type=float, default=0.1, help="DM step (pc/cc)")
     p.add_argument("--use_zero_dm", action="store_true", help="Include DM=0 in dm file")
-    p.add_argument("--per-beam", dest="per_beam", action="store_true",
-                   help="Also emit per-original-beam candfiles/dm-files (MeerKAT)")
+    # acceleration tiering
+    p.add_argument("--acc_floor", type=float, default=50.0,
+                   help="Tier-1 acc cap = max(median|acc|, acc_floor); "
+                        "candidates within +/-cap searched together (default: 50)")
+    p.add_argument("--mid_cap", type=float, default=150.0,
+                   help="Tier-2 upper acc bound; cands in (cap, mid_cap] searched at "
+                        "+/-mid_cap, above at +/-max|acc| of that group (default: 150)")
 
     # match
     p.add_argument("--input_candfile", help="input.candfile from prepare (match mode)")

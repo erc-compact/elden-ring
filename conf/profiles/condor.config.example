@@ -136,6 +136,7 @@ apptainer {
         autoMounts   = true
         cacheDir     = "${projectDir}/.singularity"
         ociAutoPull  = true
+        runOptions   = '--nv'  // expose host NVIDIA GPU into containers (required for peasoup/pal_clean/followup_peasoup)
         envWhitelist = 'APPTAINER_BINDPATH, APPTAINER_LD_LIBRARY_PATH'
     }
 

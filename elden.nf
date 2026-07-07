@@ -610,8 +610,21 @@ workflow candypolice {
 // MeerKAT: search each target only against its neighbouring beams (overlap_csv).
 workflow run_followup {
     main:
-    // Candidate targets: one shared (input.candfile, targets.dm)
-    def targets = followup_prepare(Channel.fromPath("${params.followup.input_csv}"))
+    // Candidate targets, split into acceleration tiers by followup_prepare so a few
+    // extreme-acc candidates don't force the whole search to a huge acc span. Each
+    // tier -> (tier_name, candfile, dmfile, acc_start, acc_end); each tier searches
+    // only its own candidates' DMs at its own acc span.
+    def prep = followup_prepare(Channel.fromPath("${params.followup.input_csv}"))
+
+    // Resolve manifest rows to the staged per-tier candfile/dm-file paths.
+    def targets = prep.flatMap { manifest, candfiles, dmfiles ->
+        def cf = (candfiles instanceof List ? candfiles : [candfiles]).collectEntries { [(it.getName()): it] }
+        def dm = (dmfiles   instanceof List ? dmfiles   : [dmfiles]).collectEntries   { [(it.getName()): it] }
+        manifest.readLines().drop(1).findAll { it.trim() }.collect { line ->
+            def (tier, cfname, dmname, accs, acce) = line.split(',').collect { it.trim() }
+            tuple(tier, cf[cfname], dm[dmname], accs, acce)
+        }
+    }
 
     def rfi_ch  = rfi_filter(intake())
     def cleaned = rfi_clean(rfi_ch)
@@ -619,7 +632,8 @@ workflow run_followup {
 
     def search_in
     if (params.telescope == 'effelsberg') {
-        // Concentric beams: broadcast the shared candfile/dm-file to every fil/segment
+        // Concentric beams: broadcast every tier to every fil/segment.
+        // Result 20-tuple: fil(15) + (tier, candfile, dmfile, acc_start, acc_end)
         search_in = fil_ch.combine(targets)
     } else {
         // MeerKAT: build orig_beam -> Set(neighbour beams) from the overlap CSV,
@@ -640,14 +654,11 @@ workflow run_followup {
         neighbour_map.each { k, v -> v.add(k) }
         def all_neighbours = neighbour_map.values().flatten() as Set
 
-        // NOTE: filterbanks whose beam is a neighbour of at least one candidate beam
-        // are searched with the shared (all-target) candfile. Per-beam target narrowing
-        // (only searching a fil with the targets whose orig beam neighbours it) uses the
-        // per-beam candfiles emitted by followup_prepare --per-beam and can be wired in
-        // later; the match step still enforces per-candidate period+DM tolerances.
+        // Keep filterbanks whose beam is a neighbour of at least one candidate beam.
+        // The match step still enforces per-candidate period+DM tolerances.
         search_in = fil_ch
             .combine(targets)
-            .filter { p,f,c,bn,bi,u,ra,dec,cdm,ts,ns,seg,seg_id,fft,ss,candfile,dmfile ->
+            .filter { p,f,c,bn,bi,u,ra,dec,cdm,ts,ns,seg,seg_id,fft,ss,tier,candfile,dmfile,accs,acce ->
                 all_neighbours.contains(bn)
             }
     }
