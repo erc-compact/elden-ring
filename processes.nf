@@ -390,10 +390,13 @@ YAML
     echo "Generated pal-clean.yaml:"
     cat pal-clean.yaml
 
-    echo "Running: pal-clean -i \${input_files} -o . -c pal-clean.yaml"
-    pal-clean -i \${input_files} -o . -c pal-clean.yaml
+    # Write output to a subdirectory so it can't be confused with staged
+    # input .fil files (e.g. followup runs where the input is a filterbank).
+    mkdir -p palclean_out
+    echo "Running: pal-clean -i \${input_files} -o palclean_out -c pal-clean.yaml"
+    pal-clean -i \${input_files} -o palclean_out -c pal-clean.yaml
 
-    produced=\$(find . -maxdepth 1 -name '*.fil' -print -quit)
+    produced=\$(find palclean_out -maxdepth 1 -name '*.fil' -print -quit)
     if [[ -z "\${produced}" ]]; then
         echo "ERROR: pal-clean produced no .fil output" >&2
         exit 1
