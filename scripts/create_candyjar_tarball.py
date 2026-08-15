@@ -246,6 +246,37 @@ class CandidateProcessor:
         self.logger.debug("Preprocessing done. Rows: %d", len(df))
         return df
 
+    @staticmethod
+    def _to_isot(value: str) -> str:
+        """Best-effort normalization of a utc_start string to ISOT
+        (YYYY-MM-DDTHH:MM:SS). Handles the two malformed variants seen in
+        practice: date parts joined with ':' instead of '-', and dates
+        written DD-MM-YYYY instead of YYYY-MM-DD. Raises ValueError (with
+        the original value in the message) if the string still can't be
+        parsed, rather than silently guessing.
+        """
+        original = value
+        # Case 1: 'YYYY:MM:DDTHH:MM:SS' -> fix the date-part separators only.
+        if len(value) > 10 and value[4] == ':':
+            value = value.replace(':', '-', 2)
+
+        date_part, sep, time_part = value.partition('T')
+        if sep and len(date_part) == 10 and date_part[4] != '-':
+            # Case 2: date part is DD-MM-YYYY (or similar non-ISO order).
+            try:
+                parsed = datetime.strptime(date_part, "%d-%m-%Y")
+                value = f"{parsed.strftime('%Y-%m-%d')}T{time_part}"
+            except ValueError:
+                pass
+
+        try:
+            Time(value, format="isot", scale="utc")
+        except ValueError as err:
+            raise ValueError(
+                f"utc_start value {original!r} could not be normalized to ISOT"
+            ) from err
+        return value
+
     def add_galactic_info(self, df: pd.DataFrame) -> pd.DataFrame:
         self.logger.info("Adding galactic coordinate info.")
         unique = df[["utc_start", "beam", "ra", "dec"]].drop_duplicates().copy()
@@ -260,9 +291,7 @@ class CandidateProcessor:
             self.logger.warning(
                 "utc_start values not in ISOT format, attempting to fix date separators."
             )
-            utc_fixed = unique["utc_start"].apply(
-                lambda x: x.replace(':', '-', 2) if len(x) > 10 and x[4] == ':' else x
-            )
+            utc_fixed = unique["utc_start"].apply(self._to_isot)
             unique["mjd_start"] = Time(
                 utc_fixed.tolist(), format="isot", scale="utc"
             ).mjd
