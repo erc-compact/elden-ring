@@ -643,6 +643,10 @@ process generateDMFiles {
     """
 }
 
+// NOTE: n_dm is the number of DM chunks for this beam/segment. It is threaded through
+// purely so the downstream groupTuple can be sized (see `search` in elden.nf) and is
+// unused by the script body. Adding it changed the task hash, so the first run after
+// this change will not resume cached peasoup tasks.
 process peasoup {
     label 'peasoup'
     container "${params.peasoup_image}"
@@ -651,10 +655,10 @@ process peasoup {
     cache 'lenient'
 
     input:
-    tuple val(pointing), path(fil_file), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(tsamp), val(nsamples), val(segments), val(segment_id), val(fft_size), val(start_sample), path(birdies_file), path(dm_file)
+    tuple val(pointing), path(fil_file), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(tsamp), val(nsamples), val(segments), val(segment_id), val(fft_size), val(start_sample), path(birdies_file), path(dm_file), val(n_dm)
 
     output:
-    tuple val(pointing), val(cluster),val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(fft_size), val(segments), val(segment_id), path(dm_file), path(fil_file, followLinks: false), path("*.xml"), path(birdies_file), val(start_sample), val(nsamples)
+    tuple val(pointing), val(cluster),val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(fft_size), val(segments), val(segment_id), path(dm_file), path(fil_file, followLinks: false), path("*.xml"), path(birdies_file), val(start_sample), val(nsamples), val(n_dm)
 
     script:
     """
@@ -770,6 +774,9 @@ process parse_xml {
 }
 
 
+// NOTE: n_cand is the number of non-empty candfiles for this beam/segment, threaded
+// through only to size the downstream groupTuple (see `fold` in elden.nf); unused by
+// the script. As with peasoup, this changes the task hash and breaks resume once.
 process psrfold {
     label "psrfold"
     container "${params.pulsarx_image}"
@@ -782,10 +789,10 @@ process psrfold {
     publishDir { "${params.basedir}/${params.runID}/${cluster}/${utc_start}/${beam_name}/segment_${segments}/${segments}${segment_id}/FOLDING/CANDS/" }, pattern: "*.cands", mode: 'copy'
 
     input:
-    tuple val(pointing), val(cluster),val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(fft_size), val(segments), val(segment_id), val(fil_base_name), path(fil_file), val(start_sample), path(filtered_candidate_csv), path(candfile), path(metafile)
+    tuple val(pointing), val(cluster),val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(fft_size), val(segments), val(segment_id), val(fil_base_name), path(fil_file), val(start_sample), path(filtered_candidate_csv), path(candfile), path(metafile), val(n_cand)
 
     output:
-    tuple val(pointing), val(cluster),val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(fft_size), val(segments), val(segment_id), val(fil_base_name), path(fil_file, followLinks: false), path(filtered_candidate_csv), path(candfile), path(metafile), path("*.png"), path("*.ar"), path("*.cands")
+    tuple val(pointing), val(cluster),val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(fft_size), val(segments), val(segment_id), val(fil_base_name), path(fil_file, followLinks: false), path(filtered_candidate_csv), path(candfile), path(metafile), path("*.png"), path("*.ar"), path("*.cands"), val(n_cand)
 
     script:
     """

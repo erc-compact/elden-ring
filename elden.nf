@@ -282,19 +282,30 @@ workflow search {
     dm(bird_out)
         .flatMap { p,fi,c,bn,bi,u,ra,dec,cdm,ts,ns,seg,seg_id,fft,start,bird,dml ->
             def dm_files = dml instanceof List ? dml : [dml]
+            // Carry the per-(beam,segment) DM-chunk count alongside each task so the
+            // downstream groupTuple knows its group size up front and can release as
+            // soon as that beam/segment's own peasoup runs finish.
+            def n_dm = dm_files.size()
             dm_files.collect { dm_file -> 
-              tuple(p, fi, c, bn, bi, u, ra, dec, cdm, ts, ns, seg, seg_id, fft, start, bird, dm_file)
+              tuple(p, fi, c, bn, bi, u, ra, dec, cdm, ts, ns, seg, seg_id, fft, start, bird, dm_file, n_dm)
             }
         }
         .set{ peasoup_input }
 
     peasoup(peasoup_input)
-        .map { p,c,bn,bi,u,ra,dec,cdm,fft_size,seg,seg_id,dm_file,fil_file,xml_path,birds,ss,ns ->
+        .map { p,c,bn,bi,u,ra,dec,cdm,fft_size,seg,seg_id,dm_file,fil_file,xml_path,birds,ss,ns,n_dm ->
             def fil_base = fil_file.getBaseName()
-            tuple(p,c,bn,bi,u,ra,dec,cdm,fft_size,seg,seg_id,dm_file,fil_base,fil_file,xml_path,ss)
+            // Wrap the non-grouped key fields in a groupKey carrying the expected group
+            // size (n_dm). This lets groupTuple release each beam/segment as soon as its
+            // own peasoup runs finish, rather than buffering until the last peasoup task
+            // in the entire run completes.
+            tuple(groupKey(p, n_dm),c,bn,bi,u,ra,dec,cdm,fft_size,seg,seg_id,dm_file,fil_base,fil_file,xml_path,ss)
         }
         .groupTuple(by: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 15])
         .map { p,c,bn,bi,u,ra,dec,cdm,fft_size,seg,seg_id,dm_file,fil_base,fil_file,xml_paths,start_sample ->
+            // Unwrap the GroupKey back to a plain String; downstream code calls String
+            // methods on the pointing (e.g. replaceAll in the tarball name).
+            p = p.toString()
             def combined = []
             def fil_file_sorted = fil_file instanceof List ? fil_file.sort() : [fil_file]
             def first_fil_file = (fil_file_sorted instanceof List) ? fil_file_sorted[0] : fil_file_sorted
@@ -322,13 +333,16 @@ workflow xml_parse {
         .flatMap {  it ->
             def (p,c,bn,bi,u,ra,dec,cdm,fft_size,seg,seg_id,dm_file,fil_base,fil_file,xml_file,start_sample,filtered_candidate_csv,unfiltered_candidates_csv,candfiles,metafile,allCands) = it
             def cList = candfiles instanceof List ? candfiles : [candfiles]
-            cList.collect { candfile ->
-                tuple(p,c,bn,bi,u,ra,dec,cdm,fft_size,seg,seg_id,fil_base,fil_file,start_sample,filtered_candidate_csv,candfile,metafile)
+            // Drop empty candfiles (header-only lines start with #) *before* counting,
+            // so n_cand is the true number of psrfold tasks this beam/segment will spawn.
+            // Counting before the filter would leave the downstream group short and hang.
+            def kept = cList.findAll { candfile ->
+                candfile.readLines().any { line -> !line.startsWith('#') && line.trim() }
             }
-        }
-        .filter { p,c,bn,bi,u,ra,dec,cdm,fft_size,seg,seg_id,fil_base,fil_file,start_sample,filtered_candidate_csv,candfile,metafile ->
-            // Skip candfiles with no candidates (header-only lines start with #)
-            candfile.readLines().any { !it.startsWith('#') && it.trim() }
+            def n_cand = kept.size()
+            kept.collect { candfile ->
+                tuple(p,c,bn,bi,u,ra,dec,cdm,fft_size,seg,seg_id,fil_base,fil_file,start_sample,filtered_candidate_csv,candfile,metafile,n_cand)
+            }
         }
         .set{ splitcands_ch }
 
@@ -343,8 +357,14 @@ workflow fold {
 
     main:
     psrfold(splitcands_ch)
+        // Size the group by n_cand so each beam/segment moves on to merging as soon as
+        // its own folds are done, instead of waiting on every psrfold in the run.
+        .map { p,c,bn,bi,u,ra,dec,cdm,fft_size,seg,seg_id,fil_base,fil,f_csv,candfile,metatext,pngs,ar,cands,n_cand ->
+            tuple(groupKey(p, n_cand),c,bn,bi,u,ra,dec,cdm,fft_size,seg,seg_id,fil_base,fil,f_csv,candfile,metatext,pngs,ar,cands)
+        }
         .groupTuple(by: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10,11])
         .map { p,c,bn,bi,u,ra,dec,cdm,fft_size,seg,seg_id,fil_base,fil,f_csv,candfile,metatext,pngs,ar,cands ->
+            p = p.toString()
             def f_csv_sort = f_csv instanceof List ? f_csv.sort() : [f_csv]
             def first_f_csv = (f_csv_sort instanceof List) ? f_csv_sort[0] : f_csv_sort
             ar = ar instanceof List ? ar : [ar]
