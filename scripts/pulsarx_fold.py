@@ -101,7 +101,9 @@ def fold_with_pulsarx(meta_dict, output_dir, cand_file):
     elif "cfbf" in beam_name:
         beam_tag = "-i {}".format(int(beam_name.strip("cfbf")))
     else:
-        beam_tag = ""
+        # Non-cfbf/ifbf names (e.g. ptuse4): pass beam_id so PulsarX tags outputs cfbf<beam_id>
+        # instead of the default, which made names collide across beams sharing a cdm.
+        beam_tag = "-i {}".format(beam_id)
 
     zap_string = ""
     if cmask is not None:
