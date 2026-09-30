@@ -405,25 +405,26 @@ workflow classify {
         .map { row ->
             // join(by:[1..11]) pulls the key fields to the front in listed order,
             // so after the join: row[0]=pointing, row[1]=cluster, row[2]=beam_name, ...
-            def pointing = row[0]
-            def cluster  = row[1]
-            tuple(pointing, cluster, row.join(','))
+            def pointing  = row[0]
+            def cluster   = row[1]
+            def utc_start = row[4].toString()
+            tuple(pointing, cluster, utc_start, row.join(','))
         }
 
-    // Collect lines into one CSV per (pointing, cluster) pair.
+    // Collect lines into one CSV per (pointing, cluster, utc_start).
     // collectFile drops the upstream tuple, so we track keys separately via an
     // MD5 index and re-join — no parsing of filenames needed.
     def keys = joined
-        .map { pointing, cluster, line -> tuple(pointing, cluster) }
+        .map { pointing, cluster, utc_start, line -> tuple(pointing, cluster, utc_start) }
         .unique()
-        .map { pointing, cluster ->
-            def idx = "${pointing}_${cluster}".md5()
-            tuple(idx, pointing, cluster)
+        .map { pointing, cluster, utc_start ->
+            def idx = "${pointing}_${cluster}_${utc_start}".md5()
+            tuple(idx, pointing, cluster, utc_start)
         }
 
     def csv_files = joined
-        .map { pointing, cluster, line ->
-            def idx = "${pointing}_${cluster}".md5()
+        .map { pointing, cluster, utc_start, line ->
+            def idx = "${pointing}_${cluster}_${utc_start}".md5()
             tuple(idx, line)
         }
         .collectFile { idx, line -> [ "${idx}_combined.csv", line + '\n' ] }
@@ -431,7 +432,7 @@ workflow classify {
 
     keys
         .join(csv_files)
-        .map { idx, pointing, cluster, f -> tuple(pointing, cluster, f) }
+        .map { idx, pointing, cluster, utc_start, f -> tuple(pointing, cluster, utc_start, f) }
         .set{ abg_pics_combined_csv }
 
     emit:
@@ -440,14 +441,14 @@ workflow classify {
 
 workflow candyjar_tarball {
     take:
-    abg_pics_combined_csv  // tuple(pointing, cluster, csv_file)
+    abg_pics_combined_csv  // tuple(pointing, cluster, utc_start, csv_file)
 
     main:
     if (params.alpha_beta_gamma.create_candyjar_tarball) {
-        def tar_input = abg_pics_combined_csv.map { pointing, cluster, f ->
-            def safe_pointing = pointing.replaceAll(':', '-')
-            def tarball_name = "${cluster}_${safe_pointing}_${params.runID}.tar.gz"
-            tuple(cluster, f, tarball_name)
+        def tar_input = abg_pics_combined_csv.map { pointing, cluster, utc_start, f ->
+            def safe_utc = utc_start.replaceAll(':', '-')
+            def tarball_name = "${cluster}_${safe_utc}_${params.runID}.tar.gz"
+            tuple(cluster, utc_start, f, tarball_name)
         }
 
         create_candyjar_tarball(tar_input)

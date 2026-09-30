@@ -403,18 +403,6 @@ class CandidateProcessor:
             ),
             axis=1,
         )
-        png_files = (
-            df.apply(
-                lambda row: os.path.join(
-                    row["fold_cands_filepath"],
-                    os.path.splitext(row["fold_cands_filename"])[0] + ".png",
-                ),
-                axis=1,
-                result_type='reduce',
-            )
-            .unique()
-            .tolist()
-        )
 
         df["candidate_tarball_path"] = os.path.join(
             self.output_tarball_path, self.output_tarball
@@ -485,6 +473,20 @@ class CandidateProcessor:
             "Filtered DataFrame to %d rows with SNR threshold: %f",
             final_df.shape[0],
             self.snr_threshold,
+        )
+
+        # Build the PNG list only after the SNR cut so the tarball matches candidates.csv.
+        png_files = (
+            final_df.apply(
+                lambda row: os.path.join(
+                    row["fold_cands_filepath"],
+                    os.path.splitext(row["fold_cands_filename"])[0] + ".png",
+                ),
+                axis=1,
+                result_type='reduce',
+            )
+            .unique()
+            .tolist()
         )
 
         return final_df, png_files, meta_files, utc_beam_map

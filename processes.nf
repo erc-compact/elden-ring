@@ -1019,14 +1019,14 @@ process create_candyjar_tarball {
     executor 'local'
     container "${params.pulsarx_image}"
     tag "${output_tarball_name}"
-    // Publish CSVs to dedicated directory for easy access
-    publishDir { "${params.basedir}/${params.runID}/TARBALL_CSV/${cluster}/" }, pattern: "*_header.csv", mode: 'copy'
-    publishDir { "${params.basedir}/${params.runID}/TARBALL_CSV/${cluster}/" }, pattern: "candidates.csv", mode: 'copy'
-    publishDir { "${params.basedir}/${params.runID}/TARBALL_CSV/${cluster}/" }, pattern: "candidates_alpha_below_one.csv", mode: 'copy'
-    publishDir { "${params.basedir}/${params.runID}/TARBALL_CSV/${cluster}/" }, pattern: "candidates_pics_above_threshold.csv", mode: 'copy'
+    // Publish CSVs to dedicated directory for easy access (one subfolder per UTC so pointings don't overwrite each other)
+    publishDir { "${params.basedir}/${params.runID}/TARBALL_CSV/${cluster}/${utc_start}/" }, pattern: "*_header.csv", mode: 'copy'
+    publishDir { "${params.basedir}/${params.runID}/TARBALL_CSV/${cluster}/${utc_start}/" }, pattern: "candidates.csv", mode: 'copy'
+    publishDir { "${params.basedir}/${params.runID}/TARBALL_CSV/${cluster}/${utc_start}/" }, pattern: "candidates_alpha_below_one.csv", mode: 'copy'
+    publishDir { "${params.basedir}/${params.runID}/TARBALL_CSV/${cluster}/${utc_start}/" }, pattern: "candidates_pics_above_threshold.csv", mode: 'copy'
 
     input:
-    tuple val(cluster), path(candidate_results_file), val(output_tarball_name)
+    tuple val(cluster), val(utc_start), path(candidate_results_file), val(output_tarball_name)
 
     output:
     tuple path("*_header.csv"), path("candidates.csv"), path("candidates_alpha_below_one.csv"), path("candidates_pics_above_threshold.csv")
@@ -1042,7 +1042,7 @@ process create_candyjar_tarball {
     cat "${candidate_results_file}" >> "\$candidate_results_file_with_header"
 
     publish_dir="${params.basedir}/${params.runID}/CANDIDATE_TARBALLS/${cluster}"
-    csv_dir="${params.basedir}/${params.runID}/TARBALL_CSV/${cluster}"
+    csv_dir="${params.basedir}/${params.runID}/TARBALL_CSV/${cluster}/${utc_start}"
     mkdir -p \${publish_dir}
     mkdir -p \${csv_dir}
 
