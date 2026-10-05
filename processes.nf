@@ -661,6 +661,14 @@ process peasoup {
     tuple val(pointing), val(cluster),val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(fft_size), val(segments), val(segment_id), path(dm_file), path(fil_file, followLinks: false), path("*.xml"), path(birdies_file), val(start_sample), val(nsamples), val(n_dm)
 
     script:
+    // Per-segmentation acceleration range (params.peasoup.segment_acc, keyed by the segments value as a
+    // quoted string, e.g. ['2': [-100, 100]]); segmentations not listed use the global acc_start/acc_end.
+    // Nextflow config drops the values of integer-keyed maps, so a listed key with a null value is an error.
+    def seg_acc = params.peasoup.segment_acc ?: [:]
+    if (seg_acc.containsKey(segments.toString()) && !seg_acc[segments.toString()]) {
+        throw new IllegalArgumentException("peasoup.segment_acc has no range for segments=${segments}; quote the keys, e.g. ['${segments}': [-100, 100]]")
+    }
+    def acc = seg_acc[segments.toString()] ?: [params.peasoup.acc_start, params.peasoup.acc_end]
     """
     #!/bin/bash
 
@@ -672,7 +680,7 @@ process peasoup {
         birdies_string="--zapfile ${birdies_file}"
     fi
 
-    peasoup -i ${fil_file} --cdm ${cdm} --fft_size ${fft_size} --limit ${params.peasoup.total_cands_limit} -m ${params.peasoup.min_snr} -t ${params.peasoup.ngpus} -n ${params.peasoup.nharmonics} --acc_start ${params.peasoup.acc_start} --acc_end ${params.peasoup.acc_end} --ram_limit_gb ${params.peasoup.ram_limit_gb} --dm_file ${dm_file} \${birdies_string} --start_sample ${start_sample} 
+    peasoup -i ${fil_file} --cdm ${cdm} --fft_size ${fft_size} --limit ${params.peasoup.total_cands_limit} -m ${params.peasoup.min_snr} -t ${params.peasoup.ngpus} -n ${params.peasoup.nharmonics} --acc_start ${acc[0]} --acc_end ${acc[1]} --ram_limit_gb ${params.peasoup.ram_limit_gb} --dm_file ${dm_file} \${birdies_string} --start_sample ${start_sample} 
 
     #Rename the output file
     mv **/*.xml ${beam_name}_cdm_${cdm}_${dm_file.baseName}_ck${segments}${segment_id}_overview.xml
@@ -1019,14 +1027,14 @@ process create_candyjar_tarball {
     executor 'local'
     container "${params.pulsarx_image}"
     tag "${output_tarball_name}"
-    // Publish CSVs to dedicated directory for easy access (one subfolder per UTC so pointings don't overwrite each other)
-    publishDir { "${params.basedir}/${params.runID}/TARBALL_CSV/${cluster}/${utc_start}/" }, pattern: "*_header.csv", mode: 'copy'
-    publishDir { "${params.basedir}/${params.runID}/TARBALL_CSV/${cluster}/${utc_start}/" }, pattern: "candidates.csv", mode: 'copy'
-    publishDir { "${params.basedir}/${params.runID}/TARBALL_CSV/${cluster}/${utc_start}/" }, pattern: "candidates_alpha_below_one.csv", mode: 'copy'
-    publishDir { "${params.basedir}/${params.runID}/TARBALL_CSV/${cluster}/${utc_start}/" }, pattern: "candidates_pics_above_threshold.csv", mode: 'copy'
+    // Publish CSVs to dedicated directory for easy access (one subfolder per UTC and segmentation so they don't overwrite each other)
+    publishDir { "${params.basedir}/${params.runID}/TARBALL_CSV/${cluster}/${utc_start}/segment_${segments}/" }, pattern: "*_header.csv", mode: 'copy'
+    publishDir { "${params.basedir}/${params.runID}/TARBALL_CSV/${cluster}/${utc_start}/segment_${segments}/" }, pattern: "candidates.csv", mode: 'copy'
+    publishDir { "${params.basedir}/${params.runID}/TARBALL_CSV/${cluster}/${utc_start}/segment_${segments}/" }, pattern: "candidates_alpha_below_one.csv", mode: 'copy'
+    publishDir { "${params.basedir}/${params.runID}/TARBALL_CSV/${cluster}/${utc_start}/segment_${segments}/" }, pattern: "candidates_pics_above_threshold.csv", mode: 'copy'
 
     input:
-    tuple val(cluster), val(utc_start), path(candidate_results_file), val(output_tarball_name)
+    tuple val(cluster), val(utc_start), val(segments), path(candidate_results_file), val(output_tarball_name)
 
     output:
     tuple path("*_header.csv"), path("candidates.csv"), path("candidates_alpha_below_one.csv"), path("candidates_pics_above_threshold.csv")
@@ -1042,7 +1050,7 @@ process create_candyjar_tarball {
     cat "${candidate_results_file}" >> "\$candidate_results_file_with_header"
 
     publish_dir="${params.basedir}/${params.runID}/CANDIDATE_TARBALLS/${cluster}"
-    csv_dir="${params.basedir}/${params.runID}/TARBALL_CSV/${cluster}/${utc_start}"
+    csv_dir="${params.basedir}/${params.runID}/TARBALL_CSV/${cluster}/${utc_start}/segment_${segments}"
     mkdir -p \${publish_dir}
     mkdir -p \${csv_dir}
 

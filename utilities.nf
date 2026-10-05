@@ -78,6 +78,7 @@ workflow help {
       --peasoup.segments   Segmentation list, e.g., [1,2,4] for full, half, quarter
       --peasoup.acc_start  Acceleration range start (m/s²)
       --peasoup.acc_end    Acceleration range end (m/s²)
+      peasoup.segment_acc  Per-segmentation acc range (config only), e.g., ['1': [-50,50], '2': [-100,100]]
       --peasoup.min_snr    Minimum S/N threshold
 
     Processing Options:
@@ -533,6 +534,11 @@ workflow validate_inputs {
             println "  ✓ Segments: ${params.peasoup.segments}"
         }
         println "  ✓ Acceleration range: ${params.peasoup.acc_start} to ${params.peasoup.acc_end}"
+        if (params.peasoup.segment_acc) {
+            params.peasoup.segment_acc.each { seg, range ->
+                println "  ✓ Acceleration range for segments=${seg}: ${range[0]} to ${range[1]}"
+            }
+        }
     }
 
     // Check container images exist (if using containers)

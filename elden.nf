@@ -408,23 +408,25 @@ workflow classify {
             def pointing  = row[0]
             def cluster   = row[1]
             def utc_start = row[4].toString()
-            tuple(pointing, cluster, utc_start, row.join(','))
+            def segments  = row[8].toString()
+            tuple(pointing, cluster, utc_start, segments, row.join(','))
         }
 
-    // Collect lines into one CSV per (pointing, cluster, utc_start).
+    // Collect lines into one CSV per (pointing, cluster, utc_start, segments), so each
+    // segmentation gets its own tarball.
     // collectFile drops the upstream tuple, so we track keys separately via an
     // MD5 index and re-join — no parsing of filenames needed.
     def keys = joined
-        .map { pointing, cluster, utc_start, line -> tuple(pointing, cluster, utc_start) }
+        .map { pointing, cluster, utc_start, segments, line -> tuple(pointing, cluster, utc_start, segments) }
         .unique()
-        .map { pointing, cluster, utc_start ->
-            def idx = "${pointing}_${cluster}_${utc_start}".md5()
-            tuple(idx, pointing, cluster, utc_start)
+        .map { pointing, cluster, utc_start, segments ->
+            def idx = "${pointing}_${cluster}_${utc_start}_${segments}".md5()
+            tuple(idx, pointing, cluster, utc_start, segments)
         }
 
     def csv_files = joined
-        .map { pointing, cluster, utc_start, line ->
-            def idx = "${pointing}_${cluster}_${utc_start}".md5()
+        .map { pointing, cluster, utc_start, segments, line ->
+            def idx = "${pointing}_${cluster}_${utc_start}_${segments}".md5()
             tuple(idx, line)
         }
         .collectFile { idx, line -> [ "${idx}_combined.csv", line + '\n' ] }
@@ -432,7 +434,7 @@ workflow classify {
 
     keys
         .join(csv_files)
-        .map { idx, pointing, cluster, utc_start, f -> tuple(pointing, cluster, utc_start, f) }
+        .map { idx, pointing, cluster, utc_start, segments, f -> tuple(pointing, cluster, utc_start, segments, f) }
         .set{ abg_pics_combined_csv }
 
     emit:
@@ -441,14 +443,14 @@ workflow classify {
 
 workflow candyjar_tarball {
     take:
-    abg_pics_combined_csv  // tuple(pointing, cluster, utc_start, csv_file)
+    abg_pics_combined_csv  // tuple(pointing, cluster, utc_start, segments, csv_file)
 
     main:
     if (params.alpha_beta_gamma.create_candyjar_tarball) {
-        def tar_input = abg_pics_combined_csv.map { pointing, cluster, utc_start, f ->
+        def tar_input = abg_pics_combined_csv.map { pointing, cluster, utc_start, segments, f ->
             def safe_utc = utc_start.replaceAll(':', '-')
-            def tarball_name = "${cluster}_${safe_utc}_${params.runID}.tar.gz"
-            tuple(cluster, utc_start, f, tarball_name)
+            def tarball_name = "${cluster}_${safe_utc}_seg${segments}_${params.runID}.tar.gz"
+            tuple(cluster, utc_start, segments, f, tarball_name)
         }
 
         create_candyjar_tarball(tar_input)

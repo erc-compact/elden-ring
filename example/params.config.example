@@ -147,6 +147,11 @@ params {
         min_snr             = 7.0
         acc_start           = -50
         acc_end             = 50
+        // Optional per-segmentation acceleration range, keyed by the value in `segments`.
+        // Segmentations not listed here use acc_start/acc_end above.
+        // Keys MUST be quoted: Nextflow config drops the values of integer-keyed maps.
+        // e.g. segment_acc = ['1': [-50, 50], '2': [-100, 100], '4': [-200, 200]]
+        segment_acc         = [:]
         ram_limit_gb        = 145
         nharmonics          = 4 
         ngpus               = 1
