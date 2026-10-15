@@ -295,16 +295,18 @@ workflow search {
     peasoup(peasoup_input)
         .map { p,c,bn,bi,u,ra,dec,cdm,fft_size,seg,seg_id,dm_file,fil_file,xml_path,birds,ss,ns,n_dm ->
             def fil_base = fil_file.getBaseName()
-            // Wrap the non-grouped key fields in a groupKey carrying the expected group
-            // size (n_dm). This lets groupTuple release each beam/segment as soon as its
-            // own peasoup runs finish, rather than buffering until the last peasoup task
-            // in the entire run completes.
-            tuple(groupKey(p, n_dm),c,bn,bi,u,ra,dec,cdm,fft_size,seg,seg_id,dm_file,fil_base,fil_file,xml_path,ss)
+            // Wrap the WHOLE grouping key in a groupKey carrying the expected group size
+            // (n_dm) and group on that single element. groupTuple only honours the group
+            // size when the groupKey is the entire key; with groupTuple(by: [several fields])
+            // the size is ignored and every group waits for the last peasoup task of the run.
+            def key = [p,c,bn,bi,u,ra,dec,cdm,fft_size,seg,seg_id,fil_base,ss]
+            tuple(groupKey(key, n_dm), dm_file, fil_file, xml_path)
         }
-        .groupTuple(by: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 15])
-        .map { p,c,bn,bi,u,ra,dec,cdm,fft_size,seg,seg_id,dm_file,fil_base,fil_file,xml_paths,start_sample ->
-            // Unwrap the GroupKey back to a plain String; downstream code calls String
+        .groupTuple()
+        .map { gk, dm_file, fil_file, xml_paths ->
+            // Unwrap the GroupKey back to plain values; downstream code calls String
             // methods on the pointing (e.g. replaceAll in the tarball name).
+            def (p,c,bn,bi,u,ra,dec,cdm,fft_size,seg,seg_id,fil_base,start_sample) = gk.getGroupTarget()
             p = p.toString()
             def combined = []
             def fil_file_sorted = fil_file instanceof List ? fil_file.sort() : [fil_file]
@@ -359,11 +361,14 @@ workflow fold {
     psrfold(splitcands_ch)
         // Size the group by n_cand so each beam/segment moves on to merging as soon as
         // its own folds are done, instead of waiting on every psrfold in the run.
+        // As in `search`, the groupKey must wrap the whole grouping key for the size to count.
         .map { p,c,bn,bi,u,ra,dec,cdm,fft_size,seg,seg_id,fil_base,fil,f_csv,candfile,metatext,pngs,ar,cands,n_cand ->
-            tuple(groupKey(p, n_cand),c,bn,bi,u,ra,dec,cdm,fft_size,seg,seg_id,fil_base,fil,f_csv,candfile,metatext,pngs,ar,cands)
+            def key = [p,c,bn,bi,u,ra,dec,cdm,fft_size,seg,seg_id,fil_base]
+            tuple(groupKey(key, n_cand), fil, f_csv, candfile, metatext, pngs, ar, cands)
         }
-        .groupTuple(by: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10,11])
-        .map { p,c,bn,bi,u,ra,dec,cdm,fft_size,seg,seg_id,fil_base,fil,f_csv,candfile,metatext,pngs,ar,cands ->
+        .groupTuple()
+        .map { gk, fil, f_csv, candfile, metatext, pngs, ar, cands ->
+            def (p,c,bn,bi,u,ra,dec,cdm,fft_size,seg,seg_id,fil_base) = gk.getGroupTarget()
             p = p.toString()
             def f_csv_sort = f_csv instanceof List ? f_csv.sort() : [f_csv]
             def first_f_csv = (f_csv_sort instanceof List) ? f_csv_sort[0] : f_csv_sort
