@@ -1,5 +1,12 @@
+import os
 import xml.etree.ElementTree as ET
 import argparse
+
+# Bundled default birdies list, located relative to this script (scripts/ -> include/), so the
+# Nextflow task script does not need to embed the pipeline's install path.
+BUNDLED_DEFAULT_BIRDIES = os.path.join(
+    os.path.dirname(os.path.realpath(__file__)), "..", "include", "default_birdies.txt"
+)
 
 def extract_frequencies(xml_file):
     """
@@ -61,6 +68,6 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Extract periods from an XML file, calculate frequencies, and save them in a specific format.")
     parser.add_argument('--xml_file', type=str, help='Path to the XML file.')
-    parser.add_argument('--default_birdies_file', type=str, default="None", help='Path to the default birdies file.')
+    parser.add_argument('--default_birdies_file', type=str, default=BUNDLED_DEFAULT_BIRDIES, help='Path to the default birdies file (default: the bundled include/default_birdies.txt).')
     args = parser.parse_args()
     main(args)

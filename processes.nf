@@ -200,7 +200,7 @@ process generateRfiFilter {
     #!/bin/bash
     export MPLCONFIGDIR=/tmp
     export NUMBA_CACHE_DIR=/tmp
-    python3 ${projectDir}/scripts/rfi_mitigation_modified.py ${fits_files} . --target_resolution_ms ${params.generateRfiFilter.target_resolution_ms} --num_intervals ${num_intervals}
+    python3 \${ELDEN_DIR:?ELDEN_DIR not set - see process scope in nextflow.config}/scripts/rfi_mitigation_modified.py ${fits_files} . --target_resolution_ms ${params.generateRfiFilter.target_resolution_ms} --num_intervals ${num_intervals}
 
     zap_commands=\$(grep -Eo '[0-9.]+ *- *[0-9.]+' combined_frequent_outliers.txt | \\
     awk -F '-' '{gsub(/ /,""); print "zap "\$1" "\$2}' | tr '\\n' ' ')
@@ -444,7 +444,7 @@ process split_filterbank {
     if [[ ${params.split_fil} == true ]]; then
       if [[ ${beam_id} == 1 ]]; then
         echo "Splitting band 1"
-        python ${baseDir}/scripts/cut_filterbank.py -i ${fil_file} -c ${params.split_freq} -l \${outputFile}_low.fil -u \${outputFile}_cut.fil
+        python \${ELDEN_DIR:?ELDEN_DIR not set - see process scope in nextflow.config}/scripts/cut_filterbank.py -i ${fil_file} -c ${params.split_freq} -l \${outputFile}_low.fil -u \${outputFile}_cut.fil
         cp \${outputFile}_cut.fil "\${publish_dir}/"
       else
         echo "File good. Skipping"
@@ -493,8 +493,8 @@ process merge_filterbanks {
     mkdir -p ${publishDir}
     cd ${publishDir}
     echo "Merging files for cdm = ${cdm}, group_label = ${group_label}"
-    echo "python ${baseDir}/scripts/freq_stack.py -o ${outputFile} $filelist"
-    python ${baseDir}/scripts/freq_stack.py -o ${outputFile} ${filelist}
+    echo "python \${ELDEN_DIR:?ELDEN_DIR not set - see process scope in nextflow.config}/scripts/freq_stack.py -o ${outputFile} $filelist"
+    python \${ELDEN_DIR:?ELDEN_DIR not set - see process scope in nextflow.config}/scripts/freq_stack.py -o ${outputFile} ${filelist}
 
     echo "Merged file created: ${outputFile}"
 
@@ -578,11 +578,18 @@ process birdies {
 
     input:
     tuple val(pointing), path(fil_file), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(tsamp), val(nsamples), val(segments), val(segment_id), val(fft_size), val(start_sample)
+    // "" for the bundled default birdies list, else "--default_birdies_file <path>" (built in elden.nf)
+    val birdies_opt
 
     output:
     tuple val(pointing), path(fil_file), val(cluster), val(beam_name), val(beam_id), val(utc_start), val(ra), val(dec), val(cdm), val(tsamp), val(nsamples), val(segments), val(segment_id), val(fft_size), val(start_sample), path("*birdies.txt"), path("*birdies.xml")
 
     script:
+    // Like every task script, this must not reference projectDir/baseDir or params holding install
+    // paths (see the process scope in nextflow.config): here a new install path would re-run birdies
+    // and, through its output, all of peasoup on -resume. Scripts are called via $ELDEN_DIR (bin/ is
+    // no alternative: bin scripts used by a task are hashed by path). birdies_parser.py finds the
+    // bundled default birdies list itself.
     """
     #!/bin/bash
     echo 'Running birdies'
@@ -593,7 +600,7 @@ process birdies {
 
     mv **/*.xml ${beam_name}_cdm_${cdm}_birdies.xml
 
-    python3 ${projectDir}/scripts/birdies_parser.py --default_birdies_file ${params.peasoup.default_birdies} --xml_file  *birdies.xml
+    python3 \${ELDEN_DIR:?ELDEN_DIR not set - see process scope in nextflow.config}/scripts/birdies_parser.py ${birdies_opt} --xml_file *birdies.xml
 
     mv birdies.txt ${beam_name}_cdm_${cdm}_birdies.txt
     """
@@ -805,7 +812,7 @@ process psrfold {
     script:
     """
     #!/bin/bash
-    python3 ${baseDir}/scripts/pulsarx_fold.py -meta ${metafile} -cands ${candfile}
+    python3 \${ELDEN_DIR:?ELDEN_DIR not set - see process scope in nextflow.config}/scripts/pulsarx_fold.py -meta ${metafile} -cands ${candfile}
 
     fold_cands=\$(ls -v *.ar)
 
@@ -866,7 +873,7 @@ process search_fold_merge {
     fold_cands=\$(ls -v *.ar)
     pulsarx_cands_file=\$(ls -v *.cands)
 
-    python3 ${baseDir}/scripts/fold_cands_to_csv.py -f \${fold_cands} -c \${pulsarx_cands_file} -x ${filtered_candidate_csv} -o search_fold_cands_${beam_name}_cdm_${cdm}_ck${segments}${segment_id}.csv --cands_per_node ${params.psrfold.cands_per_node} -p \${publish_dir}
+    python3 \${ELDEN_DIR:?ELDEN_DIR not set - see process scope in nextflow.config}/scripts/fold_cands_to_csv.py -f \${fold_cands} -c \${pulsarx_cands_file} -x ${filtered_candidate_csv} -o search_fold_cands_${beam_name}_cdm_${cdm}_ck${segments}${segment_id}.csv --cands_per_node ${params.psrfold.cands_per_node} -p \${publish_dir}
 
     echo "Number of candidates before candy picking:"
     cat search_fold_cands_${beam_name}_cdm_${cdm}_ck${segments}${segment_id}.csv | wc -l
@@ -998,7 +1005,7 @@ process alpha_beta_gamma_test {
     #!/bin/bash
     publish_dir="${params.basedir}/${params.runID}/${cluster}/${utc_start}/${beam_name}/segment_${segments}/${segments}${segment_id}/ABG"
     mkdir -p \${publish_dir}
-    python3 ${baseDir}/scripts/calculate_alpha_beta_gamma_dmffdot.py -i ${search_fold_cands_csv} -o ${cluster}_${beam_name}_cdm_${cdm}_ck${segments}${segment_id}_alpha_beta_gamma.csv -t ${params.alpha_beta_gamma.snr_min} -p \${publish_dir} -s ${png_source_dir} -c
+    python3 \${ELDEN_DIR:?ELDEN_DIR not set - see process scope in nextflow.config}/scripts/calculate_alpha_beta_gamma_dmffdot.py -i ${search_fold_cands_csv} -o ${cluster}_${beam_name}_cdm_${cdm}_ck${segments}${segment_id}_alpha_beta_gamma.csv -t ${params.alpha_beta_gamma.snr_min} -p \${publish_dir} -s ${png_source_dir} -c
     """
 }
 
@@ -1018,7 +1025,7 @@ process pics_classifier {
     script:
     output_csv = "${cluster}_${beam_name}_cdm_${cdm}_ck${segments}${segment_id}_scored.csv"
     """
-    python2 ${baseDir}/scripts/pics_classifier_multiple_models.py -m ${params.pics_model_dir} -o ${output_csv}
+    python2 \${ELDEN_DIR:?ELDEN_DIR not set - see process scope in nextflow.config}/scripts/pics_classifier_multiple_models.py -m ${params.pics_model_dir} -o ${output_csv}
     """
 }
 
@@ -1057,7 +1064,7 @@ process create_candyjar_tarball {
     # Run the tarball creation script
     # This creates candidates.csv, candidates_alpha_below_one.csv, and candidates_pics_above_threshold.csv
     # in the current working directory
-    python ${baseDir}/scripts/create_candyjar_tarball.py -i \$candidate_results_file_with_header -o ${output_tarball_name} --verbose --npointings 0 -m ${params.metafile_source_path} -d \${publish_dir} --threshold ${params.alpha_beta_gamma.threshold} --snr_threshold ${params.alpha_beta_gamma.snr_threshold} --telescope ${params.telescope} --run_id ${params.runID}
+    python \${ELDEN_DIR:?ELDEN_DIR not set - see process scope in nextflow.config}/scripts/create_candyjar_tarball.py -i \$candidate_results_file_with_header -o ${output_tarball_name} --verbose --npointings 0 -m ${params.metafile_source_path} -d \${publish_dir} --threshold ${params.alpha_beta_gamma.threshold} --snr_threshold ${params.alpha_beta_gamma.snr_threshold} --telescope ${params.telescope} --run_id ${params.runID}
     """
 }
 
@@ -1292,7 +1299,7 @@ process followup_prepare {
     def zero_dm   = params.followup.use_zero_dm ? "--use_zero_dm" : ""
     """
     #!/bin/bash
-    python3 ${projectDir}/scripts/followup_candfile.py --mode prepare \
+    python3 \${ELDEN_DIR:?ELDEN_DIR not set - see process scope in nextflow.config}/scripts/followup_candfile.py --mode prepare \
         --input_csv ${candidate_csv} \
         --dm_tol ${params.followup.dm_tol} \
         --dm_step ${params.followup.dm_step} \
@@ -1359,7 +1366,7 @@ process followup_match {
     #!/bin/bash
     # Match against this tier's candfile only, so a candidate is confirmed within
     # its own tier (period + DM tolerance still enforced per candidate).
-    python3 ${projectDir}/scripts/followup_candfile.py --mode match \
+    python3 \${ELDEN_DIR:?ELDEN_DIR not set - see process scope in nextflow.config}/scripts/followup_candfile.py --mode match \
         --input_candfile ${candfile} \
         --xml ${xml_file} \
         --ptol ${params.followup.ptol} \

@@ -276,7 +276,12 @@ workflow search {
     segmentation
 
     main:
-    birdies(segmentation)
+    // Decide here, not inside the process, whether a custom default-birdies file is used, so the
+    // birdies task hash never contains the pipeline's install path (see process birdies).
+    def bundled_birdies = ["${projectDir}/include/default_birdies.txt".toString(), '$ELDEN_DIR/include/default_birdies.txt']
+    def birdies_opt = (params.peasoup.default_birdies && !(params.peasoup.default_birdies.toString() in bundled_birdies)) ?
+        "--default_birdies_file ${params.peasoup.default_birdies}" : ""
+    birdies(segmentation, birdies_opt)
         .set{ bird_out }
     
     dm(bird_out)
