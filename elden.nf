@@ -605,7 +605,7 @@ workflow fold_par {
     def parfold_input = cleaned_ch.map { p, fil, c, bn, bi, u, ra, dec, dm ->
         tuple(p, fil, c, bn, bi, u, ra, dec)
     }
-    def parfold_out   = parfold(parfold_input, parfile_ch)
+    parfold(parfold_input, parfile_ch).set { parfold_out }
 
     emit:
     parfold_out
